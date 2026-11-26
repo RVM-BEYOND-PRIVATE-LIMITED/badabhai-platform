@@ -43,7 +43,7 @@ const OVERRIDES = join(__dirname, "..", "data", "question-packs", "_sheet-overri
 const PACKS_DIR = join(__dirname, "..", "data", "question-packs", "packs");
 const LEDGER = join(__dirname, "..", "data", "question-packs", "_published-versions.jsonl");
 
-/** The 15 forms Wave 1 wrote (#3008); the foundry split's three are #3009's. */
+/** The 18 forms Wave 1 wrote (#3008, 15 + foundry split #3009's three). */
 const WAVE_1_FORMS = [
   "qp_edm_wirecut",
   "qp_cnc_router",
@@ -64,6 +64,28 @@ const WAVE_1_FORMS = [
   "qp_ppc",
   "qp_purchase",
   "qp_cad_design_3d",
+];
+
+/** The 18 forms Wave 2 writes (#3016). */
+const WAVE_2_FORMS = [
+  "qp_gear_cutting",
+  "qp_boring_machine",
+  "qp_spm_finishing",
+  "qp_fabrication",
+  "qp_tube_forming",
+  "qp_surface_treatment",
+  "qp_blow_moulding",
+  "qp_plastic_extrusion",
+  "qp_rubber_moulding",
+  "qp_ndt",
+  "qp_calibration",
+  "qp_material_lab",
+  "qp_robotics",
+  "qp_instrumentation",
+  "qp_hvac_rac",
+  "qp_utility",
+  "qp_forklift",
+  "qp_crane_rigging",
 ];
 
 function compileAll(): PackRecord[] {
@@ -271,22 +293,23 @@ describe("sheet compiler", () => {
 
   it("refuses a version the ledger already publishes", () => {
     // Pinned to reality: the live thin EDM form shipped, so v1 is published; Wave 1
-    // (#3008) published its 15 compiled forms and the foundry split (#3009) its three; Wave 2 is
-    // not published yet.
+    // (#3008) published its 15 compiled forms and the foundry split (#3009) its three; Wave 2
+    // (#3016) published its 18; Wave 3 is not published yet.
     const published = loadPublishedVersions(LEDGER);
     expect(published.has("qp_edm_wirecut@1")).toBe(true);
-    expect(published.has("qp_gear_cutting@1")).toBe(false);
+    expect(published.has("qp_gear_cutting@1")).toBe(true);
+    expect(published.has("qp_service_engineer@1")).toBe(false);
 
     const packs = compileAll();
     const t17 = packs.find((p) => p.pack_id === "qp_edm_wirecut") as PackRecord;
     const t18 = packs.find((p) => p.pack_id === "qp_gear_cutting") as PackRecord;
-    // Only the loaded wave collides; a rerun of --write for it is refused.
+    // Every loaded wave collides; a rerun of --write for a loaded wave is refused.
     expect(
       publishedCollisions(packs, published)
         .map((kv) => kv.split("@")[0])
         .sort(),
-    ).toEqual([...WAVE_1_FORMS].sort());
-    expect(publishedCollisions([t18], published)).toEqual([]);
+    ).toEqual([...WAVE_1_FORMS, ...WAVE_2_FORMS].sort());
+    expect(publishedCollisions([t18], published)).toEqual(["qp_gear_cutting@1"]);
     // A v1 recompile of the live form would collide; an unpublished version would not.
     expect(
       publishedCollisions(

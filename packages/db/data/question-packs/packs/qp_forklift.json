@@ -1,0 +1,1158 @@
+{
+  "_why": "Role track for Forklift / Reach Truck Operator (T56), new trade (CEO pack v2). fam_forklift binds NCO 8344.0100, 8344.0201 and 8344.9900.",
+  "_scope": "Planning and Supply Chain shop-floor trade. The interview separates at operator; higher contact price from senior.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 8 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T56 (Forklift / Reach Truck Operator). Status: NEW",
+  "pack_id": "qp_forklift",
+  "version": 1,
+  "family_id": "fam_forklift",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T56): new trade.",
+  "items": [
+    {
+      "question_key": "forklift_experience",
+      "min_tier": "easy",
+      "prompt_text": "Forklift ya reach truck chalane ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Forklift ya reach truck chalane ka kaam kiya hai?"
+    },
+    {
+      "question_key": "forklift_level",
+      "min_tier": "easy",
+      "prompt_text": "Forklift par aap kya kaam karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Operator",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Forklift par helper, operator ya senior operator hain?"
+    },
+    {
+      "question_key": "forklift_operator_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Load ke saath forklift aap akele chalate ho ya senior ke saath?",
+      "why_text": "Akele gaadi chalane wale operator ko hi operator ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_operator_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Akele chalata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath seekh raha hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "forklift_level"
+        },
+        "right": {
+          "const": [
+            "operator"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "forklift_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye operator ko chalana aap sikhate ho?",
+      "why_text": "Doosron ko sikhane wale senior operator ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main sikhata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, koi aur sikhata hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "forklift_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "forklift_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne operator aur kitni forklift aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "forklift_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "forklift_equipment",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi gaadi chalate hain?",
+      "why_text": "Gaadi ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "counterbalance",
+          "label_text": "Forklift (counterbalance)",
+          "value_text": "counterbalance"
+        },
+        {
+          "option_key": "reach_truck",
+          "label_text": "Reach truck",
+          "value_text": "reach_truck"
+        },
+        {
+          "option_key": "stacker",
+          "label_text": "Stacker",
+          "value_text": "stacker"
+        },
+        {
+          "option_key": "bopt",
+          "label_text": "BOPT / battery pallet truck",
+          "value_text": "bopt"
+        },
+        {
+          "option_key": "order_picker",
+          "label_text": "Order picker",
+          "value_text": "order_picker"
+        },
+        {
+          "option_key": "tow_truck",
+          "label_text": "Tow truck / tugger",
+          "value_text": "tow_truck"
+        },
+        {
+          "option_key": "hydra_crane",
+          "label_text": "Hydra crane",
+          "value_text": "hydra_crane"
+        },
+        {
+          "option_key": "telehandler",
+          "label_text": "Telehandler",
+          "value_text": "telehandler"
+        },
+        {
+          "option_key": "hand_pallet",
+          "label_text": "Sirf hand pallet truck",
+          "value_text": "hand_pallet"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_licence",
+      "min_tier": "medium",
+      "prompt_text": "Aapke paas kaunsa driving licence hai?",
+      "why_text": "Zyada company licence dekhkar hi forklift deti hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_licence",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "lmv",
+          "label_text": "LMV licence",
+          "value_text": "lmv"
+        },
+        {
+          "option_key": "hmv",
+          "label_text": "HMV / heavy licence",
+          "value_text": "hmv"
+        },
+        {
+          "option_key": "forklift_endorsement",
+          "label_text": "Licence par forklift ya crane bhi chadha hai",
+          "value_text": "forklift_endorsement"
+        },
+        {
+          "option_key": "learner",
+          "label_text": "Abhi learner licence hai",
+          "value_text": "learner"
+        },
+        {
+          "option_key": "none",
+          "label_text": "Licence nahi hai",
+          "value_text": "none"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_power_type",
+      "min_tier": "medium",
+      "prompt_text": "Forklift diesel ki chalayi hai, battery ki ya LPG ki?",
+      "why_text": "Battery aur diesel gaadi ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_power_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diesel",
+          "label_text": "Diesel",
+          "value_text": "diesel"
+        },
+        {
+          "option_key": "electric",
+          "label_text": "Battery / electric",
+          "value_text": "electric"
+        },
+        {
+          "option_key": "lpg",
+          "label_text": "LPG ya CNG",
+          "value_text": "lpg"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_capacity",
+      "min_tier": "medium",
+      "prompt_text": "Sabse bhaari kitne ton ki forklift chalayi hai?",
+      "why_text": "Bhaari gaadi chalane wale operator kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_capacity",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_three_ton",
+          "label_text": "3 ton tak",
+          "value_text": "upto_three_ton"
+        },
+        {
+          "option_key": "three_to_five_ton",
+          "label_text": "3 se 5 ton",
+          "value_text": "three_to_five_ton"
+        },
+        {
+          "option_key": "five_to_ten_ton",
+          "label_text": "5 se 10 ton",
+          "value_text": "five_to_ten_ton"
+        },
+        {
+          "option_key": "above_ten_ton",
+          "label_text": "10 ton se zyada",
+          "value_text": "above_ten_ton"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_make",
+      "min_tier": "hard",
+      "prompt_text": "Kis company ki gaadi chalayi hai?",
+      "why_text": "Usi company ki gaadi wale employer aapko pehle dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "godrej",
+          "label_text": "Godrej",
+          "value_text": "godrej"
+        },
+        {
+          "option_key": "voltas",
+          "label_text": "Voltas",
+          "value_text": "voltas"
+        },
+        {
+          "option_key": "toyota",
+          "label_text": "Toyota",
+          "value_text": "toyota"
+        },
+        {
+          "option_key": "kion",
+          "label_text": "KION / OM / Linde",
+          "value_text": "kion"
+        },
+        {
+          "option_key": "jungheinrich",
+          "label_text": "Jungheinrich",
+          "value_text": "jungheinrich"
+        },
+        {
+          "option_key": "hyster",
+          "label_text": "Hyster / Yale",
+          "value_text": "hyster"
+        },
+        {
+          "option_key": "ace",
+          "label_text": "ACE",
+          "value_text": "ace"
+        },
+        {
+          "option_key": "nilkamal",
+          "label_text": "Nilkamal",
+          "value_text": "nilkamal"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur company",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_training_certificate",
+      "min_tier": "hard",
+      "prompt_text": "Forklift ki training ka certificate hai?",
+      "why_text": "Certificate wale operator ko badi company jaldi leti hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_training_certificate",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "inhouse",
+          "label_text": "Haan, company ke andar ki training ka",
+          "value_text": "inhouse"
+        },
+        {
+          "option_key": "external_institute",
+          "label_text": "Haan, bahar ke institute ya gaadi company ka",
+          "value_text": "external_institute"
+        },
+        {
+          "option_key": "skill_council",
+          "label_text": "Haan, Skill India / NSDC ka",
+          "value_text": "skill_council"
+        },
+        {
+          "option_key": "none",
+          "label_text": "Certificate nahi hai",
+          "value_text": "none"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_work_area",
+      "min_tier": "hard",
+      "prompt_text": "Forklift kahaan chalayi hai?",
+      "why_text": "Warehouse aur factory ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_work_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "warehouse",
+          "label_text": "Warehouse / godown",
+          "value_text": "warehouse"
+        },
+        {
+          "option_key": "shop_floor",
+          "label_text": "Factory shop floor",
+          "value_text": "shop_floor"
+        },
+        {
+          "option_key": "yard",
+          "label_text": "Store ya dispatch yard",
+          "value_text": "yard"
+        },
+        {
+          "option_key": "cold_storage",
+          "label_text": "Cold storage",
+          "value_text": "cold_storage"
+        },
+        {
+          "option_key": "port_container_yard",
+          "label_text": "Port ya container yard (CFS / ICD)",
+          "value_text": "port_container_yard"
+        },
+        {
+          "option_key": "project_site",
+          "label_text": "Construction ya project site",
+          "value_text": "project_site"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_work_done",
+      "min_tier": "hard",
+      "prompt_text": "Forklift se roz kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_work_done",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "truck_loading",
+          "label_text": "Truck loading unloading",
+          "value_text": "truck_loading"
+        },
+        {
+          "option_key": "container_stuffing",
+          "label_text": "Container stuffing / destuffing",
+          "value_text": "container_stuffing"
+        },
+        {
+          "option_key": "rack_putaway",
+          "label_text": "Rack me pallet lagana nikalna",
+          "value_text": "rack_putaway"
+        },
+        {
+          "option_key": "line_feeding",
+          "label_text": "Line par material dena",
+          "value_text": "line_feeding"
+        },
+        {
+          "option_key": "shifting",
+          "label_text": "Dock se store tak shifting",
+          "value_text": "shifting"
+        },
+        {
+          "option_key": "scrap_handling",
+          "label_text": "Scrap bin khaali karna",
+          "value_text": "scrap_handling"
+        },
+        {
+          "option_key": "battery_charging",
+          "label_text": "Battery charging par lagana ya badalna",
+          "value_text": "battery_charging"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_load_type",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ka maal uthate hain?",
+      "why_text": "Bhaari aur nazuk maal sambhalne wale ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_load_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pallet_load",
+          "label_text": "Pallet par carton ya bag",
+          "value_text": "pallet_load"
+        },
+        {
+          "option_key": "bins_crates",
+          "label_text": "Bin, trolley ya crate",
+          "value_text": "bins_crates"
+        },
+        {
+          "option_key": "coil_sheet",
+          "label_text": "Steel coil ya sheet bundle",
+          "value_text": "coil_sheet"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die ya mould",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "drums",
+          "label_text": "Drum ya barrel",
+          "value_text": "drums"
+        },
+        {
+          "option_key": "reels",
+          "label_text": "Paper reel ya roll",
+          "value_text": "reels"
+        },
+        {
+          "option_key": "long_load",
+          "label_text": "Lamba maal (pipe, bar)",
+          "value_text": "long_load"
+        },
+        {
+          "option_key": "heavy_machinery",
+          "label_text": "Machine ya bhaari casting",
+          "value_text": "heavy_machinery"
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_daily_check",
+      "min_tier": "hard",
+      "prompt_text": "Shift shuru me gaadi ki kaunsi checking karte hain?",
+      "why_text": "Roz checking karne wala operator gaadi aur logon ko surakshit rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_daily_check",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "brake_horn_light",
+          "label_text": "Brake, horn aur light",
+          "value_text": "brake_horn_light"
+        },
+        {
+          "option_key": "tyre",
+          "label_text": "Tyre",
+          "value_text": "tyre"
+        },
+        {
+          "option_key": "hydraulic_chain",
+          "label_text": "Hydraulic oil leak aur chain",
+          "value_text": "hydraulic_chain"
+        },
+        {
+          "option_key": "fork_mast",
+          "label_text": "Fork aur mast",
+          "value_text": "fork_mast"
+        },
+        {
+          "option_key": "battery_level",
+          "label_text": "Battery ka pani aur charge",
+          "value_text": "battery_level"
+        },
+        {
+          "option_key": "engine_fluids",
+          "label_text": "Diesel, engine oil aur coolant",
+          "value_text": "engine_fluids"
+        },
+        {
+          "option_key": "checklist_fill",
+          "label_text": "Daily checklist bharna",
+          "value_text": "checklist_fill"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Checking koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "forklift_rack_height",
+      "min_tier": "hard",
+      "prompt_text": "Kitni oonchi rack tak pallet lagaya hai?",
+      "why_text": "Oonchi rack par kaam karne wale operator kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "forklift_rack_height",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_three_metre",
+          "label_text": "3 metre tak",
+          "value_text": "upto_three_metre"
+        },
+        {
+          "option_key": "three_to_six_metre",
+          "label_text": "3 se 6 metre",
+          "value_text": "three_to_six_metre"
+        },
+        {
+          "option_key": "six_to_nine_metre",
+          "label_text": "6 se 9 metre",
+          "value_text": "six_to_nine_metre"
+        },
+        {
+          "option_key": "above_nine_metre",
+          "label_text": "9 metre se zyada",
+          "value_text": "above_nine_metre"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Rack ka kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forklift_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forklift_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "forklift_attachment",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa attachment lagakar kaam kiya hai?",
+      "why_text": "Attachment chalana jaanne wale ko khaas kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_attachment",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "side_shifter",
+          "label_text": "Side shifter",
+          "value_text": "side_shifter"
+        },
+        {
+          "option_key": "fork_positioner",
+          "label_text": "Fork positioner",
+          "value_text": "fork_positioner"
+        },
+        {
+          "option_key": "roll_clamp",
+          "label_text": "Paper roll clamp",
+          "value_text": "roll_clamp"
+        },
+        {
+          "option_key": "bale_clamp",
+          "label_text": "Bale ya carton clamp",
+          "value_text": "bale_clamp"
+        },
+        {
+          "option_key": "drum_handler",
+          "label_text": "Drum handler",
+          "value_text": "drum_handler"
+        },
+        {
+          "option_key": "rotator",
+          "label_text": "Rotator",
+          "value_text": "rotator"
+        },
+        {
+          "option_key": "coil_ram",
+          "label_text": "Coil ram ya boom",
+          "value_text": "coil_ram"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Sirf seedhe fork",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forklift_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forklift_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ki company me forklift chalayi hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG, food ya beverage",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "logistics_warehouse",
+          "label_text": "Warehouse / 3PL / e-commerce",
+          "value_text": "logistics_warehouse"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant ya steel service centre",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "paper_packaging",
+          "label_text": "Paper ya packaging",
+          "value_text": "paper_packaging"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forklift_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forklift_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Gaadi ki kaunsi dikkat aap khud pakad lete hain?",
+      "why_text": "Dikkat pehle pakadne wala operator breakdown se bachata hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hydraulic_leak",
+          "label_text": "Hydraulic oil leak",
+          "value_text": "hydraulic_leak"
+        },
+        {
+          "option_key": "mast_chain",
+          "label_text": "Chain dheeli ya mast atakna",
+          "value_text": "mast_chain"
+        },
+        {
+          "option_key": "brake_issue",
+          "label_text": "Brake kamzor lagna",
+          "value_text": "brake_issue"
+        },
+        {
+          "option_key": "battery_drain",
+          "label_text": "Battery jaldi utarna",
+          "value_text": "battery_drain"
+        },
+        {
+          "option_key": "tyre_damage",
+          "label_text": "Tyre kharab hona",
+          "value_text": "tyre_damage"
+        },
+        {
+          "option_key": "starting_problem",
+          "label_text": "Gaadi start na hona",
+          "value_text": "starting_problem"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Maintenance ko bata deta hoon",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forklift_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forklift_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "forklift_safety_work",
+      "min_tier": "hard",
+      "prompt_text": "Safety aur team ka kaunsa kaam aap sambhalte hain?",
+      "why_text": "Safety aur team sambhalne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "forklift_safety_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "operator_training",
+          "label_text": "Naye operator ko training",
+          "value_text": "operator_training"
+        },
+        {
+          "option_key": "toolbox_talk",
+          "label_text": "Toolbox talk",
+          "value_text": "toolbox_talk"
+        },
+        {
+          "option_key": "load_chart",
+          "label_text": "Load chart se load check karna",
+          "value_text": "load_chart"
+        },
+        {
+          "option_key": "traffic_rules",
+          "label_text": "Speed limit aur paidal raasta dekhna",
+          "value_text": "traffic_rules"
+        },
+        {
+          "option_key": "incident_report",
+          "label_text": "Near-miss ya accident ki report",
+          "value_text": "incident_report"
+        },
+        {
+          "option_key": "service_schedule",
+          "label_text": "Gaadi ki service schedule",
+          "value_text": "service_schedule"
+        },
+        {
+          "option_key": "shift_deployment",
+          "label_text": "Shift me operator lagana",
+          "value_text": "shift_deployment"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forklift_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forklift_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunsi gaadi chalayi hai?",
+      "why_text": "Training me chalayi hui gaadi bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "forklift",
+          "label_text": "Forklift",
+          "value_text": "forklift"
+        },
+        {
+          "option_key": "stacker",
+          "label_text": "Stacker",
+          "value_text": "stacker"
+        },
+        {
+          "option_key": "hand_pallet",
+          "label_text": "Hand pallet truck",
+          "value_text": "hand_pallet"
+        },
+        {
+          "option_key": "lmv_vehicle",
+          "label_text": "Car ya jeep",
+          "value_text": "lmv_vehicle"
+        },
+        {
+          "option_key": "truck_tractor",
+          "label_text": "Truck ya tractor",
+          "value_text": "truck_tractor"
+        },
+        {
+          "option_key": "observed_only",
+          "label_text": "Sirf dekha hai, chalayi nahi",
+          "value_text": "observed_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "forklift_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "forklift_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "forklift_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

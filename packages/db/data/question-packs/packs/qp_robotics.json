@@ -1,0 +1,1294 @@
+{
+  "_why": "Role track for Robot Operator / Programmer (T39), new trade (CEO pack v2). fam_robotics binds NCO 3139.1400 and 3139.9900.",
+  "_scope": "Maintenance and Automation shop-floor trade. The interview separates at programmer; higher contact price from programmer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T39 (Robot Operator / Programmer). Status: NEW",
+  "pack_id": "qp_robotics",
+  "version": 1,
+  "family_id": "fam_robotics",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T39): new trade.",
+  "items": [
+    {
+      "question_key": "robot_experience",
+      "min_tier": "easy",
+      "prompt_text": "Robot par kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "robot_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Robot par kaam kiya hai?"
+    },
+    {
+      "question_key": "robot_level",
+      "min_tier": "easy",
+      "prompt_text": "Robot par aap kya kaam karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "robot_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator, cell chalata hoon",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "programmer",
+          "label_text": "Programmer, teaching karta hoon",
+          "value_text": "programmer"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Programmer",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Robot par helper, operator ya programmer hain?"
+    },
+    {
+      "question_key": "robot_programmer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye part ka program aap khud teach karke banate ho?",
+      "why_text": "Zero se teaching karne wale programmer ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_programmer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, zero se khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Sirf point touch-up karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "robot_level"
+        },
+        "right": {
+          "const": [
+            "programmer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "robot_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye robot cell me mastering, TCP aur PLC interlock aap khud set karte ho?",
+      "why_text": "Naya cell khud chalu karne wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Integrator ya senior karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "robot_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "robot_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne robot, kitne cell aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "robot_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "robot_brand",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse brand ke robot par kaam kiya hai?",
+      "why_text": "Robot ke brand ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fanuc",
+          "label_text": "Fanuc",
+          "value_text": "fanuc"
+        },
+        {
+          "option_key": "yaskawa",
+          "label_text": "Yaskawa / Motoman",
+          "value_text": "yaskawa"
+        },
+        {
+          "option_key": "abb",
+          "label_text": "ABB",
+          "value_text": "abb"
+        },
+        {
+          "option_key": "kuka",
+          "label_text": "KUKA",
+          "value_text": "kuka"
+        },
+        {
+          "option_key": "kawasaki",
+          "label_text": "Kawasaki",
+          "value_text": "kawasaki"
+        },
+        {
+          "option_key": "nachi",
+          "label_text": "Nachi",
+          "value_text": "nachi"
+        },
+        {
+          "option_key": "panasonic",
+          "label_text": "Panasonic",
+          "value_text": "panasonic"
+        },
+        {
+          "option_key": "universal_robots",
+          "label_text": "Universal Robots, cobot",
+          "value_text": "universal_robots"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur robot",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "robot_application",
+      "min_tier": "medium",
+      "prompt_text": "Aapke robot se kaunsa kaam hota hai?",
+      "why_text": "Robot ka kaam dekh kar usi line ki company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_application",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "arc_welding",
+          "label_text": "MIG / arc welding",
+          "value_text": "arc_welding"
+        },
+        {
+          "option_key": "spot_welding",
+          "label_text": "Spot welding",
+          "value_text": "spot_welding"
+        },
+        {
+          "option_key": "material_handling",
+          "label_text": "Material handling, pick and place",
+          "value_text": "material_handling"
+        },
+        {
+          "option_key": "machine_tending",
+          "label_text": "Machine tending, CNC ya die casting loading",
+          "value_text": "machine_tending"
+        },
+        {
+          "option_key": "palletising",
+          "label_text": "Palletising",
+          "value_text": "palletising"
+        },
+        {
+          "option_key": "painting",
+          "label_text": "Painting",
+          "value_text": "painting"
+        },
+        {
+          "option_key": "sealing",
+          "label_text": "Sealant ya glue lagana",
+          "value_text": "sealing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur kaam",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "robot_program_work",
+      "min_tier": "medium",
+      "prompt_text": "Robot ke program ke saath aap kitna kaam karte hain?",
+      "why_text": "Program banane wale ko operator se zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_program_work",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "run_only",
+          "label_text": "Sirf program chalata hoon",
+          "value_text": "run_only"
+        },
+        {
+          "option_key": "touch_up",
+          "label_text": "Point touch-up kar leta hoon",
+          "value_text": "touch_up"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Program edit aur copy kar leta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "teach_new",
+          "label_text": "Naya program teach karke banata hoon",
+          "value_text": "teach_new"
+        },
+        {
+          "option_key": "offline_program",
+          "label_text": "Offline software se bhi banata hoon",
+          "value_text": "offline_program"
+        }
+      ]
+    },
+    {
+      "question_key": "robot_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Robot cell me aap roz kya kya karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "robot_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "load_cycle_start",
+          "label_text": "Part loading aur cycle start",
+          "value_text": "load_cycle_start"
+        },
+        {
+          "option_key": "program_select",
+          "label_text": "Program select karna",
+          "value_text": "program_select"
+        },
+        {
+          "option_key": "alarm_reset",
+          "label_text": "Alarm reset aur home position",
+          "value_text": "alarm_reset"
+        },
+        {
+          "option_key": "torch_tip_change",
+          "label_text": "Torch cleaning, tip aur nozzle badalna",
+          "value_text": "torch_tip_change"
+        },
+        {
+          "option_key": "tip_dressing",
+          "label_text": "Spot gun ki tip dressing ya tip change",
+          "value_text": "tip_dressing"
+        },
+        {
+          "option_key": "weld_check",
+          "label_text": "Weld check karna",
+          "value_text": "weld_check"
+        },
+        {
+          "option_key": "jig_clamping",
+          "label_text": "Jig aur fixture ki clamping dekhna",
+          "value_text": "jig_clamping"
+        },
+        {
+          "option_key": "daily_check_sheet",
+          "label_text": "Daily check sheet bharna",
+          "value_text": "daily_check_sheet"
+        }
+      ]
+    },
+    {
+      "question_key": "robot_cell_equipment",
+      "min_tier": "hard",
+      "prompt_text": "Robot ke saath cell me kya kya laga hai?",
+      "why_text": "Cell ka saamaan jaanne wale ko naye cell par jaldi rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_cell_equipment",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "positioner",
+          "label_text": "Positioner ya turn table",
+          "value_text": "positioner"
+        },
+        {
+          "option_key": "track_axis",
+          "label_text": "Robot track, 7th axis",
+          "value_text": "track_axis"
+        },
+        {
+          "option_key": "servo_gun",
+          "label_text": "Servo spot gun",
+          "value_text": "servo_gun"
+        },
+        {
+          "option_key": "torch_cleaner",
+          "label_text": "Torch cleaner aur wire cutter",
+          "value_text": "torch_cleaner"
+        },
+        {
+          "option_key": "gripper",
+          "label_text": "Pneumatic ya vacuum gripper",
+          "value_text": "gripper"
+        },
+        {
+          "option_key": "safety_devices",
+          "label_text": "Light curtain aur safety door",
+          "value_text": "safety_devices"
+        },
+        {
+          "option_key": "vision_camera",
+          "label_text": "Vision camera",
+          "value_text": "vision_camera"
+        },
+        {
+          "option_key": "tool_changer",
+          "label_text": "Tool changer",
+          "value_text": "tool_changer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "robot_part_type",
+      "min_tier": "hard",
+      "prompt_text": "Robot par kaunse part ya job bante hain?",
+      "why_text": "Part ka tajurba usi part ki company dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_part_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "biw",
+          "label_text": "BIW, car body panel",
+          "value_text": "biw"
+        },
+        {
+          "option_key": "two_wheeler_frame",
+          "label_text": "Two-wheeler frame ya chassis",
+          "value_text": "two_wheeler_frame"
+        },
+        {
+          "option_key": "seat_frame",
+          "label_text": "Seat frame",
+          "value_text": "seat_frame"
+        },
+        {
+          "option_key": "exhaust",
+          "label_text": "Exhaust ya silencer",
+          "value_text": "exhaust"
+        },
+        {
+          "option_key": "chassis_parts",
+          "label_text": "Axle aur suspension parts",
+          "value_text": "chassis_parts"
+        },
+        {
+          "option_key": "sheet_metal_parts",
+          "label_text": "Sheet metal bracket aur child parts",
+          "value_text": "sheet_metal_parts"
+        },
+        {
+          "option_key": "casting_handling",
+          "label_text": "Casting ya machined part handling",
+          "value_text": "casting_handling"
+        },
+        {
+          "option_key": "carton_bag",
+          "label_text": "Carton ya bag palletising",
+          "value_text": "carton_bag"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap part ki drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing aur weld symbol padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "robot_teaching_work",
+      "min_tier": "hard",
+      "prompt_text": "Teaching me aap kya kya khud karte hain?",
+      "why_text": "Teaching ka kaam jaanne wale ko programmer banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_teaching_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "motion_points",
+          "label_text": "Joint, linear aur circular point teach karna",
+          "value_text": "motion_points"
+        },
+        {
+          "option_key": "tcp_setting",
+          "label_text": "TCP / tool frame set karna",
+          "value_text": "tcp_setting"
+        },
+        {
+          "option_key": "user_frame",
+          "label_text": "User frame ya work object set karna",
+          "value_text": "user_frame"
+        },
+        {
+          "option_key": "weld_instructions",
+          "label_text": "Weld start-end aur weaving lagana",
+          "value_text": "weld_instructions"
+        },
+        {
+          "option_key": "cycle_time",
+          "label_text": "Cycle time kam karna",
+          "value_text": "cycle_time"
+        },
+        {
+          "option_key": "program_shift",
+          "label_text": "Program shift ya mirror karna",
+          "value_text": "program_shift"
+        },
+        {
+          "option_key": "io_signals",
+          "label_text": "I/O aur interlock signal lagana",
+          "value_text": "io_signals"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "robot_weld_parameters",
+      "min_tier": "hard",
+      "prompt_text": "Robot welding ke kaunse parameter aap khud set karte hain?",
+      "why_text": "Parameter set karne wale ko weld shop me zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_weld_parameters",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "current_voltage",
+          "label_text": "Current aur voltage",
+          "value_text": "current_voltage"
+        },
+        {
+          "option_key": "wire_feed",
+          "label_text": "Wire feed speed",
+          "value_text": "wire_feed"
+        },
+        {
+          "option_key": "travel_speed",
+          "label_text": "Welding speed",
+          "value_text": "travel_speed"
+        },
+        {
+          "option_key": "weaving",
+          "label_text": "Weaving",
+          "value_text": "weaving"
+        },
+        {
+          "option_key": "spot_schedule",
+          "label_text": "Spot weld schedule, current, time aur force",
+          "value_text": "spot_schedule"
+        },
+        {
+          "option_key": "gas_flow",
+          "label_text": "Gas flow",
+          "value_text": "gas_flow"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Welding robot par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "robot_offline_software",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa offline ya simulation software chalaya hai?",
+      "why_text": "Offline programming jaanne wale kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "robot_offline_software",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "roboguide",
+          "label_text": "Fanuc RoboGuide",
+          "value_text": "roboguide"
+        },
+        {
+          "option_key": "robotstudio",
+          "label_text": "ABB RobotStudio",
+          "value_text": "robotstudio"
+        },
+        {
+          "option_key": "motosim",
+          "label_text": "Yaskawa MotoSim",
+          "value_text": "motosim"
+        },
+        {
+          "option_key": "kuka_sim",
+          "label_text": "KUKA.Sim",
+          "value_text": "kuka_sim"
+        },
+        {
+          "option_key": "delmia",
+          "label_text": "Delmia",
+          "value_text": "delmia"
+        },
+        {
+          "option_key": "process_simulate",
+          "label_text": "Process Simulate / Tecnomatix",
+          "value_text": "process_simulate"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke plant me robot par kaam kiya hai?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Car plant ya uske vendor",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Tractor ya construction equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG ya packaging line",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "foundry",
+          "label_text": "Die casting ya foundry",
+          "value_text": "foundry"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, fabrication",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "system_integrator",
+          "label_text": "Robot integrator company",
+          "value_text": "system_integrator"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "robot_plc_interface",
+      "min_tier": "hard",
+      "prompt_text": "Robot aur PLC ke beech ka kaunsa kaam aap karte hain?",
+      "why_text": "PLC ke saath robot jodne wale ko senior ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "robot_plc_interface",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "io_check",
+          "label_text": "Robot I/O signal check karna",
+          "value_text": "io_check"
+        },
+        {
+          "option_key": "handshake_signals",
+          "label_text": "Interlock aur handshake signal banana",
+          "value_text": "handshake_signals"
+        },
+        {
+          "option_key": "fieldbus_setup",
+          "label_text": "Profinet, EtherNet/IP ya DeviceNet set karna",
+          "value_text": "fieldbus_setup"
+        },
+        {
+          "option_key": "plc_programming",
+          "label_text": "PLC ladder program bhi khud banata hoon",
+          "value_text": "plc_programming"
+        },
+        {
+          "option_key": "safety_config",
+          "label_text": "Robot safety setting, DCS ya SafeMove",
+          "value_text": "safety_config"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Robot ki kaunsi dikkat aap khud sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale ki line par sabse zyada zaroorat hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "collision_recovery",
+          "label_text": "Collision ya servo alarm ke baad recover karna",
+          "value_text": "collision_recovery"
+        },
+        {
+          "option_key": "mastering",
+          "label_text": "Mastering dobara karna",
+          "value_text": "mastering"
+        },
+        {
+          "option_key": "position_shift",
+          "label_text": "Job hilne par point shift theek karna",
+          "value_text": "position_shift"
+        },
+        {
+          "option_key": "wire_feed_fault",
+          "label_text": "Wire feeding ya torch ki dikkat",
+          "value_text": "wire_feed_fault"
+        },
+        {
+          "option_key": "weld_defect",
+          "label_text": "Weld defect, spatter ya burn through",
+          "value_text": "weld_defect"
+        },
+        {
+          "option_key": "cable_dresspack",
+          "label_text": "Cable ya dress pack kharab",
+          "value_text": "cable_dresspack"
+        },
+        {
+          "option_key": "pendant_comm_fault",
+          "label_text": "Pendant ya communication fault",
+          "value_text": "pendant_comm_fault"
+        },
+        {
+          "option_key": "backup_restore",
+          "label_text": "Program backup aur restore",
+          "value_text": "backup_restore"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "robot_maintenance",
+      "min_tier": "hard",
+      "prompt_text": "Robot ki maintenance ka kaunsa kaam aap karte hain?",
+      "why_text": "Maintenance jaanne wale programmer ko plant jaldi rakhte hain.",
+      "target_kind": "attribute",
+      "target_field": "robot_maintenance",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "greasing",
+          "label_text": "Reducer aur axis ki greasing",
+          "value_text": "greasing"
+        },
+        {
+          "option_key": "battery_change",
+          "label_text": "Encoder battery badalna",
+          "value_text": "battery_change"
+        },
+        {
+          "option_key": "controller_cleaning",
+          "label_text": "Controller fan, filter aur cable check",
+          "value_text": "controller_cleaning"
+        },
+        {
+          "option_key": "motor_reducer_change",
+          "label_text": "Motor ya reducer badalna",
+          "value_text": "motor_reducer_change"
+        },
+        {
+          "option_key": "gun_torch_overhaul",
+          "label_text": "Spot gun ya torch overhaul",
+          "value_text": "gun_torch_overhaul"
+        },
+        {
+          "option_key": "pm_schedule",
+          "label_text": "PM schedule banana",
+          "value_text": "pm_schedule"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Weld ya part ki quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "teardown_test",
+          "label_text": "Spot weld ka chisel ya teardown test",
+          "value_text": "teardown_test"
+        },
+        {
+          "option_key": "cut_section",
+          "label_text": "Weld ka cut-section, penetration check",
+          "value_text": "cut_section"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "robot_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "robot_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunse robot ya machine par haath se kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "robot_trainer",
+          "label_text": "Robot teach pendant, training cell",
+          "value_text": "robot_trainer"
+        },
+        {
+          "option_key": "simulation_software",
+          "label_text": "RoboGuide ya RobotStudio simulation",
+          "value_text": "simulation_software"
+        },
+        {
+          "option_key": "mig_welding",
+          "label_text": "MIG welding machine",
+          "value_text": "mig_welding"
+        },
+        {
+          "option_key": "spot_welding",
+          "label_text": "Spot welding machine",
+          "value_text": "spot_welding"
+        },
+        {
+          "option_key": "plc_trainer_kit",
+          "label_text": "PLC trainer kit",
+          "value_text": "plc_trainer_kit"
+        },
+        {
+          "option_key": "pneumatic_kit",
+          "label_text": "Pneumatic trainer kit",
+          "value_text": "pneumatic_kit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "robot_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "robot_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "robot_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

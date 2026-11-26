@@ -1,0 +1,1208 @@
+{
+  "_why": "Role track for Plating / Surface Treatment Operator (T28), new trade (CEO pack v2). fam_surface_treatment binds the 7213, 7224 and 8122 plating codes.",
+  "_scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T28 (Plating / Surface Treatment Operator). Status: NEW",
+  "pack_id": "qp_surface_treatment",
+  "version": 1,
+  "family_id": "fam_surface_treatment",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T28): new trade.",
+  "items": [
+    {
+      "question_key": "plating_experience",
+      "min_tier": "easy",
+      "prompt_text": "Plating ya surface treatment ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "plating_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Plating ya surface treatment ka kaam kiya hai?"
+    },
+    {
+      "question_key": "plating_level",
+      "min_tier": "easy",
+      "prompt_text": "Plating shop me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "plating_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled Plater",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Plater",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift in-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Plating shop me helper, operator ya skilled hain?"
+    },
+    {
+      "question_key": "plating_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Current aur time khud set karke plating aap akele nikaalte ho?",
+      "why_text": "Akele plating nikaalne wale plater ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud set karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior set karke deta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "plating_level"
+        },
+        "right": {
+          "const": [
+            "skilled"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "plating_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Bath ka titration aur chemical addition aap khud karte ho?",
+      "why_text": "Bath khud sambhalne wale senior plater ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Chemist ya supervisor karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "plating_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "plating_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kaunsi line aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "plating_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "plating_process",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi plating ya coating karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "zinc",
+          "label_text": "Zinc plating",
+          "value_text": "zinc"
+        },
+        {
+          "option_key": "nickel_chrome",
+          "label_text": "Nickel-chrome",
+          "value_text": "nickel_chrome"
+        },
+        {
+          "option_key": "hard_chrome",
+          "label_text": "Hard chrome",
+          "value_text": "hard_chrome"
+        },
+        {
+          "option_key": "anodising",
+          "label_text": "Anodising",
+          "value_text": "anodising"
+        },
+        {
+          "option_key": "phosphating",
+          "label_text": "Phosphating",
+          "value_text": "phosphating"
+        },
+        {
+          "option_key": "blackening",
+          "label_text": "Blackening",
+          "value_text": "blackening"
+        },
+        {
+          "option_key": "electroless_nickel",
+          "label_text": "Electroless nickel",
+          "value_text": "electroless_nickel"
+        },
+        {
+          "option_key": "ced",
+          "label_text": "CED / e-coat",
+          "value_text": "ced"
+        },
+        {
+          "option_key": "hot_dip_galvanising",
+          "label_text": "Hot-dip galvanising",
+          "value_text": "hot_dip_galvanising"
+        }
+      ]
+    },
+    {
+      "question_key": "plating_line_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis tarah ki line par kaam karte hain?",
+      "why_text": "Line ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_line_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "barrel",
+          "label_text": "Barrel plating",
+          "value_text": "barrel"
+        },
+        {
+          "option_key": "rack",
+          "label_text": "Rack ya jig plating (vat)",
+          "value_text": "rack"
+        },
+        {
+          "option_key": "manual_line",
+          "label_text": "Manual line, haath se dipping",
+          "value_text": "manual_line"
+        },
+        {
+          "option_key": "auto_line",
+          "label_text": "Automatic PLC transporter line",
+          "value_text": "auto_line"
+        },
+        {
+          "option_key": "kettle",
+          "label_text": "Galvanising kettle",
+          "value_text": "kettle"
+        },
+        {
+          "option_key": "ced_line",
+          "label_text": "CED dip line",
+          "value_text": "ced_line"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plating_other_finish",
+      "min_tier": "medium",
+      "prompt_text": "Inme se aur kaunsa finish aapne kiya hai?",
+      "why_text": "Zyada finish jaanne wale plater ko zyada jagah kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_other_finish",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "copper",
+          "label_text": "Copper plating",
+          "value_text": "copper"
+        },
+        {
+          "option_key": "tin",
+          "label_text": "Tin plating",
+          "value_text": "tin"
+        },
+        {
+          "option_key": "silver_gold",
+          "label_text": "Silver ya gold plating",
+          "value_text": "silver_gold"
+        },
+        {
+          "option_key": "zinc_alloy",
+          "label_text": "Zinc-nickel ya zinc-iron",
+          "value_text": "zinc_alloy"
+        },
+        {
+          "option_key": "zinc_flake",
+          "label_text": "Zinc flake coating (Geomet / Dacromet)",
+          "value_text": "zinc_flake"
+        },
+        {
+          "option_key": "ss_passivation",
+          "label_text": "SS passivation ya electropolishing",
+          "value_text": "ss_passivation"
+        },
+        {
+          "option_key": "pretreatment_line",
+          "label_text": "Powder coating se pehle pre-treatment",
+          "value_text": "pretreatment_line"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plating_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Line par roz kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "plating_daily_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "jigging",
+          "label_text": "Jigging ya racking",
+          "value_text": "jigging"
+        },
+        {
+          "option_key": "barrel_loading",
+          "label_text": "Barrel loading aur unloading",
+          "value_text": "barrel_loading"
+        },
+        {
+          "option_key": "pretreatment",
+          "label_text": "Degreasing aur pickling",
+          "value_text": "pretreatment"
+        },
+        {
+          "option_key": "tank_operation",
+          "label_text": "Plating tank chalana",
+          "value_text": "tank_operation"
+        },
+        {
+          "option_key": "passivation",
+          "label_text": "Passivation aur sealer",
+          "value_text": "passivation"
+        },
+        {
+          "option_key": "baking",
+          "label_text": "Dryer ya baking oven",
+          "value_text": "baking"
+        },
+        {
+          "option_key": "buffing",
+          "label_text": "Buffing aur polishing",
+          "value_text": "buffing"
+        },
+        {
+          "option_key": "inspection",
+          "label_text": "Visual check aur packing",
+          "value_text": "inspection"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse metal ke parts par plating ki hai?",
+      "why_text": "Har metal ka pre-treatment alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, steel ke parts",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy ya hardened steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass ya copper",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "zinc_diecast",
+          "label_text": "Zinc die-casting",
+          "value_text": "zinc_diecast"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "plastic",
+          "label_text": "Plastic (ABS)",
+          "value_text": "plastic"
+        }
+      ]
+    },
+    {
+      "question_key": "plating_part",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunse parts par plating karte hain?",
+      "why_text": "Part ke naam se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_part",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fasteners",
+          "label_text": "Nut, bolt, screw",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "press_parts",
+          "label_text": "Sheet metal aur press parts",
+          "value_text": "press_parts"
+        },
+        {
+          "option_key": "chrome_parts",
+          "label_text": "Two-wheeler ke chrome parts",
+          "value_text": "chrome_parts"
+        },
+        {
+          "option_key": "hydraulic_rods",
+          "label_text": "Hydraulic rod aur roll",
+          "value_text": "hydraulic_rods"
+        },
+        {
+          "option_key": "bath_fittings",
+          "label_text": "Bath fitting aur hardware",
+          "value_text": "bath_fittings"
+        },
+        {
+          "option_key": "aluminium_profiles",
+          "label_text": "Aluminium section aur profile",
+          "value_text": "aluminium_profiles"
+        },
+        {
+          "option_key": "structures",
+          "label_text": "Tower, structure, pipe",
+          "value_text": "structures"
+        },
+        {
+          "option_key": "electrical_parts",
+          "label_text": "Busbar aur electrical contact",
+          "value_text": "electrical_parts"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur part",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plating_passivation",
+      "min_tier": "hard",
+      "prompt_text": "Zinc plating ke baad kaunsa passivation karte hain?",
+      "why_text": "Trivalent passivation jaanne wale ko auto company ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_passivation",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "trivalent_blue",
+          "label_text": "Trivalent blue / white",
+          "value_text": "trivalent_blue"
+        },
+        {
+          "option_key": "trivalent_yellow",
+          "label_text": "Trivalent yellow",
+          "value_text": "trivalent_yellow"
+        },
+        {
+          "option_key": "trivalent_black",
+          "label_text": "Trivalent black",
+          "value_text": "trivalent_black"
+        },
+        {
+          "option_key": "hexavalent",
+          "label_text": "Hexavalent yellow ya olive",
+          "value_text": "hexavalent"
+        },
+        {
+          "option_key": "sealer",
+          "label_text": "Sealer ya top coat",
+          "value_text": "sealer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Passivation nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plating_chemical_safety",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse chemical aap PPE pehenkar sambhalte hain?",
+      "why_text": "Chemical safety jaanne wale ko hi tank par lagaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_chemical_safety",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "acid",
+          "label_text": "Acid (HCl, sulphuric, nitric)",
+          "value_text": "acid"
+        },
+        {
+          "option_key": "alkali",
+          "label_text": "Caustic aur alkali cleaner",
+          "value_text": "alkali"
+        },
+        {
+          "option_key": "cyanide",
+          "label_text": "Cyanide bath",
+          "value_text": "cyanide"
+        },
+        {
+          "option_key": "chromic_acid",
+          "label_text": "Chromic acid",
+          "value_text": "chromic_acid"
+        },
+        {
+          "option_key": "molten_zinc",
+          "label_text": "Molten zinc (galvanising)",
+          "value_text": "molten_zinc"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Chemical nahi sambhalta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plating_bath_control",
+      "min_tier": "hard",
+      "prompt_text": "Bath control ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Bath sambhalne wale plater ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_bath_control",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ph_check",
+          "label_text": "pH check karna",
+          "value_text": "ph_check"
+        },
+        {
+          "option_key": "titration",
+          "label_text": "Titration se concentration nikaalna",
+          "value_text": "titration"
+        },
+        {
+          "option_key": "hull_cell",
+          "label_text": "Hull cell test",
+          "value_text": "hull_cell"
+        },
+        {
+          "option_key": "baume",
+          "label_text": "Baume ya hydrometer check",
+          "value_text": "baume"
+        },
+        {
+          "option_key": "dosing",
+          "label_text": "Chemical aur brightener addition",
+          "value_text": "dosing"
+        },
+        {
+          "option_key": "filtration",
+          "label_text": "Filtration ya carbon treatment",
+          "value_text": "filtration"
+        },
+        {
+          "option_key": "bath_makeup",
+          "label_text": "Naya bath banana",
+          "value_text": "bath_makeup"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Bath ka kaam chemist karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plating_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plating_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plating_rectifier_work",
+      "min_tier": "hard",
+      "prompt_text": "Rectifier aur tank par kaunsi setting aap khud karte hain?",
+      "why_text": "Current sahi set karne se thickness aur finish sahi aati hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_rectifier_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "current_setting",
+          "label_text": "Area dekhkar current set karna",
+          "value_text": "current_setting"
+        },
+        {
+          "option_key": "time_voltage",
+          "label_text": "Voltage aur plating time set karna",
+          "value_text": "time_voltage"
+        },
+        {
+          "option_key": "anode_care",
+          "label_text": "Anode check karna aur badalna",
+          "value_text": "anode_care"
+        },
+        {
+          "option_key": "contact_cleaning",
+          "label_text": "Jig contact aur busbar saaf karna",
+          "value_text": "contact_cleaning"
+        },
+        {
+          "option_key": "temperature_agitation",
+          "label_text": "Bath temperature aur agitation",
+          "value_text": "temperature_agitation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Sirf set kiya hua chalata hoon",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plating_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plating_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plating_testing",
+      "min_tier": "hard",
+      "prompt_text": "Plating ke baad kaunsa test aap khud karte hain?",
+      "why_text": "Test khud karne wale plater par quality ka bharosa hota hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_testing",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "thickness_gauge",
+          "label_text": "Coating thickness tester",
+          "value_text": "thickness_gauge"
+        },
+        {
+          "option_key": "xrf",
+          "label_text": "XRF thickness machine",
+          "value_text": "xrf"
+        },
+        {
+          "option_key": "salt_spray",
+          "label_text": "Salt spray test",
+          "value_text": "salt_spray"
+        },
+        {
+          "option_key": "adhesion",
+          "label_text": "Adhesion test (bend ya tape)",
+          "value_text": "adhesion"
+        },
+        {
+          "option_key": "coating_weight",
+          "label_text": "Phosphate coating weight",
+          "value_text": "coating_weight"
+        },
+        {
+          "option_key": "visual_check",
+          "label_text": "Visual finish check",
+          "value_text": "visual_check"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plating_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plating_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aap kis industry ke parts par plating karte hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "hardware",
+          "label_text": "Hardware aur bath fitting",
+          "value_text": "hardware"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electrical aur electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "structural_steel",
+          "label_text": "Tower aur structural steel",
+          "value_text": "structural_steel"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job work",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plating_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plating_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Plating ka kaunsa defect aap khud sudhaar lete hain?",
+      "why_text": "Defect sudhaarne wale plater ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "peeling",
+          "label_text": "Peeling ya blister",
+          "value_text": "peeling"
+        },
+        {
+          "option_key": "burning",
+          "label_text": "Burning",
+          "value_text": "burning"
+        },
+        {
+          "option_key": "dull_deposit",
+          "label_text": "Dull ya patchy plating",
+          "value_text": "dull_deposit"
+        },
+        {
+          "option_key": "pitting",
+          "label_text": "Pitting ya roughness",
+          "value_text": "pitting"
+        },
+        {
+          "option_key": "low_thickness",
+          "label_text": "Thickness kam ya uneven",
+          "value_text": "low_thickness"
+        },
+        {
+          "option_key": "sst_fail",
+          "label_text": "White rust ya salt spray fail",
+          "value_text": "sst_fail"
+        },
+        {
+          "option_key": "colour_variation",
+          "label_text": "Passivation ka rang uneven",
+          "value_text": "colour_variation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plating_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plating_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plating_etp_work",
+      "min_tier": "hard",
+      "prompt_text": "ETP aur pollution ka kaunsa kaam aap sambhalte hain?",
+      "why_text": "ETP sambhalne wale senior ki plating plant me alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "plating_etp_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "etp_dosing",
+          "label_text": "ETP me dosing aur pH neutralisation",
+          "value_text": "etp_dosing"
+        },
+        {
+          "option_key": "chrome_cyanide_treatment",
+          "label_text": "Chrome ya cyanide effluent ka treatment",
+          "value_text": "chrome_cyanide_treatment"
+        },
+        {
+          "option_key": "filter_press",
+          "label_text": "Sludge filter press",
+          "value_text": "filter_press"
+        },
+        {
+          "option_key": "hazardous_waste",
+          "label_text": "Hazardous waste ka record",
+          "value_text": "hazardous_waste"
+        },
+        {
+          "option_key": "pcb_record",
+          "label_text": "Pollution board ka record",
+          "value_text": "pcb_record"
+        },
+        {
+          "option_key": "scrubber",
+          "label_text": "Fume scrubber chalana",
+          "value_text": "scrubber"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "ETP ka kaam nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plating_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plating_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me plating ka kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plating_tank",
+          "label_text": "Zinc ya nickel plating tank",
+          "value_text": "plating_tank"
+        },
+        {
+          "option_key": "pretreatment",
+          "label_text": "Degreasing aur pickling",
+          "value_text": "pretreatment"
+        },
+        {
+          "option_key": "rectifier",
+          "label_text": "Rectifier chalana",
+          "value_text": "rectifier"
+        },
+        {
+          "option_key": "anodising",
+          "label_text": "Anodising",
+          "value_text": "anodising"
+        },
+        {
+          "option_key": "buffing",
+          "label_text": "Buffing aur polishing",
+          "value_text": "buffing"
+        },
+        {
+          "option_key": "titration",
+          "label_text": "Lab me titration",
+          "value_text": "titration"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "plating_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "plating_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "plating_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

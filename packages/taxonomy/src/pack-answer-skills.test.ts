@@ -62,32 +62,54 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(bypassing).toEqual([]);
   });
 
-  it("names exactly the pack-only skills: #2022, Phase 2 trades, Wave 1 new and foundry-split trades", () => {
+  it("names exactly the pack-only skills: #2022, Phase 2 trades, Wave 1-2 new and foundry-split trades", () => {
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
+      // #3016: the eighteen Wave 2 trades of CEO pack v2 (minted by #3001), each pack-only.
+      "mskill_blow_moulding_operator",
+      "mskill_boring_machine_operator",
+      "mskill_calibration_technician",
       // #3011: the nine new Wave 1 trades of CEO pack v2 (minted by #3001), each pack-only.
       "mskill_cmm_operator",
       "mskill_cnc_router_operator",
       "mskill_conventional_machinist",
+      // #3016: the Wave 2 crane trade — named directly only by the forklift form's hydra chip.
+      "mskill_crane_operator",
       // #3011 (foundry split, T25): pressure and gravity die casting, pack-only.
       "mskill_die_casting_operator",
       // Phase 2 #7: the new EDM trade's own ID.
       "mskill_edm_wirecut_operator",
+      // #3016: fabrication (T22), pack-only.
+      "mskill_fabricator",
       // #3011 (foundry split, T26): hammer, press and upset forging, pack-only.
       "mskill_forging_operator",
+      "mskill_forklift_operator",
       // Phase 2 #11: the new foundry / forging trade's own ID.
       "mskill_foundry_forging_operator",
       // #3011 (foundry split, T24): sand moulding and core making, melting and fettling.
       "mskill_foundry_operator",
+      // #3016: gear cutting (T18), pack-only.
+      "mskill_gear_cutting_operator",
       // Phase 2 #8: the new heat-treatment trade's own ID.
       "mskill_heat_treatment_tech",
+      // #3016: HVAC / refrigeration (T41), pack-only.
+      "mskill_hvac_rac_technician",
       // Phase 2 #9: the new injection-moulding trade's own ID.
       "mskill_imm_operator",
       "mskill_industrial_electrician",
+      // #3016: instrumentation (T40), pack-only.
+      "mskill_instrumentation_technician",
       "mskill_maintenance_engineer",
       "mskill_maintenance_technician",
+      // #3016: material / met lab (T36), pack-only.
+      "mskill_material_lab_technician",
+      // #3016: NDT (T34), pack-only.
+      "mskill_ndt_technician",
       "mskill_npd_engineer",
       "mskill_painter_coater",
+      // #3016: plastic extrusion (T31) and plating / surface treatment (T28), pack-only.
+      "mskill_plastic_extrusion_operator",
+      "mskill_plating_operator",
       // Phase 2 #6: the new PLC trade's own ID, pack-only like the #2022 mints.
       "mskill_plc_automation_tech",
       "mskill_ppc_engineer",
@@ -100,8 +122,15 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       "mskill_quality_engineer",
       // #3011 §3: the PLC form's second-skill chip (robot programming).
       "mskill_robot_operator_programmer",
+      // #3016: rubber moulding (T32), pack-only.
+      "mskill_rubber_moulding_operator",
       "mskill_sheet_metal_worker",
+      // #3016: SPM finishing (T20), pack-only.
+      "mskill_spm_finishing_operator",
       "mskill_tool_die_maker",
+      // #3016: tube bending (T23) and utility (T42), pack-only.
+      "mskill_tube_bending_operator",
+      "mskill_utility_operator",
     ]);
   });
 
@@ -204,6 +233,27 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_foundry_casting: ["mskill_foundry_operator"],
     qp_die_casting: ["mskill_die_casting_operator"],
     qp_forging: ["mskill_forging_operator"],
+    // #3016: each new Wave 2 trade's claim question reaches its own skill and nothing else,
+    // except the two second-skill chips — the robotics PLC chip adds the PLC skill and the
+    // forklift hydra chip adds the crane skill.
+    qp_gear_cutting: ["mskill_gear_cutting_operator"],
+    qp_boring_machine: ["mskill_boring_machine_operator"],
+    qp_spm_finishing: ["mskill_spm_finishing_operator"],
+    qp_fabrication: ["mskill_fabricator"],
+    qp_tube_forming: ["mskill_tube_bending_operator"],
+    qp_surface_treatment: ["mskill_plating_operator"],
+    qp_blow_moulding: ["mskill_blow_moulding_operator"],
+    qp_plastic_extrusion: ["mskill_plastic_extrusion_operator"],
+    qp_rubber_moulding: ["mskill_rubber_moulding_operator"],
+    qp_ndt: ["mskill_ndt_technician"],
+    qp_calibration: ["mskill_calibration_technician"],
+    qp_material_lab: ["mskill_material_lab_technician"],
+    qp_robotics: ["mskill_plc_automation_tech", "mskill_robot_operator_programmer"],
+    qp_instrumentation: ["mskill_instrumentation_technician"],
+    qp_hvac_rac: ["mskill_hvac_rac_technician"],
+    qp_utility: ["mskill_utility_operator"],
+    qp_forklift: ["mskill_crane_operator", "mskill_forklift_operator"],
+    qp_crane_rigging: ["mskill_crane_operator"],
   };
 
   it("pins every mapped pack", () => {

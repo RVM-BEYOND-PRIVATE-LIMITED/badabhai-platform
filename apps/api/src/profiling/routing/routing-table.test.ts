@@ -200,7 +200,8 @@ describe("routing table — pack section 6, one entry per row", () => {
     // still pins, since it bypasses routing); identify.service checks routing first in
     // production, so the worker still gets the question. Grandfathered: live (quality/qc/cad/
     // fitter), generic loading (godown/warehouse), generic machining/cnc/shift/driver +
-    // #3010 Wave1 loads (design/moulding ka kaam) that pre-date routing. #3015 adds no alias
+    // #3010 Wave1 loads (design/moulding ka kaam) that pre-date routing + #3016 Wave2 loads
+    // (forklift/crane reach T56/T57 directly). #3015 adds no alias
     // rows — routing takes precedence in production via identify.service order.
     const grandfathered = new Set(
       [
@@ -219,6 +220,8 @@ describe("routing table — pack section 6, one entry per row", () => {
         "moulding",
         "moulding ka kaam",
         "driver",
+        "forklift",
+        "crane",
       ].map(normalizeOccupationText),
     );
     const bad: string[] = [];

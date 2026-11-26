@@ -319,8 +319,6 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
       "7223.1100",
       "7223.1500",
       "7223.1600",
-      "7223.1701",
-      "7223.1800",
     ],
   },
   {
@@ -360,7 +358,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
       "press_tonnage",
       "tool_training_institute",
     ],
-    ncoCodes: ["7222.0200", "7222.0300", "7222.0400", "7222.0500", "7222.0600"],
+    ncoCodes: ["7222.0200", "7222.0300", "7222.0500", "7222.0600"],
   },
   {
     code: "T08",
@@ -408,7 +406,6 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
       "7212.0301",
       "7212.0302",
       "7212.0303",
-      "7212.0400",
       "7212.0700",
       "7212.0801",
     ],
@@ -525,7 +522,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
       "coating_defects",
       "colour_change",
     ],
-    ncoCodes: ["7131.0300", "7131.0500", "7132.0201", "7132.0300", "8122.0100"],
+    ncoCodes: ["7131.0300", "7131.0500", "7132.0201", "7132.0300"],
   },
   {
     code: "T12",
@@ -1555,6 +1552,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_gear_cutting",
+    claimQuestionKey: "gear_process",
     familyId: "fam_gear_cutting",
     matchSkillId: "mskill_gear_cutting_operator",
     ladder: [
@@ -1595,6 +1593,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_boring_machine",
+    claimQuestionKey: "boring_machine_type",
     familyId: "fam_boring_machine",
     matchSkillId: "mskill_boring_machine_operator",
     ladder: [
@@ -1635,6 +1634,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_spm_finishing",
+    claimQuestionKey: "spm_process",
     familyId: "fam_spm_finishing",
     matchSkillId: "mskill_spm_finishing_operator",
     ladder: [
@@ -1675,6 +1675,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_fabrication",
+    claimQuestionKey: "fab_work_type",
     familyId: "fam_fabrication",
     matchSkillId: "mskill_fabricator",
     ladder: [
@@ -1726,6 +1727,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_tube_forming",
+    claimQuestionKey: "tube_machine_type",
     familyId: "fam_tube_forming",
     matchSkillId: "mskill_tube_bending_operator",
     ladder: [
@@ -1766,6 +1768,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_surface_treatment",
+    claimQuestionKey: "plating_process",
     familyId: "fam_surface_treatment",
     matchSkillId: "mskill_plating_operator",
     ladder: [
@@ -1814,6 +1817,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_blow_moulding",
+    claimQuestionKey: "blow_process_type",
     familyId: "fam_blow_moulding",
     matchSkillId: "mskill_blow_moulding_operator",
     ladder: [
@@ -1853,6 +1857,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_plastic_extrusion",
+    claimQuestionKey: "extrusion_product_line",
     familyId: "fam_plastic_extrusion",
     matchSkillId: "mskill_plastic_extrusion_operator",
     ladder: [
@@ -1892,6 +1897,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_rubber_moulding",
+    claimQuestionKey: "rubber_process",
     familyId: "fam_rubber_moulding",
     matchSkillId: "mskill_rubber_moulding_operator",
     ladder: [
@@ -1944,6 +1950,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_ndt",
+    claimQuestionKey: "ndt_method",
     familyId: "fam_ndt",
     matchSkillId: "mskill_ndt_technician",
     ladder: [
@@ -1985,6 +1992,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_calibration",
+    claimQuestionKey: "calib_parameter",
     familyId: "fam_calibration",
     matchSkillId: "mskill_calibration_technician",
     ladder: [
@@ -2028,6 +2036,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_material_lab",
+    claimQuestionKey: "matlab_test_type",
     familyId: "fam_material_lab",
     matchSkillId: "mskill_material_lab_technician",
     ladder: [
@@ -2068,6 +2077,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_robotics",
+    claimQuestionKey: "robot_brand",
     familyId: "fam_robotics",
     matchSkillId: "mskill_robot_operator_programmer",
     ladder: [
@@ -2108,6 +2118,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_instrumentation",
+    claimQuestionKey: "instr_instrument_type",
     familyId: "fam_instrumentation",
     matchSkillId: "mskill_instrumentation_technician",
     ladder: [
@@ -2158,6 +2169,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_hvac_rac",
+    claimQuestionKey: "hvac_system_type",
     familyId: "fam_hvac_rac",
     matchSkillId: "mskill_hvac_rac_technician",
     ladder: [
@@ -2205,6 +2217,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_utility",
+    claimQuestionKey: "utility_plant_type",
     familyId: "fam_utility",
     matchSkillId: "mskill_utility_operator",
     ladder: [
@@ -2257,6 +2270,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_forklift",
+    claimQuestionKey: "forklift_equipment",
     familyId: "fam_forklift",
     matchSkillId: "mskill_forklift_operator",
     ladder: [
@@ -2296,6 +2310,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 2,
     packId: "qp_crane_rigging",
+    claimQuestionKey: "crane_role",
     familyId: "fam_crane_rigging",
     matchSkillId: "mskill_crane_operator",
     ladder: [

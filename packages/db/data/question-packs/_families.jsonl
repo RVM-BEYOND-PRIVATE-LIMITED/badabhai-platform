@@ -354,8 +354,8 @@
 {"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1100"}
 {"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1500"}
 {"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1600"}
-{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1701"}
-{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1800"}
+{"kind":"binding","family_id":"fam_boring_machine","job_domain_id":"jd_nco_7223_1701"}
+{"kind":"binding","family_id":"fam_boring_machine","job_domain_id":"jd_nco_7223_1800"}
 
 # ── Tool and die making ──────────────────────────────────────────────────────────────────────
 # The cleanest binding set in the batch. 7222.0200 alone carries "tool maker", "tool room",
@@ -372,7 +372,7 @@
 # until an alias tranche can put "toolmaker" and "die maker" on 7222.0200 where they belong.
 {"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0200"}
 {"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0300"}
-{"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0400"}
+{"kind":"binding","family_id":"fam_boring_machine","job_domain_id":"jd_nco_7222_0400"}
 {"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0500"}
 {"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0600"}
 
@@ -412,7 +412,7 @@
 {"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0301"}
 {"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0302"}
 {"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0303"}
-{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0400"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7212_0400"}
 {"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0700"}
 {"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0801"}
 
@@ -443,7 +443,7 @@
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7131_0500"}
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0201"}
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0300"}
-{"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_8122_0100"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_8122_0100"}
 
 # ══ Batch 2, part two — the roles the 2026-09-24 alias tranche made reachable ═══════════════════
 #
@@ -957,3 +957,141 @@
 {"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7223_0300"}
 {"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_3122_4501"}
 {"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_3122_4502"}
+#
+# ══ CEO PACK V2, WAVE 2 (#3016, step 1) ══ Families and bindings for the 18 Wave 2 forms,
+# codes from pack section 13.1. Every NCO id checked against nco2015.jsonl; T34 binds the
+# minted jd_rvm_ndt_technician entry from rvm-trades-v2.jsonl (#3007). Five bindings arrived
+# by MOVE, ruled in #2995 point 4: 7222.0400 (ex-fam_tool_die_making), 7223.1701 and
+# 7223.1800 (ex-fam_conventional_machining) now bind fam_boring_machine; 7212.0400
+# (ex-fam_welding_trade) now binds fam_fabrication; 8122.0100 (ex-fam_powder_coating) now
+# binds fam_surface_treatment. Those five lines were edited in place above, not duplicated
+# here. T23 binds 7223.2000 (no family held it). T30/T32 get NEW families; the general
+# fam_rubber_plastic family and form are untouched.
+# CEO pack v2, T18 (new, Wave 2, #3016): fam_gear_cutting, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_gear_cutting","label_en":"Gear Cutting Operator","label_hi":"गियर कटिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_gear_cutting","job_domain_id":"jd_nco_7223_1300"}
+# CEO pack v2, T19 (new, Wave 2, #3016): fam_boring_machine. Its three codes (7222.0400,
+# 7223.1701, 7223.1800) arrived by move, edited in place above.
+{"kind":"family","family_id":"fam_boring_machine","label_en":"Boring Machine Operator (HBM)","label_hi":"बोरिंग मशीन ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+# CEO pack v2, T20 (new, Wave 2, #3016): fam_spm_finishing, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_spm_finishing","label_en":"Honing / Broaching / SPM Operator","label_hi":"होनिंग / ब्रोचिंग / एसपीएम ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_spm_finishing","job_domain_id":"jd_nco_7223_2600"}
+{"kind":"binding","family_id":"fam_spm_finishing","job_domain_id":"jd_nco_7224_0600"}
+{"kind":"binding","family_id":"fam_spm_finishing","job_domain_id":"jd_nco_7224_0700"}
+{"kind":"binding","family_id":"fam_spm_finishing","job_domain_id":"jd_nco_7224_0701"}
+# CEO pack v2, T22 (new, Wave 2, #3016): fam_fabrication. 7212.0400 arrived by move,
+# edited in place above; the rest are new bindings from pack section 13.1.
+{"kind":"family","family_id":"fam_fabrication","label_en":"Fabricator / Structural Fitter","label_hi":"फैब्रिकेटर / स्ट्रक्चरल फिटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7212_0402"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7214_0500"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7214_0600"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7214_0700"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7214_0900"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7214_9900"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7222_0100"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7224_0102"}
+{"kind":"binding","family_id":"fam_fabrication","job_domain_id":"jd_nco_7224_0401"}
+# CEO pack v2, T23 (new, Wave 2, #3016): fam_tube_forming, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_tube_forming","label_en":"Tube Bending / Roll Forming Operator","label_hi":"ट्यूब बेंडिंग / रोल फॉर्मिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_tube_forming","job_domain_id":"jd_nco_7223_2000"}
+# CEO pack v2, T28 (new, Wave 2, #3016): fam_surface_treatment. 8122.0100 arrived by move,
+# edited in place above; the rest are new bindings from pack section 13.1.
+{"kind":"family","family_id":"fam_surface_treatment","label_en":"Plating / Surface Treatment Operator","label_hi":"प्लेटिंग / सरफेस ट्रीटमेंट ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_7213_0500"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_7224_1100"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_8122_0101"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_8122_3500"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_8122_5500"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_8122_6200"}
+{"kind":"binding","family_id":"fam_surface_treatment","job_domain_id":"jd_nco_8122_9900"}
+# CEO pack v2, T30 (new, Wave 2, #3016): fam_blow_moulding, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_blow_moulding","label_en":"Blow Moulding Operator","label_hi":"ब्लो मोल्डिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_blow_moulding","job_domain_id":"jd_nco_8142_0700"}
+# CEO pack v2, T31 (new, Wave 2, #3016): fam_plastic_extrusion, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_plastic_extrusion","label_en":"Plastic Extrusion Operator","label_hi":"प्लास्टिक एक्सट्रूज़न ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_plastic_extrusion","job_domain_id":"jd_nco_8142_0300"}
+{"kind":"binding","family_id":"fam_plastic_extrusion","job_domain_id":"jd_nco_8142_0400"}
+# CEO pack v2, T32 (new, Wave 2, #3016): fam_rubber_moulding, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_rubber_moulding","label_en":"Rubber Moulding Operator","label_hi":"रबर मोल्डिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8131_6000"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8131_6200"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_0711"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_0712"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_0713"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_0714"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_0715"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_0716"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_1201"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_1800"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_1801"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_2200"}
+{"kind":"binding","family_id":"fam_rubber_moulding","job_domain_id":"jd_nco_8141_9900"}
+# CEO pack v2, T34 (new, Wave 2, #3016): fam_ndt, binds the minted NDT entry (#3007).
+{"kind":"family","family_id":"fam_ndt","label_en":"NDT Technician","label_hi":"एनडीटी टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_ndt","job_domain_id":"jd_rvm_ndt_technician"}
+# CEO pack v2, T35 (new, Wave 2, #3016): fam_calibration, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_calibration","label_en":"Calibration / Metrology Lab Technician","label_hi":"कैलिब्रेशन / मेट्रोलॉजी लैब टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_calibration","job_domain_id":"jd_nco_2111_1000"}
+{"kind":"binding","family_id":"fam_calibration","job_domain_id":"jd_nco_7311_1000"}
+{"kind":"binding","family_id":"fam_calibration","job_domain_id":"jd_nco_7311_1001"}
+{"kind":"binding","family_id":"fam_calibration","job_domain_id":"jd_nco_7311_1002"}
+{"kind":"binding","family_id":"fam_calibration","job_domain_id":"jd_nco_7311_1100"}
+{"kind":"binding","family_id":"fam_calibration","job_domain_id":"jd_nco_8212_0600"}
+# CEO pack v2, T36 (new, Wave 2, #3016): fam_material_lab, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_material_lab","label_en":"Material Testing / Met Lab Technician","label_hi":"मटेरियल टेस्टिंग / मेट लैब टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_material_lab","job_domain_id":"jd_nco_1223_0102"}
+{"kind":"binding","family_id":"fam_material_lab","job_domain_id":"jd_nco_3117_0300"}
+{"kind":"binding","family_id":"fam_material_lab","job_domain_id":"jd_nco_3119_0100"}
+{"kind":"binding","family_id":"fam_material_lab","job_domain_id":"jd_nco_8122_6000"}
+{"kind":"binding","family_id":"fam_material_lab","job_domain_id":"jd_nco_8122_6900"}
+# CEO pack v2, T39 (new, Wave 2, #3016): fam_robotics, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_robotics","label_en":"Robot Operator / Programmer","label_hi":"रोबोट ऑपरेटर / प्रोग्रामर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_robotics","job_domain_id":"jd_nco_3139_1400"}
+{"kind":"binding","family_id":"fam_robotics","job_domain_id":"jd_nco_3139_9900"}
+# CEO pack v2, T40 (new, Wave 2, #3016): fam_instrumentation, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_instrumentation","label_en":"Instrumentation Technician","label_hi":"इंस्ट्रूमेंटेशन टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_2141_0200"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_7311_0100"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_7311_0101"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_7311_0400"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_7311_0401"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_7311_9900"}
+{"kind":"binding","family_id":"fam_instrumentation","job_domain_id":"jd_nco_7412_0100"}
+# CEO pack v2, T41 (new, Wave 2, #3016): fam_hvac_rac, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_hvac_rac","label_en":"Refrigeration & AC (HVAC) Technician","label_hi":"रेफ्रिजरेशन व एसी (एचवीएसी) टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_2144_1200"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_3115_1100"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_3132_0900"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_7127_0100"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_7421_0401"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_7421_0501"}
+{"kind":"binding","family_id":"fam_hvac_rac","job_domain_id":"jd_nco_7421_1001"}
+# CEO pack v2, T42 (new, Wave 2, #3016): fam_utility, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_utility","label_en":"Utility Operator (Boiler / Compressor / DG / ETP)","label_hi":"यूटिलिटी ऑपरेटर (बॉयलर / कंप्रेसर / डीजी / ईटीपी)","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3122_1600"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3131_0200"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3132_0300"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3132_0400"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3132_0700"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3132_0800"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_3132_1000"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_8182_0100"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_8182_0200"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_8182_0300"}
+{"kind":"binding","family_id":"fam_utility","job_domain_id":"jd_nco_8182_0400"}
+# CEO pack v2, T56 (new, Wave 2, #3016): fam_forklift, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_forklift","label_en":"Forklift / Reach Truck Operator","label_hi":"फोर्कलिफ्ट / रीच ट्रक ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_forklift","job_domain_id":"jd_nco_8344_0100"}
+{"kind":"binding","family_id":"fam_forklift","job_domain_id":"jd_nco_8344_0201"}
+{"kind":"binding","family_id":"fam_forklift","job_domain_id":"jd_nco_8344_9900"}
+# CEO pack v2, T57 (new, Wave 2, #3016): fam_crane_rigging, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_crane_rigging","label_en":"EOT Crane Operator / Rigger","label_hi":"ईओटी क्रेन ऑपरेटर / रिगर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_7215_0100"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_7215_0101"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_7215_0200"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_7215_9900"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_0501"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_0600"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_0700"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_1200"}
+{"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_9900"}

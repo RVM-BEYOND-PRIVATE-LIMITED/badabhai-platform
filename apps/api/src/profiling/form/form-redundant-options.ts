@@ -40,6 +40,12 @@ const FORM_REDUNDANT_OTHER_LABELS: ReadonlySet<string> = new Set([
   // (`diecast_machine_brand`): it is also that question's only "don't know", a real answer the
   // typed card does not replace, so the form keeps it.
   "koi aur casting",
+  // CEO pack v2, Wave 2 (#3016): the escape chips of the compiled sheets.
+  "koi aur product",
+  "koi aur crane",
+  "koi aur brand",
+  "koi aur robot",
+  "koi aur make ya boiler nahi",
 ]);
 
 /** NFKC → lower case → single spaces. Deliberately no particle stripping: whole labels only. */

@@ -1,0 +1,1190 @@
+{
+  "_why": "Role track for Instrumentation Technician (T40), new trade (CEO pack v2). fam_instrumentation binds NCO 2141.0200, 7311.0100 and 7412.0100.",
+  "_scope": "Maintenance and Automation shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 5, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T40 (Instrumentation Technician). Status: NEW",
+  "pack_id": "qp_instrumentation",
+  "version": 1,
+  "family_id": "fam_instrumentation",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T40): new trade.",
+  "items": [
+    {
+      "question_key": "instr_experience",
+      "min_tier": "easy",
+      "prompt_text": "Instrumentation ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "instr_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Instrumentation ka kaam kiya hai?"
+    },
+    {
+      "question_key": "instr_level",
+      "min_tier": "easy",
+      "prompt_text": "Instrument ke kaam me aap kis level par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "instr_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "Technician",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "Senior Technician",
+          "value_text": "senior_technician"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Instrument ke kaam me helper, technician ya senior technician hain?"
+    },
+    {
+      "question_key": "instr_senior_technician_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Shift me breakdown aaye to loop ka fault aap akele dhoondh kar theek karte ho?",
+      "why_text": "Akele fault theek karne wale senior technician ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_senior_technician_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "instr_level"
+        },
+        "right": {
+          "const": [
+            "senior_technician"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "instr_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne technician aur plant ka kaunsa area aapke under hai?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "instr_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "instr_instrument_type",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse instrument par aapne kaam kiya hai?",
+      "why_text": "Instrument ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_instrument_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pressure",
+          "label_text": "Pressure transmitter, gauge aur switch",
+          "value_text": "pressure"
+        },
+        {
+          "option_key": "temperature",
+          "label_text": "RTD aur thermocouple",
+          "value_text": "temperature"
+        },
+        {
+          "option_key": "flow",
+          "label_text": "Flow meter, DP, magnetic ya mass flow",
+          "value_text": "flow"
+        },
+        {
+          "option_key": "level",
+          "label_text": "Level transmitter, DP, radar ya ultrasonic",
+          "value_text": "level"
+        },
+        {
+          "option_key": "control_valve",
+          "label_text": "Control valve aur positioner",
+          "value_text": "control_valve"
+        },
+        {
+          "option_key": "on_off_valve",
+          "label_text": "On-off valve, solenoid aur limit switch",
+          "value_text": "on_off_valve"
+        },
+        {
+          "option_key": "analyser",
+          "label_text": "Analyser, pH, conductivity ya gas",
+          "value_text": "analyser"
+        },
+        {
+          "option_key": "weighing",
+          "label_text": "Load cell aur weighing system",
+          "value_text": "weighing"
+        }
+      ]
+    },
+    {
+      "question_key": "instr_work_type",
+      "min_tier": "medium",
+      "prompt_text": "Instrument par aap kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "instr_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "calibration",
+          "label_text": "Calibration",
+          "value_text": "calibration"
+        },
+        {
+          "option_key": "loop_checking",
+          "label_text": "Loop checking",
+          "value_text": "loop_checking"
+        },
+        {
+          "option_key": "installation",
+          "label_text": "Naya instrument lagana, erection",
+          "value_text": "installation"
+        },
+        {
+          "option_key": "tubing",
+          "label_text": "Tubing aur impulse line",
+          "value_text": "tubing"
+        },
+        {
+          "option_key": "cabling_termination",
+          "label_text": "Cable laying, glanding aur termination",
+          "value_text": "cabling_termination"
+        },
+        {
+          "option_key": "preventive_maintenance",
+          "label_text": "Preventive maintenance",
+          "value_text": "preventive_maintenance"
+        },
+        {
+          "option_key": "breakdown",
+          "label_text": "Breakdown attend karna",
+          "value_text": "breakdown"
+        },
+        {
+          "option_key": "shutdown",
+          "label_text": "Shutdown ka kaam",
+          "value_text": "shutdown"
+        }
+      ]
+    },
+    {
+      "question_key": "instr_calibration_tools",
+      "min_tier": "medium",
+      "prompt_text": "Calibration aur testing ke kaunse saamaan aap chalate hain?",
+      "why_text": "Calibration ka saamaan chalane wale ko akele kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_calibration_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hart_communicator",
+          "label_text": "HART communicator",
+          "value_text": "hart_communicator"
+        },
+        {
+          "option_key": "multimeter",
+          "label_text": "Multimeter",
+          "value_text": "multimeter"
+        },
+        {
+          "option_key": "loop_calibrator",
+          "label_text": "mA loop calibrator / source",
+          "value_text": "loop_calibrator"
+        },
+        {
+          "option_key": "pressure_calibrator",
+          "label_text": "Pressure calibrator ya hand pump",
+          "value_text": "pressure_calibrator"
+        },
+        {
+          "option_key": "dead_weight_tester",
+          "label_text": "Dead weight tester",
+          "value_text": "dead_weight_tester"
+        },
+        {
+          "option_key": "temperature_bath",
+          "label_text": "Temperature bath ya dry block",
+          "value_text": "temperature_bath"
+        },
+        {
+          "option_key": "decade_box",
+          "label_text": "Decade box ya mV source",
+          "value_text": "decade_box"
+        },
+        {
+          "option_key": "megger",
+          "label_text": "Megger",
+          "value_text": "megger"
+        }
+      ]
+    },
+    {
+      "question_key": "instr_control_system",
+      "min_tier": "medium",
+      "prompt_text": "Plant me kaunsa control system laga tha?",
+      "why_text": "DCS ya PLC wale plant ka tajurba alag se dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_control_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dcs",
+          "label_text": "DCS",
+          "value_text": "dcs"
+        },
+        {
+          "option_key": "plc",
+          "label_text": "PLC",
+          "value_text": "plc"
+        },
+        {
+          "option_key": "scada",
+          "label_text": "SCADA",
+          "value_text": "scada"
+        },
+        {
+          "option_key": "pid_controller",
+          "label_text": "Single loop PID controller ya recorder",
+          "value_text": "pid_controller"
+        },
+        {
+          "option_key": "pneumatic_control",
+          "label_text": "Pneumatic control",
+          "value_text": "pneumatic_control"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "instr_brand",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse make ke transmitter aur valve par kaam kiya hai?",
+      "why_text": "Make jaanne wale ko usi make ke plant me jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "emerson_rosemount",
+          "label_text": "Emerson / Rosemount",
+          "value_text": "emerson_rosemount"
+        },
+        {
+          "option_key": "yokogawa",
+          "label_text": "Yokogawa",
+          "value_text": "yokogawa"
+        },
+        {
+          "option_key": "endress_hauser",
+          "label_text": "Endress+Hauser, E+H",
+          "value_text": "endress_hauser"
+        },
+        {
+          "option_key": "honeywell",
+          "label_text": "Honeywell",
+          "value_text": "honeywell"
+        },
+        {
+          "option_key": "abb",
+          "label_text": "ABB",
+          "value_text": "abb"
+        },
+        {
+          "option_key": "siemens",
+          "label_text": "Siemens",
+          "value_text": "siemens"
+        },
+        {
+          "option_key": "fisher",
+          "label_text": "Fisher valve",
+          "value_text": "fisher"
+        },
+        {
+          "option_key": "forbes_marshall",
+          "label_text": "Forbes Marshall",
+          "value_text": "forbes_marshall"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "instr_drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse drawing aur document aap padh lete hain?",
+      "why_text": "P&ID aur loop drawing padhne wale ko fault jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_drawing_reading",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "p_and_id",
+          "label_text": "P&ID",
+          "value_text": "p_and_id"
+        },
+        {
+          "option_key": "loop_diagram",
+          "label_text": "Loop diagram",
+          "value_text": "loop_diagram"
+        },
+        {
+          "option_key": "hookup_drawing",
+          "label_text": "Hook-up drawing",
+          "value_text": "hookup_drawing"
+        },
+        {
+          "option_key": "data_sheet",
+          "label_text": "Instrument data sheet",
+          "value_text": "data_sheet"
+        },
+        {
+          "option_key": "cable_schedule",
+          "label_text": "Cable schedule aur JB drawing",
+          "value_text": "cable_schedule"
+        },
+        {
+          "option_key": "logic_diagram",
+          "label_text": "Interlock / logic diagram",
+          "value_text": "logic_diagram"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "instr_trade_certificate",
+      "min_tier": "hard",
+      "prompt_text": "Instrument ke kaam ka kaunsa certificate aapke paas hai?",
+      "why_text": "Plant me bharti ke samay trade ka certificate dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_trade_certificate",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iti_instrument_mechanic",
+          "label_text": "ITI Instrument Mechanic",
+          "value_text": "iti_instrument_mechanic"
+        },
+        {
+          "option_key": "iti_imcp",
+          "label_text": "ITI IMCP, Instrument Mechanic Chemical Plant",
+          "value_text": "iti_imcp"
+        },
+        {
+          "option_key": "iti_electronics_electrician",
+          "label_text": "ITI Electronics Mechanic ya Electrician",
+          "value_text": "iti_electronics_electrician"
+        },
+        {
+          "option_key": "diploma_instrumentation",
+          "label_text": "Diploma Instrumentation ya Electronics",
+          "value_text": "diploma_instrumentation"
+        },
+        {
+          "option_key": "nac_apprenticeship",
+          "label_text": "Apprenticeship certificate, NAC",
+          "value_text": "nac_apprenticeship"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi certificate nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "instr_valve_work",
+      "min_tier": "hard",
+      "prompt_text": "Control valve par aap kya kya kaam karte hain?",
+      "why_text": "Control valve ka kaam jaanne wale technician kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "instr_valve_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "stroke_check",
+          "label_text": "Stroke checking",
+          "value_text": "stroke_check"
+        },
+        {
+          "option_key": "positioner_calibration",
+          "label_text": "Positioner calibration, I/P ya smart positioner",
+          "value_text": "positioner_calibration"
+        },
+        {
+          "option_key": "gland_packing",
+          "label_text": "Gland packing badalna",
+          "value_text": "gland_packing"
+        },
+        {
+          "option_key": "actuator_diaphragm",
+          "label_text": "Actuator ka diaphragm badalna",
+          "value_text": "actuator_diaphragm"
+        },
+        {
+          "option_key": "valve_overhaul",
+          "label_text": "Valve overhauling, seat aur plug",
+          "value_text": "valve_overhaul"
+        },
+        {
+          "option_key": "air_set",
+          "label_text": "Air filter regulator aur tubing",
+          "value_text": "air_set"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Valve ka kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "instr_dcs_brand",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse DCS ya PLC ke saath kaam kiya hai?",
+      "why_text": "Usi system wale plant aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "instr_dcs_brand",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "yokogawa_centum",
+          "label_text": "Yokogawa Centum",
+          "value_text": "yokogawa_centum"
+        },
+        {
+          "option_key": "honeywell_experion",
+          "label_text": "Honeywell Experion / TDC",
+          "value_text": "honeywell_experion"
+        },
+        {
+          "option_key": "emerson_deltav",
+          "label_text": "Emerson DeltaV",
+          "value_text": "emerson_deltav"
+        },
+        {
+          "option_key": "abb_dcs",
+          "label_text": "ABB 800xA / Freelance",
+          "value_text": "abb_dcs"
+        },
+        {
+          "option_key": "siemens_pcs",
+          "label_text": "Siemens PCS7",
+          "value_text": "siemens_pcs"
+        },
+        {
+          "option_key": "siemens_plc",
+          "label_text": "Siemens PLC",
+          "value_text": "siemens_plc"
+        },
+        {
+          "option_key": "allen_bradley",
+          "label_text": "Allen-Bradley PLC",
+          "value_text": "allen_bradley"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "DCS ya PLC par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "instr_dcs_work",
+      "min_tier": "hard",
+      "prompt_text": "DCS ya PLC ki taraf aap kya kaam karte hain?",
+      "why_text": "Panel ki taraf ka kaam jaanne wale ko senior ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_dcs_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "marshalling_termination",
+          "label_text": "Marshalling panel me termination",
+          "value_text": "marshalling_termination"
+        },
+        {
+          "option_key": "io_card_check",
+          "label_text": "I/O card, barrier aur isolator check karna",
+          "value_text": "io_card_check"
+        },
+        {
+          "option_key": "signal_forcing",
+          "label_text": "Signal force ya simulate karna",
+          "value_text": "signal_forcing"
+        },
+        {
+          "option_key": "range_setpoint",
+          "label_text": "Range aur alarm set point badalna",
+          "value_text": "range_setpoint"
+        },
+        {
+          "option_key": "interlock_testing",
+          "label_text": "Interlock aur trip testing",
+          "value_text": "interlock_testing"
+        },
+        {
+          "option_key": "logic_change",
+          "label_text": "Logic ya graphics me change",
+          "value_text": "logic_change"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "instr_hazardous_area",
+      "min_tier": "hard",
+      "prompt_text": "Hazardous area me kaunsa kaam kiya hai?",
+      "why_text": "Refinery aur chemical plant me ye tajurba zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_hazardous_area",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "flameproof",
+          "label_text": "Flameproof instrument aur junction box",
+          "value_text": "flameproof"
+        },
+        {
+          "option_key": "intrinsic_safe",
+          "label_text": "Intrinsically safe loop, barrier ke saath",
+          "value_text": "intrinsic_safe"
+        },
+        {
+          "option_key": "work_permit",
+          "label_text": "Work permit lekar kaam",
+          "value_text": "work_permit"
+        },
+        {
+          "option_key": "gas_detector",
+          "label_text": "Gas detector calibration",
+          "value_text": "gas_detector"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Hazardous area me kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke plant me instrument ka kaam kiya hai?",
+      "why_text": "Plant ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "chemical",
+          "label_text": "Chemical ya petrochemical",
+          "value_text": "chemical"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas, refinery",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "cement",
+          "label_text": "Cement",
+          "value_text": "cement"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "Food, dairy aur beverage",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "fertiliser",
+          "label_text": "Fertiliser",
+          "value_text": "fertiliser"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi dikkat aap khud dhoondh kar theek kar lete hain?",
+      "why_text": "Fault khud dhoondhne wale technician ki plant me zyada zaroorat hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "reading_drift",
+          "label_text": "Transmitter ki reading galat ya drift",
+          "value_text": "reading_drift"
+        },
+        {
+          "option_key": "loop_open",
+          "label_text": "Loop open, 4-20 mA nahi aa raha",
+          "value_text": "loop_open"
+        },
+        {
+          "option_key": "valve_hunting",
+          "label_text": "Control valve hunting ya stuck",
+          "value_text": "valve_hunting"
+        },
+        {
+          "option_key": "impulse_line_choke",
+          "label_text": "Impulse line choke ya leak",
+          "value_text": "impulse_line_choke"
+        },
+        {
+          "option_key": "sensor_open",
+          "label_text": "Thermocouple ya RTD open",
+          "value_text": "sensor_open"
+        },
+        {
+          "option_key": "signal_noise",
+          "label_text": "Earthing ya noise se signal hilna",
+          "value_text": "signal_noise"
+        },
+        {
+          "option_key": "io_card_fault",
+          "label_text": "I/O card ya barrier kharab",
+          "value_text": "io_card_fault"
+        },
+        {
+          "option_key": "analyser_fault",
+          "label_text": "Analyser ki reading galat",
+          "value_text": "analyser_fault"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "instr_advanced_work",
+      "min_tier": "hard",
+      "prompt_text": "Inme se kaunsa kaam aapne khud kiya hai?",
+      "why_text": "Ye kaam jaanne wale ko in-charge ki zimmedari di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "instr_advanced_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pid_tuning",
+          "label_text": "PID loop tuning",
+          "value_text": "pid_tuning"
+        },
+        {
+          "option_key": "cems",
+          "label_text": "CEMS ya analyser shelter ki maintenance",
+          "value_text": "cems"
+        },
+        {
+          "option_key": "vibration_monitoring",
+          "label_text": "Vibration monitoring system",
+          "value_text": "vibration_monitoring"
+        },
+        {
+          "option_key": "fieldbus",
+          "label_text": "Fieldbus ya Profibus instrument",
+          "value_text": "fieldbus"
+        },
+        {
+          "option_key": "precommissioning",
+          "label_text": "Pre-commissioning aur loop folder",
+          "value_text": "precommissioning"
+        },
+        {
+          "option_key": "calibration_records",
+          "label_text": "Calibration record aur audit document",
+          "value_text": "calibration_records"
+        },
+        {
+          "option_key": "spares_vendor",
+          "label_text": "Spares aur AMC vendor sambhalna",
+          "value_text": "spares_vendor"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "instr_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "instr_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunse instrument par haath se kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pressure_gauge_calibration",
+          "label_text": "Dead weight tester se pressure gauge calibration",
+          "value_text": "pressure_gauge_calibration"
+        },
+        {
+          "option_key": "transmitter_calibration",
+          "label_text": "Transmitter calibration",
+          "value_text": "transmitter_calibration"
+        },
+        {
+          "option_key": "control_valve",
+          "label_text": "Control valve",
+          "value_text": "control_valve"
+        },
+        {
+          "option_key": "temperature_sensor",
+          "label_text": "RTD ya thermocouple",
+          "value_text": "temperature_sensor"
+        },
+        {
+          "option_key": "process_trainer",
+          "label_text": "Flow ya level ka process trainer",
+          "value_text": "process_trainer"
+        },
+        {
+          "option_key": "plc_trainer_kit",
+          "label_text": "PLC trainer kit",
+          "value_text": "plc_trainer_kit"
+        },
+        {
+          "option_key": "multimeter_soldering",
+          "label_text": "Multimeter aur soldering",
+          "value_text": "multimeter_soldering"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "instr_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "instr_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "instr_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1193 @@
+{
+  "_why": "Role track for Rubber Moulding Operator (T32), new trade (CEO pack v2). fam_rubber_moulding binds the 8131 and 8141 rubber codes.",
+  "_scope": "Plastics and Rubber shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T32 (Rubber Moulding Operator). Status: NEW",
+  "pack_id": "qp_rubber_moulding",
+  "version": 1,
+  "family_id": "fam_rubber_moulding",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T32): new trade. Two questions gate on the multi-select rubber_process, which the engine reads as any-overlap.",
+  "items": [
+    {
+      "question_key": "rubber_experience",
+      "min_tier": "easy",
+      "prompt_text": "Rubber moulding ya rubber plant ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "rubber_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Rubber moulding ya rubber plant ka kaam kiya hai?"
+    },
+    {
+      "question_key": "rubber_level",
+      "min_tier": "easy",
+      "prompt_text": "Rubber shop me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "rubber_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator / Press Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Operator / Technician",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Rubber shop me helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "rubber_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Mould change karke cure time aur temperature aap khud set karte ho?",
+      "why_text": "Mould change aur setting khud karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud set karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, koi aur set karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "rubber_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "rubber_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye mould ya compound ka trial lekar cure cycle aap khud final karte ho?",
+      "why_text": "Naya product khud set karne wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ya engineer karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "rubber_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "rubber_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Shift me kitne press ya machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "rubber_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "rubber_process",
+      "min_tier": "medium",
+      "prompt_text": "Rubber ka kaunsa kaam aap karte hain?",
+      "why_text": "Kaam ke hisaab se sahi naukri dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "compression",
+          "label_text": "Compression moulding press",
+          "value_text": "compression"
+        },
+        {
+          "option_key": "transfer",
+          "label_text": "Transfer moulding",
+          "value_text": "transfer"
+        },
+        {
+          "option_key": "rubber_injection",
+          "label_text": "Rubber injection moulding",
+          "value_text": "rubber_injection"
+        },
+        {
+          "option_key": "mixing",
+          "label_text": "Mixing mill, kneader ya Banbury",
+          "value_text": "mixing"
+        },
+        {
+          "option_key": "rubber_extrusion",
+          "label_text": "Rubber extrusion, profile, hose ya tube",
+          "value_text": "rubber_extrusion"
+        },
+        {
+          "option_key": "calendering",
+          "label_text": "Calendering",
+          "value_text": "calendering"
+        },
+        {
+          "option_key": "autoclave_hose",
+          "label_text": "Hose building aur autoclave curing",
+          "value_text": "autoclave_hose"
+        },
+        {
+          "option_key": "tyre",
+          "label_text": "Tyre building ya tyre curing",
+          "value_text": "tyre"
+        },
+        {
+          "option_key": "finishing",
+          "label_text": "Deflashing, trimming aur finishing",
+          "value_text": "finishing"
+        }
+      ]
+    },
+    {
+      "question_key": "rubber_product",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsa rubber product banaya hai?",
+      "why_text": "Product ke hisaab se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_product",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "o_ring",
+          "label_text": "O-ring",
+          "value_text": "o_ring"
+        },
+        {
+          "option_key": "oil_seal",
+          "label_text": "Oil seal",
+          "value_text": "oil_seal"
+        },
+        {
+          "option_key": "gasket",
+          "label_text": "Gasket aur diaphragm",
+          "value_text": "gasket"
+        },
+        {
+          "option_key": "bonded_part",
+          "label_text": "Bush aur mount, rubber-to-metal bonded",
+          "value_text": "bonded_part"
+        },
+        {
+          "option_key": "hose",
+          "label_text": "Hose, radiator, fuel ya hydraulic",
+          "value_text": "hose"
+        },
+        {
+          "option_key": "profile",
+          "label_text": "Beading, profile ya weather strip",
+          "value_text": "profile"
+        },
+        {
+          "option_key": "belting",
+          "label_text": "Conveyor belt ya V-belt",
+          "value_text": "belting"
+        },
+        {
+          "option_key": "tyre_tube",
+          "label_text": "Tyre, tube ya flap",
+          "value_text": "tyre_tube"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur product",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "rubber_press_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis type ke press ya moulding machine par kaam karte hain?",
+      "why_text": "Machine ke type ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_press_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "manual_press",
+          "label_text": "Haath se chalne wala hydraulic press",
+          "value_text": "manual_press"
+        },
+        {
+          "option_key": "multi_daylight",
+          "label_text": "Semi-auto hydraulic press, multi-daylight",
+          "value_text": "multi_daylight"
+        },
+        {
+          "option_key": "vacuum_press",
+          "label_text": "Vacuum compression press",
+          "value_text": "vacuum_press"
+        },
+        {
+          "option_key": "injection_machine",
+          "label_text": "Rubber injection machine, Desma type",
+          "value_text": "injection_machine"
+        },
+        {
+          "option_key": "lsr_machine",
+          "label_text": "Silicone / LSR injection machine",
+          "value_text": "lsr_machine"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "rubber_process"
+        },
+        "right": {
+          "const": [
+            "compression",
+            "transfer",
+            "rubber_injection"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "rubber_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Roz kaunsa kaam aap khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "rubber_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "blank_preparation",
+          "label_text": "Blank ya preform kaat kar tolna",
+          "value_text": "blank_preparation"
+        },
+        {
+          "option_key": "press_loading",
+          "label_text": "Mould me loading aur press chalana",
+          "value_text": "press_loading"
+        },
+        {
+          "option_key": "demoulding",
+          "label_text": "Demoulding, part nikaalna",
+          "value_text": "demoulding"
+        },
+        {
+          "option_key": "mould_cleaning",
+          "label_text": "Mould safai aur release agent spray",
+          "value_text": "mould_cleaning"
+        },
+        {
+          "option_key": "deflashing",
+          "label_text": "Deflashing ya trimming",
+          "value_text": "deflashing"
+        },
+        {
+          "option_key": "visual_packing",
+          "label_text": "Visual checking aur packing",
+          "value_text": "visual_packing"
+        },
+        {
+          "option_key": "adhesive_coating",
+          "label_text": "Metal insert par Chemlok ya adhesive lagana",
+          "value_text": "adhesive_coating"
+        },
+        {
+          "option_key": "post_curing",
+          "label_text": "Post-curing oven chalana",
+          "value_text": "post_curing"
+        },
+        {
+          "option_key": "production_report",
+          "label_text": "Production report bharna",
+          "value_text": "production_report"
+        }
+      ]
+    },
+    {
+      "question_key": "rubber_press_capacity",
+      "min_tier": "hard",
+      "prompt_text": "Kitne ton ke press par kaam kiya hai?",
+      "why_text": "Tonnage se pata chalta hai aap kitna bada mould sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "rubber_press_capacity",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_fifty",
+          "label_text": "50 ton tak",
+          "value_text": "50"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "50 se 100 ton",
+          "value_text": "100"
+        },
+        {
+          "option_key": "upto_two_fifty",
+          "label_text": "100 se 250 ton",
+          "value_text": "250"
+        },
+        {
+          "option_key": "upto_four_hundred",
+          "label_text": "250 se 400 ton",
+          "value_text": "400"
+        },
+        {
+          "option_key": "upto_six_hundred",
+          "label_text": "400 ton se zyada",
+          "value_text": "600"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "rubber_process"
+        },
+        "right": {
+          "const": [
+            "compression",
+            "transfer",
+            "rubber_injection"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse rubber compound par kaam kiya hai?",
+      "why_text": "Har compound ka cure time aur temperature alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "natural_rubber",
+          "label_text": "NR, natural rubber",
+          "value_text": "natural_rubber"
+        },
+        {
+          "option_key": "nbr",
+          "label_text": "NBR, nitrile",
+          "value_text": "nbr"
+        },
+        {
+          "option_key": "epdm",
+          "label_text": "EPDM",
+          "value_text": "epdm"
+        },
+        {
+          "option_key": "silicone",
+          "label_text": "Silicone",
+          "value_text": "silicone"
+        },
+        {
+          "option_key": "fkm",
+          "label_text": "FKM / Viton",
+          "value_text": "fkm"
+        },
+        {
+          "option_key": "sbr",
+          "label_text": "SBR",
+          "value_text": "sbr"
+        },
+        {
+          "option_key": "neoprene",
+          "label_text": "Neoprene, CR",
+          "value_text": "neoprene"
+        },
+        {
+          "option_key": "butyl",
+          "label_text": "Butyl",
+          "value_text": "butyl"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Part check karne ke liye kya use karte hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hardness_tester",
+          "label_text": "Shore A hardness tester",
+          "value_text": "hardness_tester"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "thickness_gauge",
+          "label_text": "Dial thickness gauge",
+          "value_text": "thickness_gauge"
+        },
+        {
+          "option_key": "weighing_scale",
+          "label_text": "Weighing scale",
+          "value_text": "weighing_scale"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Go / No-Go gauge",
+          "value_text": "plug_gauge"
+        },
+        {
+          "option_key": "profile_projector",
+          "label_text": "Profile projector",
+          "value_text": "profile_projector"
+        },
+        {
+          "option_key": "rheometer",
+          "label_text": "Rheometer graph padhna",
+          "value_text": "rheometer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "rubber_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Mould change aur setting me aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mould_loading",
+          "label_text": "Mould loading aur platen par clamping",
+          "value_text": "mould_loading"
+        },
+        {
+          "option_key": "platen_temperature",
+          "label_text": "Platen temperature setting",
+          "value_text": "platen_temperature"
+        },
+        {
+          "option_key": "cure_time",
+          "label_text": "Cure time setting",
+          "value_text": "cure_time"
+        },
+        {
+          "option_key": "bumping",
+          "label_text": "Pressure aur bumping setting",
+          "value_text": "bumping"
+        },
+        {
+          "option_key": "blank_weight",
+          "label_text": "Blank weight ya preform size tay karna",
+          "value_text": "blank_weight"
+        },
+        {
+          "option_key": "daylight_setting",
+          "label_text": "Daylight aur stroke setting",
+          "value_text": "daylight_setting"
+        },
+        {
+          "option_key": "injection_setting",
+          "label_text": "Rubber injection ka shot volume setting",
+          "value_text": "injection_setting"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece approve karwana",
+          "value_text": "first_piece"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "rubber_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "rubber_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "rubber_mixing_work",
+      "min_tier": "hard",
+      "prompt_text": "Compound mixing me aap kya kya karte hain?",
+      "why_text": "Mixing jaanne wale operator ki rubber plant me alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_mixing_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "chemical_weighing",
+          "label_text": "Batch card ke hisaab se chemical weighing",
+          "value_text": "chemical_weighing"
+        },
+        {
+          "option_key": "two_roll_mill",
+          "label_text": "Two-roll mill par mixing",
+          "value_text": "two_roll_mill"
+        },
+        {
+          "option_key": "internal_mixer",
+          "label_text": "Kneader ya Banbury chalana",
+          "value_text": "internal_mixer"
+        },
+        {
+          "option_key": "final_batch",
+          "label_text": "Final batch, sulphur aur accelerator milana",
+          "value_text": "final_batch"
+        },
+        {
+          "option_key": "sheeting",
+          "label_text": "Sheeting aur batch-off cooling",
+          "value_text": "sheeting"
+        },
+        {
+          "option_key": "preforming",
+          "label_text": "Strip ya preform banana",
+          "value_text": "preforming"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Mixing nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "rubber_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "rubber_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke rubber part banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "tyre",
+          "label_text": "Tyre industry",
+          "value_text": "tyre"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump, valve aur hydraulic seal",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma ya medical",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "footwear",
+          "label_text": "Footwear",
+          "value_text": "footwear"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "rubber_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "rubber_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse rubber defect aap khud theek kar lete hain?",
+      "why_text": "Defect theek karne wale technician ki demand zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "air_trap",
+          "label_text": "Air trap ya blister",
+          "value_text": "air_trap"
+        },
+        {
+          "option_key": "short_fill",
+          "label_text": "Short fill, part poora na bharna",
+          "value_text": "short_fill"
+        },
+        {
+          "option_key": "under_cure",
+          "label_text": "Under-cure, kaccha maal",
+          "value_text": "under_cure"
+        },
+        {
+          "option_key": "over_cure",
+          "label_text": "Over-cure",
+          "value_text": "over_cure"
+        },
+        {
+          "option_key": "flash",
+          "label_text": "Flash zyada aana",
+          "value_text": "flash"
+        },
+        {
+          "option_key": "scorch",
+          "label_text": "Scorch, compound pehle pak jaana",
+          "value_text": "scorch"
+        },
+        {
+          "option_key": "bond_failure",
+          "label_text": "Bonding failure, metal se rubber chhootna",
+          "value_text": "bond_failure"
+        },
+        {
+          "option_key": "backrinding",
+          "label_text": "Parting line par phatna, backrinding",
+          "value_text": "backrinding"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "rubber_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "rubber_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "rubber_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "rubber_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "rubber_process_control",
+      "min_tier": "hard",
+      "prompt_text": "Process sambhalne me aap kya kya karte hain?",
+      "why_text": "Process sambhalne wale ko senior technician ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "rubber_process_control",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mould_trial",
+          "label_text": "Naye mould ka trial lena",
+          "value_text": "mould_trial"
+        },
+        {
+          "option_key": "cure_cycle",
+          "label_text": "Cure time aur temperature final karna",
+          "value_text": "cure_cycle"
+        },
+        {
+          "option_key": "batch_release",
+          "label_text": "Rheometer graph dekhkar batch pass karna",
+          "value_text": "batch_release"
+        },
+        {
+          "option_key": "rejection_reduction",
+          "label_text": "Rejection kam karna",
+          "value_text": "rejection_reduction"
+        },
+        {
+          "option_key": "wastage_reduction",
+          "label_text": "Flash aur material wastage kam karna",
+          "value_text": "wastage_reduction"
+        },
+        {
+          "option_key": "mould_pm",
+          "label_text": "Mould cleaning aur PM plan",
+          "value_text": "mould_pm"
+        },
+        {
+          "option_key": "operator_training",
+          "label_text": "Operator ko training dena",
+          "value_text": "operator_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "rubber_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "rubber_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "compression_press",
+          "label_text": "Compression moulding press",
+          "value_text": "compression_press"
+        },
+        {
+          "option_key": "mixing_mill",
+          "label_text": "Two-roll mixing mill",
+          "value_text": "mixing_mill"
+        },
+        {
+          "option_key": "injection_moulding",
+          "label_text": "Injection moulding machine",
+          "value_text": "injection_moulding"
+        },
+        {
+          "option_key": "extruder",
+          "label_text": "Extruder",
+          "value_text": "extruder"
+        },
+        {
+          "option_key": "lab_equipment",
+          "label_text": "Hardness tester ya lab equipment",
+          "value_text": "lab_equipment"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "rubber_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "rubber_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "rubber_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

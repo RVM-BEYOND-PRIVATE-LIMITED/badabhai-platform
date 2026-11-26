@@ -143,6 +143,12 @@ describe("claim question per trade (#3011)", () => {
 
   it("every recorded claim question has answer-skill rows, and each reaches exactly the base skill", () => {
     expect(claimed.length).toBeGreaterThan(0);
+    // Second-skill chip (#3016 §3): hydra_crane names the crane skill by design and is
+    // pinned to it here, not to the base skill. (The PLC precedent puts its robot chip on a
+    // non-claim question, so no exception is needed there.)
+    const SECOND_SKILL_OPTIONS: Record<string, readonly string[]> = {
+      "qp_forklift.forklift_equipment.hydra_crane": ["mskill_crane_operator"],
+    };
     for (const e of claimed) {
       const rows = PACK_ANSWER_SKILLS[e.packId]?.[e.claimQuestionKey!];
       expect(rows, `${e.code} ${e.packId}.${e.claimQuestionKey}`).toBeDefined();
@@ -155,7 +161,10 @@ describe("claim question per trade (#3011)", () => {
             if (s) reached.add(s);
           } else for (const s of matchSkillsForAttribute(id)) reached.add(s);
         }
-        expect([...reached], `${e.code} ${e.claimQuestionKey}.${option}`).toEqual([e.matchSkillId]);
+        const key = `${e.packId}.${e.claimQuestionKey}.${option}`;
+        expect([...reached], `${e.code} ${key}`).toEqual(
+          SECOND_SKILL_OPTIONS[key] ?? [e.matchSkillId],
+        );
       }
     }
   });
@@ -163,6 +172,13 @@ describe("claim question per trade (#3011)", () => {
   it("every Wave 1 trade records its claim question", () => {
     // Waves 2 and 3 record theirs in #3016 and #3017.
     for (const e of TRADE_CATALOGUE.filter((t) => t.wave === 1)) {
+      expect(e.claimQuestionKey, `${e.code} claim question`).toBeDefined();
+    }
+  });
+
+  it("every Wave 2 trade records its claim question", () => {
+    // Wave 3 records its in #3017.
+    for (const e of TRADE_CATALOGUE.filter((t) => t.wave === 2)) {
       expect(e.claimQuestionKey, `${e.code} claim question`).toBeDefined();
     }
   });

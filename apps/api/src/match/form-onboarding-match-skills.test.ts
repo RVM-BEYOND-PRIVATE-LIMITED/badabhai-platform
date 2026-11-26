@@ -205,6 +205,27 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_foundry_casting: ["mskill_foundry_operator"],
     qp_die_casting: ["mskill_die_casting_operator"],
     qp_forging: ["mskill_forging_operator"],
+    // #3016: the eighteen Wave 2 trades each reach their own skill; the two second-skill
+    // chips join them — robotics PLC programming reaches the PLC skill, the forklift hydra
+    // chip reaches the crane skill.
+    qp_gear_cutting: ["mskill_gear_cutting_operator"],
+    qp_boring_machine: ["mskill_boring_machine_operator"],
+    qp_spm_finishing: ["mskill_spm_finishing_operator"],
+    qp_fabrication: ["mskill_fabricator"],
+    qp_tube_forming: ["mskill_tube_bending_operator"],
+    qp_surface_treatment: ["mskill_plating_operator"],
+    qp_blow_moulding: ["mskill_blow_moulding_operator"],
+    qp_plastic_extrusion: ["mskill_plastic_extrusion_operator"],
+    qp_rubber_moulding: ["mskill_rubber_moulding_operator"],
+    qp_ndt: ["mskill_ndt_technician"],
+    qp_calibration: ["mskill_calibration_technician"],
+    qp_material_lab: ["mskill_material_lab_technician"],
+    qp_robotics: ["mskill_plc_automation_tech", "mskill_robot_operator_programmer"],
+    qp_instrumentation: ["mskill_instrumentation_technician"],
+    qp_hvac_rac: ["mskill_hvac_rac_technician"],
+    qp_utility: ["mskill_utility_operator"],
+    qp_forklift: ["mskill_crane_operator", "mskill_forklift_operator"],
+    qp_crane_rigging: ["mskill_crane_operator"],
   };
 
   it("pins every mapped pack", () => {
@@ -545,10 +566,224 @@ describe("the second-skill chips (#3011 §3)", () => {
     }
   });
 
-  it("the robotics and forklift chips wait for their Wave 2 forms (#3016)", () => {
-    // qp_robotics (robot_plc_interface = plc_programming) and qp_forklift (forklift_equipment =
-    // hydra_crane) are not in the corpus yet; their rows land with the forms.
-    expect(PACK_ANSWER_SKILLS.qp_robotics).toBeUndefined();
-    expect(PACK_ANSWER_SKILLS.qp_forklift).toBeUndefined();
+  it("robotics: a robot hand who also programs PLCs derives two skills", () => {
+    const pack = latestPack("qp_robotics");
+    expect(
+      derive(
+        "qp_robotics",
+        attributesFor(pack, {
+          robot_experience: ["three_to_five"],
+          robot_brand: ["fanuc"],
+          robot_plc_interface: ["plc_programming"],
+        }),
+      ),
+    ).toEqual(["mskill_plc_automation_tech", "mskill_robot_operator_programmer"]);
+  });
+
+  it("robotics: the chip claims PLC work only; the robot skill comes from his robot answers", () => {
+    const pack = latestPack("qp_robotics");
+    expect(
+      derive("qp_robotics", attributesFor(pack, { robot_plc_interface: ["plc_programming"] })),
+    ).toEqual(["mskill_plc_automation_tech"]);
+  });
+
+  it("robotics: every other interface adds nothing", () => {
+    const pack = latestPack("qp_robotics");
+    const item = pack.items.find((i) => i.question_key === "robot_plc_interface")!;
+    for (const option of item.options ?? []) {
+      if (option.option_key === "plc_programming") continue;
+      expect(
+        derive("qp_robotics", attributesFor(pack, { robot_plc_interface: [option.option_key] })),
+        option.option_key,
+      ).toEqual([]);
+    }
+  });
+
+  it("forklift: a forklift hand who also runs hydra derives two skills", () => {
+    const pack = latestPack("qp_forklift");
+    expect(
+      derive(
+        "qp_forklift",
+        attributesFor(pack, {
+          forklift_experience: ["three_to_five"],
+          forklift_equipment: ["counterbalance", "hydra_crane"],
+        }),
+      ),
+    ).toEqual(["mskill_crane_operator", "mskill_forklift_operator"]);
+  });
+
+  it("forklift: the hydra chip claims crane work only", () => {
+    const pack = latestPack("qp_forklift");
+    expect(
+      derive("qp_forklift", attributesFor(pack, { forklift_equipment: ["hydra_crane"] })),
+    ).toEqual(["mskill_crane_operator"]);
+  });
+
+  it("forklift: every other driven truck derives exactly the forklift skill", () => {
+    const pack = latestPack("qp_forklift");
+    const item = pack.items.find((i) => i.question_key === "forklift_equipment")!;
+    for (const option of item.options ?? []) {
+      if (option.option_key === "hydra_crane") continue;
+      expect(
+        derive("qp_forklift", attributesFor(pack, { forklift_equipment: [option.option_key] })),
+        option.option_key,
+      ).toEqual(["mskill_forklift_operator"]);
+    }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * WAVE 2 OF CEO PACK v2 (#3016): EACH FORM'S CLAIM QUESTION EARNS ITS TRADE'S SKILL.
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * Driven by a LOCAL table, not `TRADE_CATALOGUE.claimQuestionKey`: Wave 2 catalogue rows carry
+ * no claim key yet (a parallel slice owns the catalogue), so this pins the mapping the bridge
+ * itself implements — one claim question per form, every non-escape chip earning the trade.
+ */
+describe("each Wave 2 form's claim question (#3016)", () => {
+  const WAVE2: ReadonlyArray<{
+    code: string;
+    packId: string;
+    claimQuestionKey: string;
+    matchSkillId: string;
+  }> = [
+    { code: "T18", packId: "qp_gear_cutting", claimQuestionKey: "gear_process", matchSkillId: "mskill_gear_cutting_operator" },
+    { code: "T19", packId: "qp_boring_machine", claimQuestionKey: "boring_machine_type", matchSkillId: "mskill_boring_machine_operator" },
+    { code: "T20", packId: "qp_spm_finishing", claimQuestionKey: "spm_process", matchSkillId: "mskill_spm_finishing_operator" },
+    { code: "T22", packId: "qp_fabrication", claimQuestionKey: "fab_work_type", matchSkillId: "mskill_fabricator" },
+    { code: "T23", packId: "qp_tube_forming", claimQuestionKey: "tube_machine_type", matchSkillId: "mskill_tube_bending_operator" },
+    { code: "T28", packId: "qp_surface_treatment", claimQuestionKey: "plating_process", matchSkillId: "mskill_plating_operator" },
+    { code: "T30", packId: "qp_blow_moulding", claimQuestionKey: "blow_process_type", matchSkillId: "mskill_blow_moulding_operator" },
+    { code: "T31", packId: "qp_plastic_extrusion", claimQuestionKey: "extrusion_product_line", matchSkillId: "mskill_plastic_extrusion_operator" },
+    { code: "T32", packId: "qp_rubber_moulding", claimQuestionKey: "rubber_process", matchSkillId: "mskill_rubber_moulding_operator" },
+    { code: "T34", packId: "qp_ndt", claimQuestionKey: "ndt_method", matchSkillId: "mskill_ndt_technician" },
+    { code: "T35", packId: "qp_calibration", claimQuestionKey: "calib_parameter", matchSkillId: "mskill_calibration_technician" },
+    { code: "T36", packId: "qp_material_lab", claimQuestionKey: "matlab_test_type", matchSkillId: "mskill_material_lab_technician" },
+    { code: "T39", packId: "qp_robotics", claimQuestionKey: "robot_brand", matchSkillId: "mskill_robot_operator_programmer" },
+    { code: "T40", packId: "qp_instrumentation", claimQuestionKey: "instr_instrument_type", matchSkillId: "mskill_instrumentation_technician" },
+    { code: "T41", packId: "qp_hvac_rac", claimQuestionKey: "hvac_system_type", matchSkillId: "mskill_hvac_rac_technician" },
+    { code: "T42", packId: "qp_utility", claimQuestionKey: "utility_plant_type", matchSkillId: "mskill_utility_operator" },
+    { code: "T56", packId: "qp_forklift", claimQuestionKey: "forklift_equipment", matchSkillId: "mskill_forklift_operator" },
+    { code: "T57", packId: "qp_crane_rigging", claimQuestionKey: "crane_role", matchSkillId: "mskill_crane_operator" },
+  ];
+
+  /** The options of a select item that carry a storable value. */
+  function storable(item: PackRecord["items"][number]) {
+    return (item.options ?? []).filter(
+      (o) =>
+        o.value_text !== undefined || o.value_number !== undefined || o.value_bool !== undefined,
+    );
+  }
+
+  /** Second-skill chips, which earn a DIFFERENT skill and are covered by the block above. */
+  const SECOND_SKILL_CHIP = new Set(["plc_programming", "hydra_crane"]);
+
+  /** Claim questions that offer no none-of-above chip, so the escape case does not apply. */
+  const NO_ESCAPE_ON_CLAIM = [
+    "qp_gear_cutting",
+    "qp_spm_finishing",
+    "qp_fabrication",
+    "qp_surface_treatment",
+    "qp_rubber_moulding",
+    "qp_ndt",
+    "qp_calibration",
+    "qp_material_lab",
+    "qp_instrumentation",
+    "qp_hvac_rac",
+    "qp_utility",
+    "qp_forklift",
+    "qp_crane_rigging",
+  ];
+
+  it("covers the eighteen Wave 2 forms", () => {
+    expect(WAVE2.map((e) => e.code).sort()).toEqual([
+      "T18",
+      "T19",
+      "T20",
+      "T22",
+      "T23",
+      "T28",
+      "T30",
+      "T31",
+      "T32",
+      "T34",
+      "T35",
+      "T36",
+      "T39",
+      "T40",
+      "T41",
+      "T42",
+      "T56",
+      "T57",
+    ]);
+  });
+
+  describe.each(WAVE2)("$code $packId", ({ packId, claimQuestionKey, matchSkillId }) => {
+    const pack = latestPack(packId);
+    const claim = pack.items.find((i) => i.question_key === claimQuestionKey)!;
+    const escapes = (claim?.options ?? []).filter((o) => o.is_none_of_above === true);
+    const chips = storable(claim).filter(
+      (o) => o.is_none_of_above !== true && !SECOND_SKILL_CHIP.has(o.option_key),
+    );
+
+    it("the claim question is a mandatory select on the active version", () => {
+      expect(claim, `${packId} has no ${claimQuestionKey}`).toBeDefined();
+      expect(claim.is_mandatory).toBe(true);
+      expect(["single_select", "multi_select"]).toContain(claim.answer_type);
+    });
+
+    it("a synthetic worker profiled through the whole form derives exactly the base skill", () => {
+      // Every select question answered with its first real chip (never an escape, never the
+      // second-skill chip), so "exactly" is tested against a full bag, not one chip.
+      const answers: Record<string, string[]> = {};
+      for (const item of pack.items) {
+        if (item.answer_type !== "single_select" && item.answer_type !== "multi_select") continue;
+        const first = storable(item).find(
+          (o) => o.is_none_of_above !== true && !SECOND_SKILL_CHIP.has(o.option_key),
+        );
+        if (first) answers[item.question_key] = [first.option_key];
+      }
+      expect(answers[claimQuestionKey!]).toBeDefined();
+      expect(derive(packId, attributesFor(pack, answers))).toEqual([matchSkillId]);
+    });
+
+    it("every claim chip of the claim question, alone, derives exactly the base skill", () => {
+      expect(chips.length).toBeGreaterThan(0);
+      for (const option of chips) {
+        expect(
+          derive(packId, attributesFor(pack, { [claimQuestionKey!]: [option.option_key] })),
+          `${packId}.${claimQuestionKey}.${option.option_key}`,
+        ).toEqual([matchSkillId]);
+      }
+    });
+
+    it("a worker who taps only the escape chip on the claim question derives nothing", () => {
+      if (NO_ESCAPE_ON_CLAIM.includes(packId)) {
+        expect(escapes, `${packId}.${claimQuestionKey} grew an escape chip`).toEqual([]);
+        return;
+      }
+      expect(escapes.length, `${packId}.${claimQuestionKey} has no escape chip`).toBe(1);
+      // Tenure and level answered too: neither is a claim (rule 3).
+      const before = pack.items.slice(0, pack.items.indexOf(claim));
+      const answers: Record<string, string[]> = {
+        [claimQuestionKey!]: [escapes[0]!.option_key],
+      };
+      for (const item of before) {
+        if (!item.is_mandatory) continue;
+        const first = storable(item)[0];
+        if (first) answers[item.question_key] = [first.option_key];
+      }
+      expect(Object.keys(answers).length).toBeGreaterThan(1);
+      expect(derive(packId, attributesFor(pack, answers))).toEqual([]);
+    });
+  });
+
+  it("names the forms whose claim question has no escape chip, and only those", () => {
+    const without = WAVE2.filter((e) => {
+      const item = latestPack(e.packId).items.find((i) => i.question_key === e.claimQuestionKey);
+      return !(item?.options ?? []).some((o) => o.is_none_of_above === true);
+    }).map((e) => e.packId);
+    expect(without.sort()).toEqual([...NO_ESCAPE_ON_CLAIM].sort());
   });
 });

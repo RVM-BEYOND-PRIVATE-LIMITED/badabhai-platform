@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 221,
+  "pack_count": 239,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -54,6 +54,14 @@
       "served_text_sha256": "5248a6728753db58a985fc6553e7b2b0f20735325948d00f13aa63591ca3b38a",
       "served_text_count": 15
     },
+    "qp_blow_moulding@1": {
+      "served_text_sha256": "a4d392f84849261bc96062d2b87c1fc6f4ea9abb639aefe5f103f0234cade6f0",
+      "served_text_count": 70
+    },
+    "qp_boring_machine@1": {
+      "served_text_sha256": "8fe1fd0501dc97fcfacb2d9d1332e66d31d633f0b67168067898dca413f8100a",
+      "served_text_count": 73
+    },
     "qp_building_finishing@1": {
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
@@ -93,6 +101,10 @@
     "qp_cad_drafting@2": {
       "served_text_sha256": "13574a08e1f4e24ae15e2ebc5d7168c4ad64684808cdc7f56d9a5a00d95aaee1",
       "served_text_count": 73
+    },
+    "qp_calibration@1": {
+      "served_text_sha256": "207b63e035ff2ce5584439ed1b25d678c6219bf92c66cc37cf0eb58620349f97",
+      "served_text_count": 70
     },
     "qp_cam_programming@1": {
       "served_text_sha256": "6236505db5b8916b5561915970395ea6626af248f8e4d3b04548a6f755c1320e",
@@ -242,6 +254,10 @@
       "served_text_sha256": "44255ea92c1641d93dffd691d8c53379596cec545aed27b6c432175144954c5e",
       "served_text_count": 18
     },
+    "qp_crane_rigging@1": {
+      "served_text_sha256": "ef6e478c2c22e7d08a57ce492c0a53bc51bfb1c47cbee6816c8c58330d51af91",
+      "served_text_count": 73
+    },
     "qp_crop_growing@1": {
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
@@ -318,6 +334,10 @@
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_fabrication@1": {
+      "served_text_sha256": "8ff85acd6cf80c42e5cdcdf86d3715227ce7e537200450f0e08b3101b86c68ad",
+      "served_text_count": 73
+    },
     "qp_farm_labour@1": {
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
@@ -362,6 +382,10 @@
       "served_text_sha256": "ca99d6f3650481a3bc31b30d938365bf5b644d24c2815a6bf0851c96755ad059",
       "served_text_count": 73
     },
+    "qp_forklift@1": {
+      "served_text_sha256": "16b426e54fe105806e4665a530f19206f97b1255f5cd40248e8276189ad6d680",
+      "served_text_count": 73
+    },
     "qp_foundry_casting@1": {
       "served_text_sha256": "aabb0f0d38ad7c674d4cc18d2525dc86d3665b479aeb65630c74cfe9bcd766d9",
       "served_text_count": 70
@@ -385,6 +409,10 @@
     "qp_garment_trades@1": {
       "served_text_sha256": "5248a6728753db58a985fc6553e7b2b0f20735325948d00f13aa63591ca3b38a",
       "served_text_count": 15
+    },
+    "qp_gear_cutting@1": {
+      "served_text_sha256": "5fc76abb75c0756a6545ffc147634a136916e216d84dd85c1a5e314ed29a6365",
+      "served_text_count": 73
     },
     "qp_hair_styling@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
@@ -418,6 +446,10 @@
       "served_text_sha256": "334142a00a43b09889f5db7225a50183665bba2a36d4a783652f7d02f326a7d2",
       "served_text_count": 70
     },
+    "qp_hvac_rac@1": {
+      "served_text_sha256": "a8267625f864162b27c2d4f8daac6f1d965f54f58abb0b20d2e8e1eaa761bade",
+      "served_text_count": 70
+    },
     "qp_industrial_electrician@1": {
       "served_text_sha256": "1be166c2d2f0b3df11aefa110befe626185dd4c4be92d4a7132bb8f4ef0decce",
       "served_text_count": 62
@@ -433,6 +465,10 @@
     "qp_injection_moulding@2": {
       "served_text_sha256": "d600e656bd10ccaa18e2f9088f86bbbb4ee1890ba665edb323c579ee2d024155",
       "served_text_count": 73
+    },
+    "qp_instrumentation@1": {
+      "served_text_sha256": "0e45788375e13ead8171e7ef54af4b117924a328b06488bda1eee1f1c55533a5",
+      "served_text_count": 67
     },
     "qp_lineman@1": {
       "served_text_sha256": "8341ede962b173a30860840ae9825d17dcfc6d8c25a6972e280fcb6fcf742b9d",
@@ -474,6 +510,10 @@
       "served_text_sha256": "cc0e2312fe53e60b15f3ede95acb8172f2f167dfc46b22b37c6c910347917220",
       "served_text_count": 15
     },
+    "qp_material_lab@1": {
+      "served_text_sha256": "92d9945c7ecc5f15922ca41a9cd865b0f5f3f39cb14573bdf6c5ab580d459023",
+      "served_text_count": 73
+    },
     "qp_metal_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
@@ -505,6 +545,10 @@
     "qp_mobile_plant@2": {
       "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
       "served_text_count": 9
+    },
+    "qp_ndt@1": {
+      "served_text_sha256": "64c2a80b27f6eef6d7b358867278d68e13a943fd53353afdd12fcf5bd936fff6",
+      "served_text_count": 73
     },
     "qp_npd_engineer@1": {
       "served_text_sha256": "32238d8df3b74ab3332f6b63a0c735bd22aa6a36f05c0237ba4ee5e930566496",
@@ -553,6 +597,10 @@
     "qp_painting@1": {
       "served_text_sha256": "c36911a4cf4e6bb5b156430942ae927cb7e9070e0f6ed0bdfb91f0f809e0ff14",
       "served_text_count": 15
+    },
+    "qp_plastic_extrusion@1": {
+      "served_text_sha256": "7cf2b31e7d7cf0ee64bfde01c730de3312c482dd25189979d201aab0b048a7fc",
+      "served_text_count": 70
     },
     "qp_plc_automation@1": {
       "served_text_sha256": "ec6aee54a1d1efa7d0e40a02e08507d6d7363a383c2dd1bb33d8fd9f5954d87a",
@@ -654,6 +702,14 @@
       "served_text_sha256": "9977c9646fb629a1951df544c66e1761ed43e36eb8139367c3a759c25f38db67",
       "served_text_count": 12
     },
+    "qp_robotics@1": {
+      "served_text_sha256": "b29256c598b984548057f87289f5e955ce8292c02be9b8ef6549a99404313cb1",
+      "served_text_count": 73
+    },
+    "qp_rubber_moulding@1": {
+      "served_text_sha256": "a814c29d8b2b5292a3effd37f2e58171951a6fb71410158feb68db1b1f36b151",
+      "served_text_count": 67
+    },
     "qp_rubber_plastic@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
@@ -706,6 +762,10 @@
       "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
       "served_text_count": 9
     },
+    "qp_spm_finishing@1": {
+      "served_text_sha256": "be37c881a99041a9a7541a060b3957567e80be704b53bc4a88d0ab92f0d66818",
+      "served_text_count": 73
+    },
     "qp_street_sales@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
@@ -750,6 +810,10 @@
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
     },
+    "qp_surface_treatment@1": {
+      "served_text_sha256": "bd9711f1cb29cf540ac907d7f87ce4333e35e66469725189f0ed2af5e0b5579b",
+      "served_text_count": 70
+    },
     "qp_tailoring@1": {
       "served_text_sha256": "c807861e061ac3806e03a1578e524f6d06b84e091d4dd64a36ec05b93c898661",
       "served_text_count": 18
@@ -790,6 +854,10 @@
       "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
       "served_text_count": 9
     },
+    "qp_tube_forming@1": {
+      "served_text_sha256": "9b45406fa1e340413db88143d0b8a041600ff9d521fbd6cd26033aa4378fcb19",
+      "served_text_count": 73
+    },
     "qp_universal@1": {
       "served_text_sha256": "7cfe1a1ca090ae7568d587c5d3417c4adb678bbf267e766315eacfd9752ff4b2",
       "served_text_count": 32
@@ -821,6 +889,10 @@
     "qp_universal@8": {
       "served_text_sha256": "e9e291d6f6483de1391d21555901ba5dd5245ca9a1356686a7360549d6390158",
       "served_text_count": 68
+    },
+    "qp_utility@1": {
+      "served_text_sha256": "fb7fa880e9498a528522f559653faab3fc4b73fd3ecdb33dd16fc2f748e3fe88",
+      "served_text_count": 73
     },
     "qp_vmc_milling@1": {
       "served_text_sha256": "99676290b56d5525da9b86a8cabe1579d03ae260b9dc901df7c1fda6af5cf747",

@@ -1,0 +1,1254 @@
+{
+  "_why": "Role track for Tube Bending / Roll Forming Operator (T23), new trade (CEO pack v2). fam_tube_forming binds NCO 7223.2000.",
+  "_scope": "Sheet Metal and Fabrication shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T23 (Tube Bending / Roll Forming Operator). Status: NEW",
+  "pack_id": "qp_tube_forming",
+  "version": 1,
+  "family_id": "fam_tube_forming",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T23): new trade.",
+  "items": [
+    {
+      "question_key": "tube_experience",
+      "min_tier": "easy",
+      "prompt_text": "Tube bending ya roll forming ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "tube_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Tube bending ya roll forming ka kaam kiya hai?"
+    },
+    {
+      "question_key": "tube_level",
+      "min_tier": "easy",
+      "prompt_text": "Bending ya forming machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "tube_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "tube_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye part ki die, mandrel ya roll setting aap khud karte ho?",
+      "why_text": "Tooling khud set karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "tube_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "tube_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye part ka program aur tooling trial aap khud nikaalte ho?",
+      "why_text": "Naya part khud nikaalne wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud nikaalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Engineer ya senior deta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "tube_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "tube_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "tube_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "tube_machine_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_machine_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cnc_mandrel_bender",
+          "label_text": "CNC mandrel tube bender",
+          "value_text": "cnc_mandrel_bender"
+        },
+        {
+          "option_key": "nc_bender",
+          "label_text": "NC / hydraulic semi-automatic bender",
+          "value_text": "nc_bender"
+        },
+        {
+          "option_key": "manual_bender",
+          "label_text": "Haath wali pipe bending machine",
+          "value_text": "manual_bender"
+        },
+        {
+          "option_key": "three_roll_bender",
+          "label_text": "3-roll section / profile bending",
+          "value_text": "three_roll_bender"
+        },
+        {
+          "option_key": "roll_forming_line",
+          "label_text": "Roll forming line",
+          "value_text": "roll_forming_line"
+        },
+        {
+          "option_key": "tube_mill",
+          "label_text": "Tube mill (ERW pipe)",
+          "value_text": "tube_mill"
+        },
+        {
+          "option_key": "end_forming_machine",
+          "label_text": "End forming ya swaging machine",
+          "value_text": "end_forming_machine"
+        },
+        {
+          "option_key": "tube_cutting_machine",
+          "label_text": "Pipe cutting machine (circular saw, cut-off)",
+          "value_text": "tube_cutting_machine"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "tube_machine_make",
+      "min_tier": "medium",
+      "prompt_text": "Machine kis company ki hai?",
+      "why_text": "Usi company ki machine wale employer aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "tube_machine_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "electropneumatics",
+          "label_text": "Electropneumatics (EPH)",
+          "value_text": "electropneumatics"
+        },
+        {
+          "option_key": "soco",
+          "label_text": "Soco",
+          "value_text": "soco"
+        },
+        {
+          "option_key": "ylm",
+          "label_text": "YLM",
+          "value_text": "ylm"
+        },
+        {
+          "option_key": "blm",
+          "label_text": "BLM",
+          "value_text": "blm"
+        },
+        {
+          "option_key": "chiyoda",
+          "label_text": "Chiyoda",
+          "value_text": "chiyoda"
+        },
+        {
+          "option_key": "opton",
+          "label_text": "Opton",
+          "value_text": "opton"
+        },
+        {
+          "option_key": "shuz_tung",
+          "label_text": "Shuz Tung",
+          "value_text": "shuz_tung"
+        },
+        {
+          "option_key": "local_make",
+          "label_text": "Local ya company ki banayi machine",
+          "value_text": "local_make"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "tube_product",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunse part ya product banate hain?",
+      "why_text": "Part ke hisaab se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_product",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "exhaust_pipe",
+          "label_text": "Exhaust pipe / silencer pipe",
+          "value_text": "exhaust_pipe"
+        },
+        {
+          "option_key": "seat_frame",
+          "label_text": "Seat frame",
+          "value_text": "seat_frame"
+        },
+        {
+          "option_key": "two_wheeler_frame",
+          "label_text": "Two-wheeler frame ya handle bar",
+          "value_text": "two_wheeler_frame"
+        },
+        {
+          "option_key": "furniture",
+          "label_text": "Furniture (chair, bed, table frame)",
+          "value_text": "furniture"
+        },
+        {
+          "option_key": "hydraulic_line",
+          "label_text": "Hydraulic line",
+          "value_text": "hydraulic_line"
+        },
+        {
+          "option_key": "fuel_brake_line",
+          "label_text": "Fuel, brake ya AC line",
+          "value_text": "fuel_brake_line"
+        },
+        {
+          "option_key": "boiler_coil",
+          "label_text": "Boiler ya heat exchanger coil",
+          "value_text": "boiler_coil"
+        },
+        {
+          "option_key": "roll_formed_section",
+          "label_text": "Roll formed section (purlin, shutter, door frame)",
+          "value_text": "roll_formed_section"
+        },
+        {
+          "option_key": "erw_pipe",
+          "label_text": "ERW pipe ya tube",
+          "value_text": "erw_pipe"
+        }
+      ]
+    },
+    {
+      "question_key": "tube_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Roz ke kaam mein aap kya kya karte hain?",
+      "why_text": "Roz ke kaam se pata chalta hai aap kitna sambhal lete hain.",
+      "target_kind": "attribute",
+      "target_field": "tube_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "load_run",
+          "label_text": "Tube loading aur cycle chalana",
+          "value_text": "load_run"
+        },
+        {
+          "option_key": "fixture_check",
+          "label_text": "Checking fixture par part check karna",
+          "value_text": "fixture_check"
+        },
+        {
+          "option_key": "angle_correction",
+          "label_text": "Program chunna, angle correction dena",
+          "value_text": "angle_correction"
+        },
+        {
+          "option_key": "cut_deburr",
+          "label_text": "Tube cutting aur deburring",
+          "value_text": "cut_deburr"
+        },
+        {
+          "option_key": "lubrication",
+          "label_text": "Mandrel lubrication dekhna",
+          "value_text": "lubrication"
+        },
+        {
+          "option_key": "coil_loading",
+          "label_text": "Coil ya strip loading (roll forming)",
+          "value_text": "coil_loading"
+        },
+        {
+          "option_key": "check_sheet",
+          "label_text": "Check sheet aur production report bharna",
+          "value_text": "check_sheet"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ki tube ya section par kaam kiya hai?",
+      "why_text": "Har material ka spring-back alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS / CRCA / ERW tube",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel (SS304, SS409)",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "copper",
+          "label_text": "Copper",
+          "value_text": "copper"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "galvanised",
+          "label_text": "GI / galvanised",
+          "value_text": "galvanised"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy steel ya boiler tube",
+          "value_text": "alloy_steel"
+        }
+      ]
+    },
+    {
+      "question_key": "tube_size_range",
+      "min_tier": "hard",
+      "prompt_text": "Kitne dia ki tube ya pipe par kaam kiya hai?",
+      "why_text": "Tube ke size se machine aur tooling ka andaaza lagta hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_size_range",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_twelve",
+          "label_text": "12 mm se chhoti",
+          "value_text": "12"
+        },
+        {
+          "option_key": "upto_twenty_five",
+          "label_text": "12 se 25 mm",
+          "value_text": "25"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "25 se 50 mm",
+          "value_text": "50"
+        },
+        {
+          "option_key": "upto_seventy_six",
+          "label_text": "50 se 76 mm",
+          "value_text": "76"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "76 mm se badi",
+          "value_text": "100"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "tube_tooling",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi tooling ke saath kaam kiya hai?",
+      "why_text": "Tooling jaanne wale operator ko setter banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_tooling",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bend_die",
+          "label_text": "Bend die / former",
+          "value_text": "bend_die"
+        },
+        {
+          "option_key": "clamp_pressure_die",
+          "label_text": "Clamp die aur pressure die",
+          "value_text": "clamp_pressure_die"
+        },
+        {
+          "option_key": "mandrel",
+          "label_text": "Mandrel (plug ya ball type)",
+          "value_text": "mandrel"
+        },
+        {
+          "option_key": "wiper_die",
+          "label_text": "Wiper die",
+          "value_text": "wiper_die"
+        },
+        {
+          "option_key": "collet",
+          "label_text": "Collet",
+          "value_text": "collet"
+        },
+        {
+          "option_key": "multi_stack",
+          "label_text": "Multi-stack tooling, alag radius ke liye",
+          "value_text": "multi_stack"
+        },
+        {
+          "option_key": "forming_rolls",
+          "label_text": "Forming roll set (roll forming)",
+          "value_text": "forming_rolls"
+        },
+        {
+          "option_key": "end_form_tooling",
+          "label_text": "End forming punch aur die",
+          "value_text": "end_form_tooling"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Part check karne ke liye kya use karte hain?",
+      "why_text": "Part khud check karne wale ko zimmedari ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "checking_fixture",
+          "label_text": "Checking fixture (CF)",
+          "value_text": "checking_fixture"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "bevel_protractor",
+          "label_text": "Bevel protractor (angle)",
+          "value_text": "bevel_protractor"
+        },
+        {
+          "option_key": "radius_gauge",
+          "label_text": "Radius gauge ya template",
+          "value_text": "radius_gauge"
+        },
+        {
+          "option_key": "steel_rule",
+          "label_text": "Measuring tape aur steel rule",
+          "value_text": "steel_rule"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer (wall thickness)",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Plug ya ring gauge (end form)",
+          "value_text": "plug_gauge"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "tube_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Setting mein aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_change",
+          "label_text": "Bend die, clamp aur pressure die badalna",
+          "value_text": "die_change"
+        },
+        {
+          "option_key": "mandrel_position",
+          "label_text": "Mandrel position set karna",
+          "value_text": "mandrel_position"
+        },
+        {
+          "option_key": "wiper_setting",
+          "label_text": "Wiper die ka angle set karna",
+          "value_text": "wiper_setting"
+        },
+        {
+          "option_key": "die_pressure",
+          "label_text": "Clamp aur pressure die ka pressure",
+          "value_text": "die_pressure"
+        },
+        {
+          "option_key": "ybc_data",
+          "label_text": "Y-B-C data daalna ya badalna",
+          "value_text": "ybc_data"
+        },
+        {
+          "option_key": "springback_comp",
+          "label_text": "Spring-back ka compensation dena",
+          "value_text": "springback_comp"
+        },
+        {
+          "option_key": "roll_gap_alignment",
+          "label_text": "Roll gap aur pass alignment (roll forming)",
+          "value_text": "roll_gap_alignment"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece checking fixture par pass karwana",
+          "value_text": "first_piece"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "tube_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "tube_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "tube_bend_capability",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke bend aap nikal lete hain?",
+      "why_text": "Mushkil bend nikalne wale setter kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "tube_bend_capability",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "single_plane",
+          "label_text": "Ek plane ke simple bend",
+          "value_text": "single_plane"
+        },
+        {
+          "option_key": "multi_plane",
+          "label_text": "Multi-plane 3D bend, rotation ke saath",
+          "value_text": "multi_plane"
+        },
+        {
+          "option_key": "tight_radius",
+          "label_text": "Tight radius (1D / 1.5D)",
+          "value_text": "tight_radius"
+        },
+        {
+          "option_key": "thin_wall",
+          "label_text": "Patli wall ki tube",
+          "value_text": "thin_wall"
+        },
+        {
+          "option_key": "short_straight",
+          "label_text": "Do bend ke beech kam seedhi length",
+          "value_text": "short_straight"
+        },
+        {
+          "option_key": "roll_bending",
+          "label_text": "Bada radius, roll ya push bending",
+          "value_text": "roll_bending"
+        },
+        {
+          "option_key": "square_tube",
+          "label_text": "Square ya rectangular tube ka bend",
+          "value_text": "square_tube"
+        },
+        {
+          "option_key": "u_bend_coil",
+          "label_text": "U-bend ya coil",
+          "value_text": "u_bend_coil"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "tube_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "tube_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke parts banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive (exhaust, seat, chassis parts)",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "furniture",
+          "label_text": "Furniture",
+          "value_text": "furniture"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "AC, fridge aur appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Boiler / power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agriculture",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "peb_structure",
+          "label_text": "PEB, roofing aur building section",
+          "value_text": "peb_structure"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job work",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "tube_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "tube_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "tube_program_work",
+      "min_tier": "hard",
+      "prompt_text": "CNC bender ke program mein aap kya karte hain?",
+      "why_text": "Program banane wale ko sabse zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_program_work",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "run_only",
+          "label_text": "Sirf bana hua program chalata hoon",
+          "value_text": "run_only"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Angle aur spring-back correction deta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "write_program",
+          "label_text": "Drawing ya XYZ se naya Y-B-C program banata hoon",
+          "value_text": "write_program"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "CNC bender nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "tube_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "tube_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Bending ya forming ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale setter ki line par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wrinkle",
+          "label_text": "Wrinkle, bend ke andar sikudan",
+          "value_text": "wrinkle"
+        },
+        {
+          "option_key": "ovality",
+          "label_text": "Ovality, tube chapti hona",
+          "value_text": "ovality"
+        },
+        {
+          "option_key": "springback",
+          "label_text": "Spring-back, angle ka farak",
+          "value_text": "springback"
+        },
+        {
+          "option_key": "crack_thinning",
+          "label_text": "Bend par crack ya wall patli hona",
+          "value_text": "crack_thinning"
+        },
+        {
+          "option_key": "clamp_mark",
+          "label_text": "Clamp slip, tube par die mark",
+          "value_text": "clamp_mark"
+        },
+        {
+          "option_key": "mandrel_mark",
+          "label_text": "Mandrel mark ya hump",
+          "value_text": "mandrel_mark"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Length ya rotation ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "twist_bow",
+          "label_text": "Roll forming me twist, bow ya flare",
+          "value_text": "twist_bow"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "tube_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "tube_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "tube_new_part_work",
+      "min_tier": "hard",
+      "prompt_text": "Naye part ke development me aap kya karte hain?",
+      "why_text": "Naya part nikaalne wale ko senior ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tube_new_part_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tooling_trial",
+          "label_text": "Tooling trial aur proving",
+          "value_text": "tooling_trial"
+        },
+        {
+          "option_key": "bend_sequence",
+          "label_text": "Bend sequence aur collision check",
+          "value_text": "bend_sequence"
+        },
+        {
+          "option_key": "cut_length",
+          "label_text": "Cut length nikalna",
+          "value_text": "cut_length"
+        },
+        {
+          "option_key": "cycle_time",
+          "label_text": "Cycle time kam karna",
+          "value_text": "cycle_time"
+        },
+        {
+          "option_key": "tooling_repair",
+          "label_text": "Tooling repair ya polish karwana",
+          "value_text": "tooling_repair"
+        },
+        {
+          "option_key": "operator_training",
+          "label_text": "Operator ko training dena",
+          "value_text": "operator_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "tube_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "tube_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pipe_bending",
+          "label_text": "Pipe bending machine",
+          "value_text": "pipe_bending"
+        },
+        {
+          "option_key": "press",
+          "label_text": "Power press ya hydraulic press",
+          "value_text": "press"
+        },
+        {
+          "option_key": "sheet_bending",
+          "label_text": "Sheet bending ya shearing machine",
+          "value_text": "sheet_bending"
+        },
+        {
+          "option_key": "pipe_cutting",
+          "label_text": "Pipe cutting aur threading",
+          "value_text": "pipe_cutting"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "welding",
+          "label_text": "Welding (arc ya gas)",
+          "value_text": "welding"
+        },
+        {
+          "option_key": "bench_fitting",
+          "label_text": "Bench fitting",
+          "value_text": "bench_fitting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "tube_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "tube_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "tube_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

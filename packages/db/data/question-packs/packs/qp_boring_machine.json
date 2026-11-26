@@ -1,0 +1,1231 @@
+{
+  "_why": "Role track for Boring Machine Operator, HBM (T19), new trade (CEO pack v2). fam_boring_machine binds NCO 7222.0400, 7223.1701 and 7223.1800.",
+  "_scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T19 (Boring Machine Operator (HBM)). Status: NEW",
+  "pack_id": "qp_boring_machine",
+  "version": 1,
+  "family_id": "fam_boring_machine",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T19): new trade.",
+  "items": [
+    {
+      "question_key": "boring_experience",
+      "min_tier": "easy",
+      "prompt_text": "Boring machine ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "boring_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Boring machine ka kaam kiya hai?"
+    },
+    {
+      "question_key": "boring_level",
+      "min_tier": "easy",
+      "prompt_text": "Boring machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "boring_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "setter_programmer",
+          "label_text": "Setter-cum-Programmer",
+          "value_text": "setter_programmer"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "boring_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Bhaari job ki levelling, dialling aur zero aap khud set karte ho?",
+      "why_text": "Job khud set karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "boring_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "boring_setter_programmer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Program control pe khud likhte ho ya edit hi karte ho?",
+      "why_text": "Khud program likhne wale ko programmer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_setter_programmer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud likhta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Edit hi karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "boring_level"
+        },
+        "right": {
+          "const": [
+            "setter_programmer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "boring_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "boring_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "boring_machine_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi boring machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_machine_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "table_type_hbm",
+          "label_text": "Table type HBM",
+          "value_text": "table_type_hbm"
+        },
+        {
+          "option_key": "floor_borer",
+          "label_text": "Floor type boring / floor borer",
+          "value_text": "floor_borer"
+        },
+        {
+          "option_key": "jig_boring",
+          "label_text": "Jig boring",
+          "value_text": "jig_boring"
+        },
+        {
+          "option_key": "plano_miller",
+          "label_text": "Plano-miller",
+          "value_text": "plano_miller"
+        },
+        {
+          "option_key": "heavy_vtl",
+          "label_text": "Heavy VTL",
+          "value_text": "heavy_vtl"
+        },
+        {
+          "option_key": "portable_line_boring",
+          "label_text": "Portable line boring machine",
+          "value_text": "portable_line_boring"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "boring_machine_control",
+      "min_tier": "medium",
+      "prompt_text": "Machine CNC hai ya manual?",
+      "why_text": "CNC aur manual machine ke kaam alag dikhaye jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "boring_machine_control",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "manual",
+          "label_text": "Manual, DRO wali",
+          "value_text": "manual"
+        },
+        {
+          "option_key": "cnc",
+          "label_text": "CNC",
+          "value_text": "cnc"
+        },
+        {
+          "option_key": "both_types",
+          "label_text": "CNC aur manual dono",
+          "value_text": "both_types"
+        }
+      ]
+    },
+    {
+      "question_key": "boring_machine_make",
+      "min_tier": "medium",
+      "prompt_text": "Machine kis company ki hai?",
+      "why_text": "Usi company ki machine wale employer aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "boring_machine_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hmt",
+          "label_text": "HMT",
+          "value_text": "hmt"
+        },
+        {
+          "option_key": "wmw",
+          "label_text": "WMW / Union",
+          "value_text": "wmw"
+        },
+        {
+          "option_key": "tos",
+          "label_text": "TOS",
+          "value_text": "tos"
+        },
+        {
+          "option_key": "skoda",
+          "label_text": "Skoda",
+          "value_text": "skoda"
+        },
+        {
+          "option_key": "juaristi",
+          "label_text": "Juaristi",
+          "value_text": "juaristi"
+        },
+        {
+          "option_key": "pama",
+          "label_text": "PAMA",
+          "value_text": "pama"
+        },
+        {
+          "option_key": "kuraki",
+          "label_text": "Kuraki",
+          "value_text": "kuraki"
+        },
+        {
+          "option_key": "fermat",
+          "label_text": "Fermat",
+          "value_text": "fermat"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur company",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "controller_brand",
+      "min_tier": "hard",
+      "prompt_text": "Machine par kaunsa controller lagaa hai?",
+      "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "controller_brand",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fanuc",
+          "label_text": "Fanuc",
+          "value_text": "fanuc"
+        },
+        {
+          "option_key": "siemens",
+          "label_text": "Siemens / Sinumerik",
+          "value_text": "siemens"
+        },
+        {
+          "option_key": "heidenhain",
+          "label_text": "Heidenhain / TNC",
+          "value_text": "heidenhain"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "fagor",
+          "label_text": "Fagor",
+          "value_text": "fagor"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "boring_machine_control"
+        },
+        "right": {
+          "const": [
+            "cnc",
+            "both_types"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "boring_operation",
+      "min_tier": "medium",
+      "prompt_text": "Machine par kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "boring_operation",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "boring_op",
+          "label_text": "Rough aur finish boring",
+          "value_text": "boring_op"
+        },
+        {
+          "option_key": "line_boring",
+          "label_text": "Line boring, do bore ek line me",
+          "value_text": "line_boring"
+        },
+        {
+          "option_key": "face_milling",
+          "label_text": "Face milling",
+          "value_text": "face_milling"
+        },
+        {
+          "option_key": "facing_head",
+          "label_text": "Facing head se facing ya grooving",
+          "value_text": "facing_head"
+        },
+        {
+          "option_key": "drilling_tapping",
+          "label_text": "Drilling aur tapping",
+          "value_text": "drilling_tapping"
+        },
+        {
+          "option_key": "back_boring",
+          "label_text": "Back boring / back facing",
+          "value_text": "back_boring"
+        },
+        {
+          "option_key": "slot_milling",
+          "label_text": "Slot aur keyway milling",
+          "value_text": "slot_milling"
+        },
+        {
+          "option_key": "four_side_indexing",
+          "label_text": "Table ghuma kar chaaro side machining",
+          "value_text": "four_side_indexing"
+        }
+      ]
+    },
+    {
+      "question_key": "boring_job_type",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunse job machine karte hain?",
+      "why_text": "Job ke hisaab se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_job_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "gearbox_housing",
+          "label_text": "Gearbox housing / casing",
+          "value_text": "gearbox_housing"
+        },
+        {
+          "option_key": "machine_bed",
+          "label_text": "Machine bed, column, base",
+          "value_text": "machine_bed"
+        },
+        {
+          "option_key": "press_frame",
+          "label_text": "Press frame aur crown",
+          "value_text": "press_frame"
+        },
+        {
+          "option_key": "pump_valve_body",
+          "label_text": "Pump aur valve body",
+          "value_text": "pump_valve_body"
+        },
+        {
+          "option_key": "engine_block",
+          "label_text": "Engine block ya compressor crankcase",
+          "value_text": "engine_block"
+        },
+        {
+          "option_key": "fabricated_frame",
+          "label_text": "Fabricated frame / structure",
+          "value_text": "fabricated_frame"
+        },
+        {
+          "option_key": "motor_turbine_casing",
+          "label_text": "Motor, alternator ya turbine casing",
+          "value_text": "motor_turbine_casing"
+        },
+        {
+          "option_key": "die_mould_base",
+          "label_text": "Die aur mould base",
+          "value_text": "die_mould_base"
+        },
+        {
+          "option_key": "earthmover_parts",
+          "label_text": "Earthmover ke part (boom, chassis)",
+          "value_text": "earthmover_parts"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ke job machine kiye hain?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron casting",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "sg_iron",
+          "label_text": "SG iron casting",
+          "value_text": "sg_iron"
+        },
+        {
+          "option_key": "cast_steel",
+          "label_text": "Steel casting",
+          "value_text": "cast_steel"
+        },
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS fabrication",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy steel ya forging",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Bade bore ka naap lene wale kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Outside micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "inside_micrometer",
+          "label_text": "Inside / stick micrometer",
+          "value_text": "inside_micrometer"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator / lever dial",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "depth_gauge",
+          "label_text": "Depth vernier ya depth micrometer",
+          "value_text": "depth_gauge"
+        },
+        {
+          "option_key": "slip_gauge",
+          "label_text": "Slip gauge",
+          "value_text": "slip_gauge"
+        },
+        {
+          "option_key": "spirit_level",
+          "label_text": "Master level / spirit level",
+          "value_text": "spirit_level"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "boring_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Job setting mein aap kya kya karte hain?",
+      "why_text": "Bhaari job khud set karne wale ko zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "crane_loading",
+          "label_text": "Crane se job loading, sling lagana",
+          "value_text": "crane_loading"
+        },
+        {
+          "option_key": "levelling",
+          "label_text": "Jack aur packing se levelling",
+          "value_text": "levelling"
+        },
+        {
+          "option_key": "dialling",
+          "label_text": "Dial se job ki dialling",
+          "value_text": "dialling"
+        },
+        {
+          "option_key": "marking_line_setting",
+          "label_text": "Marking line ke hisaab se setting",
+          "value_text": "marking_line_setting"
+        },
+        {
+          "option_key": "clamping",
+          "label_text": "Clamping (T-bolt, strap clamp, angle plate)",
+          "value_text": "clamping"
+        },
+        {
+          "option_key": "centre_zero",
+          "label_text": "Bore centre pakadna, zero set karna",
+          "value_text": "centre_zero"
+        },
+        {
+          "option_key": "boring_bar_setup",
+          "label_text": "Boring bar aur facing head lagana",
+          "value_text": "boring_bar_setup"
+        },
+        {
+          "option_key": "tool_offset",
+          "label_text": "Tool length aur offset",
+          "value_text": "tool_offset"
+        },
+        {
+          "option_key": "optical_alignment",
+          "label_text": "Optical ya laser alignment",
+          "value_text": "optical_alignment"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "boring_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "boring_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "tolerance_band",
+      "min_tier": "hard",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "point_one_zero",
+          "label_text": "0.10 mm tak",
+          "value_text": "0.10"
+        },
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm tak",
+          "value_text": "0.05"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm / H7 bore tak",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm tak",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "boring_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "boring_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke job aapne machine kiye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "general_engg",
+          "label_text": "Heavy engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "spm_parts",
+          "label_text": "Machine tool / SPM banane wali company",
+          "value_text": "spm_parts"
+        },
+        {
+          "option_key": "industrial_gearbox",
+          "label_text": "Industrial gearbox",
+          "value_text": "industrial_gearbox"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant / turbine",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant ya rolling mill equipment",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Construction / earthmoving equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "sugar_cement",
+          "label_text": "Sugar ya cement plant machinery",
+          "value_text": "sugar_cement"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "boring_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "boring_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "boring_programming_level",
+      "min_tier": "hard",
+      "prompt_text": "Programming ka kaam kitna karte hain?",
+      "why_text": "Program likhne wale ko sabse zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "boring_programming_level",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "offset_only",
+          "label_text": "Sirf offset badalta hoon",
+          "value_text": "offset_only"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Program edit kar leta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "write_program",
+          "label_text": "Control pe naya program likh leta hoon",
+          "value_text": "write_program"
+        },
+        {
+          "option_key": "cam",
+          "label_text": "CAM se bana program chalata aur sudhaarta hoon",
+          "value_text": "cam"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Manual machine hai, program nahi lagta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "boring_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "boring_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Machining ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bore_oval_taper",
+          "label_text": "Bore oval ya taper aana",
+          "value_text": "bore_oval_taper"
+        },
+        {
+          "option_key": "bore_misalignment",
+          "label_text": "Do bore ki alignment out aana",
+          "value_text": "bore_misalignment"
+        },
+        {
+          "option_key": "chatter",
+          "label_text": "Boring bar ka chatter",
+          "value_text": "chatter"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Surface finish kharab aana",
+          "value_text": "surface_finish"
+        },
+        {
+          "option_key": "squareness_error",
+          "label_text": "Face ka squareness ya parallelism out",
+          "value_text": "squareness_error"
+        },
+        {
+          "option_key": "tool_wear",
+          "label_text": "Tool ghisna ya toot jaana",
+          "value_text": "tool_wear"
+        },
+        {
+          "option_key": "alarm",
+          "label_text": "Alarm clear karna",
+          "value_text": "alarm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "boring_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "boring_level"
+            },
+            "right": {
+              "const": [
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Machining ke beech me checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "inspection_report",
+          "label_text": "Inspection report bharna",
+          "value_text": "inspection_report"
+        },
+        {
+          "option_key": "customer_inspection",
+          "label_text": "Customer ya third party inspection dilwana",
+          "value_text": "customer_inspection"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "boring_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "boring_level"
+            },
+            "right": {
+              "const": [
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hbm",
+          "label_text": "Horizontal boring machine",
+          "value_text": "hbm"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "radial_drilling",
+          "label_text": "Radial drilling machine",
+          "value_text": "radial_drilling"
+        },
+        {
+          "option_key": "shaper",
+          "label_text": "Shaper, planer ya slotting",
+          "value_text": "shaper"
+        },
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "cnc_machine",
+          "label_text": "VMC ya CNC lathe",
+          "value_text": "cnc_machine"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "boring_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "boring_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "boring_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1280 @@
+{
+  "_why": "Role track for Fabricator / Structural Fitter (T22), new trade (CEO pack v2). fam_fabrication binds the 7212, 7214, 7222 and 7224 structural codes.",
+  "_scope": "Sheet Metal and Fabrication shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T22 (Fabricator / Structural Fitter). Status: NEW",
+  "pack_id": "qp_fabrication",
+  "version": 1,
+  "family_id": "fam_fabrication",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T22): new trade.",
+  "items": [
+    {
+      "question_key": "fab_experience",
+      "min_tier": "easy",
+      "prompt_text": "Fabrication ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "fab_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Fabrication ka kaam kiya hai?"
+    },
+    {
+      "question_key": "fab_level",
+      "min_tier": "easy",
+      "prompt_text": "Fabrication me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "fab_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Fabricator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled (drawing se akele kaam)",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Fabrication me helper, fabricator ya skilled hain?"
+    },
+    {
+      "question_key": "fab_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Drawing dekh kar marking aur fit-up aap akele kar lete ho?",
+      "why_text": "Drawing se akele kaam karne wale fabricator ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Akele kar leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke bataye hisaab se karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "fab_level"
+        },
+        "right": {
+          "const": [
+            "skilled"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "fab_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Poora job drawing se inspection tak apni team ke saath aap nikaalte ho?",
+      "why_text": "Poora job sambhalne wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, poora job mera hota hai",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, foreman ke under karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "fab_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "fab_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne fabricator, welder aur helper aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "fab_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "fab_work_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis tarah ka fabrication karte hain?",
+      "why_text": "Kaam ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "structural",
+          "label_text": "Structural (beam, column, truss)",
+          "value_text": "structural"
+        },
+        {
+          "option_key": "pressure_vessel",
+          "label_text": "Pressure vessel aur heat exchanger",
+          "value_text": "pressure_vessel"
+        },
+        {
+          "option_key": "storage_tank",
+          "label_text": "Storage tank aur silo",
+          "value_text": "storage_tank"
+        },
+        {
+          "option_key": "peb",
+          "label_text": "PEB / shed",
+          "value_text": "peb"
+        },
+        {
+          "option_key": "machine_frame",
+          "label_text": "Machine frame, base frame, skid",
+          "value_text": "machine_frame"
+        },
+        {
+          "option_key": "chassis_body",
+          "label_text": "Chassis, trailer, tipper body",
+          "value_text": "chassis_body"
+        },
+        {
+          "option_key": "ducting",
+          "label_text": "Ducting, chimney, hopper",
+          "value_text": "ducting"
+        },
+        {
+          "option_key": "piping_spool",
+          "label_text": "Piping spool fabrication",
+          "value_text": "piping_spool"
+        },
+        {
+          "option_key": "gate_grill",
+          "label_text": "Gate, grill, railing",
+          "value_text": "gate_grill"
+        }
+      ]
+    },
+    {
+      "question_key": "fab_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Fabrication me kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "fab_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "marking",
+          "label_text": "Drawing se marking / layout",
+          "value_text": "marking"
+        },
+        {
+          "option_key": "gas_cutting",
+          "label_text": "Gas cutting, haath se",
+          "value_text": "gas_cutting"
+        },
+        {
+          "option_key": "plasma_cutting",
+          "label_text": "Plasma cutting",
+          "value_text": "plasma_cutting"
+        },
+        {
+          "option_key": "fitup_tacking",
+          "label_text": "Fit-up aur tacking",
+          "value_text": "fitup_tacking"
+        },
+        {
+          "option_key": "levelling",
+          "label_text": "Levelling, alignment aur diagonal check",
+          "value_text": "levelling"
+        },
+        {
+          "option_key": "edge_preparation",
+          "label_text": "Grinding (AG4 / AG7) aur edge preparation",
+          "value_text": "edge_preparation"
+        },
+        {
+          "option_key": "drilling_bolting",
+          "label_text": "Drilling aur bolting",
+          "value_text": "drilling_bolting"
+        },
+        {
+          "option_key": "straightening",
+          "label_text": "Straightening, heat ya press se",
+          "value_text": "straightening"
+        },
+        {
+          "option_key": "welding_self",
+          "label_text": "Full welding bhi khud karta hoon",
+          "value_text": "welding_self"
+        }
+      ]
+    },
+    {
+      "question_key": "fab_machine_used",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi machine aap chala lete hain?",
+      "why_text": "Machine chalane wale fabricator ko zyada kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_machine_used",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pug_cutting",
+          "label_text": "Pug cutting machine",
+          "value_text": "pug_cutting"
+        },
+        {
+          "option_key": "cnc_profile_cutting",
+          "label_text": "CNC plasma / oxy-fuel profile cutting",
+          "value_text": "cnc_profile_cutting"
+        },
+        {
+          "option_key": "plate_rolling",
+          "label_text": "Plate rolling machine",
+          "value_text": "plate_rolling"
+        },
+        {
+          "option_key": "shearing",
+          "label_text": "Shearing machine",
+          "value_text": "shearing"
+        },
+        {
+          "option_key": "press_brake",
+          "label_text": "Press brake / bending machine",
+          "value_text": "press_brake"
+        },
+        {
+          "option_key": "mag_drill",
+          "label_text": "Magnetic drill ya radial drill",
+          "value_text": "mag_drill"
+        },
+        {
+          "option_key": "section_bending",
+          "label_text": "Section / angle bending machine",
+          "value_text": "section_bending"
+        },
+        {
+          "option_key": "saw_cutting",
+          "label_text": "Band saw ya cut-off machine",
+          "value_text": "saw_cutting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fab_drawing_type",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi drawing dekh kar aap kaam kar lete hain?",
+      "why_text": "Drawing se kaam karne wale ko skilled maana jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_drawing_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fabrication_drawing",
+          "label_text": "Fabrication / detail drawing",
+          "value_text": "fabrication_drawing"
+        },
+        {
+          "option_key": "ga_drawing",
+          "label_text": "GA (general arrangement) drawing",
+          "value_text": "ga_drawing"
+        },
+        {
+          "option_key": "structural_drawing",
+          "label_text": "Structural / erection drawing",
+          "value_text": "structural_drawing"
+        },
+        {
+          "option_key": "isometric",
+          "label_text": "Isometric drawing (piping)",
+          "value_text": "isometric"
+        },
+        {
+          "option_key": "weld_symbols",
+          "label_text": "Welding symbol samajhta hoon",
+          "value_text": "weld_symbols"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Drawing nahi, naap bata kar kaam hota hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material par kaam kiya hai?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS (IS 2062, E250 / E350)",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "high_tensile",
+          "label_text": "High tensile plate (SAILMA, E450)",
+          "value_text": "high_tensile"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel (SS304, SS316)",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "boiler_plate",
+          "label_text": "Boiler quality plate (SA516 Gr 70)",
+          "value_text": "boiler_plate"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy steel (chrome-moly)",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "galvanised",
+          "label_text": "GI / galvanised section",
+          "value_text": "galvanised"
+        },
+        {
+          "option_key": "wear_plate",
+          "label_text": "Wear plate (Hardox)",
+          "value_text": "wear_plate"
+        }
+      ]
+    },
+    {
+      "question_key": "fab_thickness_range",
+      "min_tier": "hard",
+      "prompt_text": "Kitni thickness ki plate par kaam kiya hai?",
+      "why_text": "Patli aur moti plate ka fabrication alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_thickness_range",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_six",
+          "label_text": "6 mm tak",
+          "value_text": "6"
+        },
+        {
+          "option_key": "upto_twelve",
+          "label_text": "6 se 12 mm",
+          "value_text": "12"
+        },
+        {
+          "option_key": "upto_twenty_five",
+          "label_text": "12 se 25 mm",
+          "value_text": "25"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "25 se 50 mm",
+          "value_text": "50"
+        },
+        {
+          "option_key": "upto_seventy_five",
+          "label_text": "50 mm se zyada",
+          "value_text": "75"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Marking aur naap ke liye kaunse tool use karte hain?",
+      "why_text": "Sahi naap aur level se job pehli baar me pass hota hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "steel_rule",
+          "label_text": "Measuring tape aur steel rule",
+          "value_text": "steel_rule"
+        },
+        {
+          "option_key": "try_square",
+          "label_text": "Try square / tri-square",
+          "value_text": "try_square"
+        },
+        {
+          "option_key": "spirit_level",
+          "label_text": "Spirit level",
+          "value_text": "spirit_level"
+        },
+        {
+          "option_key": "plumb_bob",
+          "label_text": "Plumb bob (sahul)",
+          "value_text": "plumb_bob"
+        },
+        {
+          "option_key": "water_level",
+          "label_text": "Water level pipe",
+          "value_text": "water_level"
+        },
+        {
+          "option_key": "bevel_protractor",
+          "label_text": "Bevel protractor",
+          "value_text": "bevel_protractor"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "chalk_line",
+          "label_text": "Chalk line aur centre punch",
+          "value_text": "chalk_line"
+        },
+        {
+          "option_key": "weld_gauge",
+          "label_text": "Weld gauge / fillet gauge",
+          "value_text": "weld_gauge"
+        }
+      ]
+    },
+    {
+      "question_key": "fab_work_location",
+      "min_tier": "hard",
+      "prompt_text": "Aap shop me kaam karte hain ya site par?",
+      "why_text": "Shop aur site ke kaam alag dikhaye jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "fab_work_location",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "shop",
+          "label_text": "Shop ya factory me",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par, erection ke saath",
+          "value_text": "site"
+        },
+        {
+          "option_key": "both_types",
+          "label_text": "Dono jagah",
+          "value_text": "both_types"
+        }
+      ]
+    },
+    {
+      "question_key": "fab_fitup_work",
+      "min_tier": "hard",
+      "prompt_text": "Fit-up me aap kya kya sambhal lete hain?",
+      "why_text": "Fit-up sahi karne wale fabricator ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_fitup_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "root_gap_bevel",
+          "label_text": "Root gap aur bevel angle set karna",
+          "value_text": "root_gap_bevel"
+        },
+        {
+          "option_key": "shell_seam_fitup",
+          "label_text": "Shell ki long seam aur circ seam fit-up",
+          "value_text": "shell_seam_fitup"
+        },
+        {
+          "option_key": "nozzle_orientation",
+          "label_text": "Nozzle aur flange orientation lagana",
+          "value_text": "nozzle_orientation"
+        },
+        {
+          "option_key": "structural_fitup",
+          "label_text": "Beam, column, base plate, gusset fit-up",
+          "value_text": "structural_fitup"
+        },
+        {
+          "option_key": "diagonal_level",
+          "label_text": "Diagonal, level aur plumb milana",
+          "value_text": "diagonal_level"
+        },
+        {
+          "option_key": "jig_fixture",
+          "label_text": "Jig ya fixture bana kar fit-up",
+          "value_text": "jig_fixture"
+        },
+        {
+          "option_key": "mismatch_control",
+          "label_text": "Mismatch (hi-lo) control",
+          "value_text": "mismatch_control"
+        },
+        {
+          "option_key": "camber_preset",
+          "label_text": "Camber ya pre-set dena",
+          "value_text": "camber_preset"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "fab_layout_development",
+      "min_tier": "hard",
+      "prompt_text": "Marking me kaunsa development aap khud nikal lete hain?",
+      "why_text": "Development khud nikalne wale ko skilled maana jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_layout_development",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "flat_marking",
+          "label_text": "Seedhi plate ki marking aur cutting plan",
+          "value_text": "flat_marking"
+        },
+        {
+          "option_key": "shell_development",
+          "label_text": "Shell rolling ka development",
+          "value_text": "shell_development"
+        },
+        {
+          "option_key": "cone_development",
+          "label_text": "Cone / reducer development",
+          "value_text": "cone_development"
+        },
+        {
+          "option_key": "branch_cut",
+          "label_text": "Pipe branch / saddle cut",
+          "value_text": "branch_cut"
+        },
+        {
+          "option_key": "mitre_bend",
+          "label_text": "Mitre bend",
+          "value_text": "mitre_bend"
+        },
+        {
+          "option_key": "square_to_round",
+          "label_text": "Square to round (hopper, transition)",
+          "value_text": "square_to_round"
+        },
+        {
+          "option_key": "template_making",
+          "label_text": "Stiffener, gusset ka template (farma) banana",
+          "value_text": "template_making"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Development koi aur deta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "fab_code_standard",
+      "min_tier": "hard",
+      "prompt_text": "Kis code ya standard ke shop me kaam kiya hai?",
+      "why_text": "Code shop ka tajurba vessel aur boiler company dhoondhti hain.",
+      "target_kind": "attribute",
+      "target_field": "fab_code_standard",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ibr",
+          "label_text": "IBR (boiler)",
+          "value_text": "ibr"
+        },
+        {
+          "option_key": "asme_pressure_vessel",
+          "label_text": "ASME Section VIII (pressure vessel)",
+          "value_text": "asme_pressure_vessel"
+        },
+        {
+          "option_key": "aws_structural",
+          "label_text": "AWS D1.1 (structural)",
+          "value_text": "aws_structural"
+        },
+        {
+          "option_key": "api_tank",
+          "label_text": "API 650 (storage tank)",
+          "value_text": "api_tank"
+        },
+        {
+          "option_key": "rdso_railways",
+          "label_text": "Railways / RDSO",
+          "value_text": "rdso_railways"
+        },
+        {
+          "option_key": "tpi_jobs",
+          "label_text": "Third party inspection (TPI) wale job",
+          "value_text": "tpi_jobs"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi code nahi, normal job work",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ka fabrication kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job work",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas / refinery",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant / boiler",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "chemical_pharma",
+          "label_text": "Chemical ya pharma equipment",
+          "value_text": "chemical_pharma"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways (wagon, coach, bogie)",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive (chassis, trailer)",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "peb_structure",
+          "label_text": "PEB / building structure",
+          "value_text": "peb_structure"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Fabrication ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale fabricator ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "distortion",
+          "label_text": "Welding ke baad distortion ya bend",
+          "value_text": "distortion"
+        },
+        {
+          "option_key": "dimension_out",
+          "label_text": "Dimension ya diagonal out",
+          "value_text": "dimension_out"
+        },
+        {
+          "option_key": "fitup_mismatch",
+          "label_text": "Fit-up gap zyada ya mismatch",
+          "value_text": "fitup_mismatch"
+        },
+        {
+          "option_key": "twist_camber",
+          "label_text": "Twist aur camber nikalna",
+          "value_text": "twist_camber"
+        },
+        {
+          "option_key": "orientation_error",
+          "label_text": "Nozzle ya flange orientation galat",
+          "value_text": "orientation_error"
+        },
+        {
+          "option_key": "ovality_peaking",
+          "label_text": "Shell ovality ya peaking",
+          "value_text": "ovality_peaking"
+        },
+        {
+          "option_key": "hole_mismatch",
+          "label_text": "Hole pitch mismatch, bolt na baithna",
+          "value_text": "hole_mismatch"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece ya pehli assembly check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Fit-up aur dimension ka stage inspection",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "dimension_report",
+          "label_text": "Dimension report bharna",
+          "value_text": "dimension_report"
+        },
+        {
+          "option_key": "ndt_preparation",
+          "label_text": "DP ya RT ke liye joint taiyaar karwana",
+          "value_text": "ndt_preparation"
+        },
+        {
+          "option_key": "customer_inspection",
+          "label_text": "Customer ya TPI inspection dilwana",
+          "value_text": "customer_inspection"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection aur rework analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "fab_planning_work",
+      "min_tier": "hard",
+      "prompt_text": "Job planning me aap kya karte hain?",
+      "why_text": "Planning sambhalne wale ko foreman ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "fab_planning_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cutting_plan",
+          "label_text": "Cutting plan banana, scrap kam karna",
+          "value_text": "cutting_plan"
+        },
+        {
+          "option_key": "weld_sequence",
+          "label_text": "Fit-up aur welding sequence tay karna",
+          "value_text": "weld_sequence"
+        },
+        {
+          "option_key": "work_allocation",
+          "label_text": "Welder aur helper ko kaam baantna",
+          "value_text": "work_allocation"
+        },
+        {
+          "option_key": "traceability",
+          "label_text": "Plate ka heat number / traceability rakhna",
+          "value_text": "traceability"
+        },
+        {
+          "option_key": "lifting_plan",
+          "label_text": "Crane ya chain block se lifting plan",
+          "value_text": "lifting_plan"
+        },
+        {
+          "option_key": "material_indent",
+          "label_text": "Material ki requirement dena",
+          "value_text": "material_indent"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "fab_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "fab_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "gas_cutting",
+          "label_text": "Gas cutting",
+          "value_text": "gas_cutting"
+        },
+        {
+          "option_key": "arc_welding",
+          "label_text": "Arc welding",
+          "value_text": "arc_welding"
+        },
+        {
+          "option_key": "marking_cutting",
+          "label_text": "Marking aur hacksaw cutting",
+          "value_text": "marking_cutting"
+        },
+        {
+          "option_key": "hand_grinding",
+          "label_text": "Hand grinder (AG4) chalana",
+          "value_text": "hand_grinding"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "sheet_metal_work",
+          "label_text": "Sheet metal ka kaam (shearing, bending)",
+          "value_text": "sheet_metal_work"
+        },
+        {
+          "option_key": "fitup_tacking",
+          "label_text": "Fit-up aur tacking",
+          "value_text": "fitup_tacking"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "fab_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "fab_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "fab_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}
