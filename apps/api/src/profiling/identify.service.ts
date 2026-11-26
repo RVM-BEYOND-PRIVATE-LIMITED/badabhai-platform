@@ -34,6 +34,8 @@ import { OccupationService, type ResolveResult } from "../occupation/occupation.
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 import { DISAMBIGUATION_PROMPT_TEXT } from "./next-question";
 import type { OfferedChip, ProfilingEnvelope } from "./conversation-state";
+import { findRoutingEntry, getRoutingEntry } from "./routing/routing.service";
+import type { RoutingEntry } from "./routing/routing-table";
 
 /**
  * How many turns retrieval may come back empty before the engine stops asking.
@@ -286,6 +288,28 @@ export class IdentifyService {
 
     if (envelope.identifyAttempts >= MAX_IDENTIFY_ATTEMPTS) return NO_OP;
 
+    // FIRST-QUESTION ROUTING (#3015) — shared words must ask, not land. Checked BEFORE the
+    // search step: on a hit the entry's prompt and chips are served through the existing offer
+    // state. A message that also names a trade outright ("cnc turner operator") goes to that
+    // trade as today; routing never overrides a more exact phrase (auto pin wins).
+    const routingEntry = findRoutingEntry(text);
+    if (routingEntry !== null) {
+      const exact = await this.occupation.resolve(text);
+      if (exact.status === "auto") {
+        return this.pin(exact, "matched_lexical", ctx);
+      }
+      if (options?.offerChips === false) {
+        // AI-led sessions suppress chips (#2353): ask the routing question as plain text and
+        // let the answer resolve by the normal search. No offer, no attempt spent.
+        this.logger.log(
+          `routing question suppressed to text for AI-led session ${ctx.sessionId} ` +
+            `(entry=${routingEntry.id}, attempts=${envelope.identifyAttempts}/${MAX_IDENTIFY_ATTEMPTS})`,
+        );
+        return { ...NO_OP, prompt: routingEntry.prompt };
+      }
+      return this.offerRouting(envelope, routingEntry, null, ctx);
+    }
+
     // THE BUDGET RULE, stated once (#1506), because two readings of it cannot both hold at
     // MAX_IDENTIFY_ATTEMPTS = 2 (owner ruling 2026-09-15: it stays 2):
     //
@@ -406,7 +430,7 @@ export class IdentifyService {
       if (emitWhenSpent) await this.emitUnresolved(ctx, "ambiguous", null, null);
       return {
         ...NO_OP,
-        patch: { needsDisambiguation: false, disambiguationOffer: [], identifyStalledTurns: 0 },
+        patch: { needsDisambiguation: false, disambiguationOffer: [], disambiguationPrompt: null, identifyStalledTurns: 0 },
         tradeText,
       };
     }
@@ -467,7 +491,7 @@ export class IdentifyService {
       // abuse-cap check runs BEFORE the disambiguate check and closes the interview.
       if (turnClass === "abusive") {
         return this.giveUpOnStall(
-          { needsDisambiguation: false, disambiguationOffer: [] },
+          { needsDisambiguation: false, disambiguationOffer: [], disambiguationPrompt: null },
           ctx,
           false,
         );
@@ -484,7 +508,7 @@ export class IdentifyService {
         const stalled = envelope.identifyStalledTurns + 1;
         if (stalled >= MAX_IDENTIFY_STALLED_TURNS) {
           return this.giveUpOnStall(
-            { needsDisambiguation: false, disambiguationOffer: [] },
+            { needsDisambiguation: false, disambiguationOffer: [], disambiguationPrompt: null },
             ctx,
           );
         }
@@ -492,7 +516,7 @@ export class IdentifyService {
           ...NO_OP,
           patch: { identifyStalledTurns: stalled },
           offer: {
-            prompt: DISAMBIGUATION_PROMPT,
+            prompt: envelope.disambiguationPrompt ?? DISAMBIGUATION_PROMPT,
             chips: envelope.disambiguationOffer,
             options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
           },
@@ -505,6 +529,63 @@ export class IdentifyService {
           `resolving it on this turn (attempts=${envelope.identifyAttempts}/${MAX_IDENTIFY_ATTEMPTS})`,
       );
       return this.resolveOwnWords(envelope, text, ctx, true);
+    }
+
+    // First-question routing tap (#3015): chained question, free-text ask, or label-only.
+    // Checked before the pure escape (jobDomainId null alone), since routing chips also carry
+    // null ids but resolve through the table, never by re-matching text.
+    if (tapped.routingNext != null) {
+      const nextEntry = getRoutingEntry(tapped.routingNext);
+      if (nextEntry === null) {
+        this.logger.error(
+          `routing next entry ${tapped.routingNext} missing for session ${ctx.sessionId}; falling back to universal`,
+        );
+        return {
+          ...NO_OP,
+          patch: {
+            needsDisambiguation: false,
+            disambiguationOffer: [],
+            disambiguationPrompt: null,
+            identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
+            identifyStalledTurns: 0,
+          },
+          tradeText: tapped.label,
+        };
+      }
+      const chained = this.offerRouting(envelope, nextEntry, tapped.routingLevel ?? null, ctx);
+      return {
+        ...NO_OP,
+        patch: chained.patch,
+        offer: chained.offer,
+      };
+    }
+    if (tapped.routingAskFreeText === true) {
+      return {
+        ...NO_OP,
+        patch: {
+          needsDisambiguation: false,
+          disambiguationOffer: [],
+          disambiguationPrompt: null,
+          identifyTypeRequested: true,
+          identifyStalledTurns: 0,
+        },
+        prompt: IDENTIFY_TYPE_PROMPT,
+      };
+    }
+    if (tapped.routingOutOfScope === true) {
+      // Not a manufacturing trade (label only, e.g. truck driver): no pin, no re-ask.
+      // Spend the budget so the interview falls through to the universal pack.
+      return {
+        ...NO_OP,
+        patch: {
+          needsDisambiguation: false,
+          disambiguationOffer: [],
+          disambiguationPrompt: null,
+          identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
+          identifyStalledTurns: 0,
+        },
+        tradeText: tapped.label,
+      };
     }
 
     // The escape. `jobDomainId: null` is the only chip that carries no occupation, so this is
@@ -545,6 +626,7 @@ export class IdentifyService {
         patch: {
           needsDisambiguation: false,
           disambiguationOffer: [],
+          disambiguationPrompt: null,
           identifyTypeRequested: true,
           // A TAP IS AN ANSWER: this offer episode ended cleanly, not by exhaustion. The
           // type-prompt episode that follows, in {@link IdentifyService.settleTypedTrade}, starts
@@ -568,6 +650,7 @@ export class IdentifyService {
         patch: {
           needsDisambiguation: false,
           disambiguationOffer: [],
+          disambiguationPrompt: null,
           identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
           identifyStalledTurns: 0,
         },
@@ -592,6 +675,28 @@ export class IdentifyService {
       catalog_version: described.catalogVersion,
     };
     await this.emitIdentified(ctx, pin, tapped.familyId, envelope.disambiguationOffer.length);
+    // Routing level chip (#3015): write the level answer under the target form's level key.
+    // Unconfirmed in the trade-confirm sense — the pin above does not confirm the trade, so the
+    // level rides along as answered-but-unconfirmed until the pack's level question confirms it,
+    // exactly like a campus hint (section 7.2) that gives a trade at level trainee.
+    const levelPatch =
+      tapped.routingLevel != null
+        ? {
+            answerMap: [
+              ...envelope.answerMap,
+              {
+                question_key: tapped.routingLevel.levelKey,
+                target_field: null,
+                value_raw: tapped.label,
+                value_normalized: tapped.routingLevel.rung,
+                status: "answered" as const,
+                evidence: null,
+                turn: 0,
+                history: [],
+              },
+            ],
+          }
+        : {};
     return {
       patch: {
         occupation: pin,
@@ -604,8 +709,10 @@ export class IdentifyService {
         occupationFamilyId: tapped.familyId ?? null,
         needsDisambiguation: false,
         disambiguationOffer: [],
+        disambiguationPrompt: null,
         catalogVersion: described.catalogVersion,
         phase: "occupation_specific",
+        ...levelPatch,
       },
       offer: null,
       pinned: pin,
@@ -807,6 +914,7 @@ export class IdentifyService {
       patch: {
         needsDisambiguation: true,
         disambiguationOffer: chips,
+        disambiguationPrompt: null,
         phase: "disambiguate",
         catalogVersion: result.catalogVersion ?? null,
         // AN OFFER SPENDS AN ATTEMPT (#1506) — see the budget rule in {@link identify}. Measured
@@ -824,6 +932,95 @@ export class IdentifyService {
         chips,
         options: chips.map((chip, index) => toPackOption(chip, index)),
       },
+    };
+  }
+
+  /**
+   * Serve a first-question routing entry (#3015) through the existing offer state.
+   *
+   * Same budget as a search offer (spends one identify attempt) and the same envelope shape,
+   * extended so a re-serve uses the routing prompt (`disambiguationPrompt`) and a tap can chain
+   * (`routingNext`), set a level (`routingLevel`), ask free text or stay label-only. A chain is
+   * at most two questions: second entries carry no `next` chips by construction.
+   */
+  private offerRouting(
+    envelope: ProfilingEnvelope,
+    entry: RoutingEntry,
+    propagatedLevel: { readonly levelKey: string; readonly rung: string } | null,
+    _ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+  ): {
+    readonly patch: Partial<ProfilingEnvelope>;
+    readonly offer: NonNullable<IdentifyResult["offer"]>;
+    readonly pinned: null;
+    readonly prompt: null;
+    readonly tradeText: null;
+  } {
+    const chips: OfferedChip[] = entry.chips.map((chip) => {
+      if (chip.kind === "trade") {
+        return {
+          label: chip.label,
+          jobDomainId: chip.jobDomainId,
+          familyId: chip.familyId,
+          routingNext: null,
+          routingLevel: chip.level ?? propagatedLevel,
+          routingAskFreeText: null,
+          routingOutOfScope: null,
+        };
+      }
+      if (chip.kind === "next") {
+        return {
+          label: chip.label,
+          jobDomainId: null,
+          familyId: null,
+          routingNext: chip.next,
+          routingLevel: chip.level ?? propagatedLevel,
+          routingAskFreeText: null,
+          routingOutOfScope: null,
+        };
+      }
+      if (chip.kind === "ask") {
+        return {
+          label: chip.label,
+          jobDomainId: null,
+          familyId: null,
+          routingNext: null,
+          routingLevel: chip.level ?? propagatedLevel,
+          routingAskFreeText: true,
+          routingOutOfScope: null,
+        };
+      }
+      return {
+        label: chip.label,
+        jobDomainId: null,
+        familyId: null,
+        routingNext: null,
+        routingLevel: null,
+        routingAskFreeText: null,
+        routingOutOfScope: true,
+      };
+    });
+    // Every offer carries an escape so the worker can always type instead of tapping.
+    if (!chips.some((chip) => chip.jobDomainId === null && (chip.routingNext ?? null) === null && (chip.routingAskFreeText ?? null) !== true && (chip.routingOutOfScope ?? null) !== true)) {
+      chips.push({ label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null });
+    }
+    return {
+      patch: {
+        needsDisambiguation: true,
+        disambiguationOffer: chips,
+        disambiguationPrompt: entry.prompt,
+        phase: "disambiguate",
+        catalogVersion: envelope.catalogVersion ?? null,
+        identifyAttempts: envelope.identifyAttempts + 1,
+        identifyStalledTurns: 0,
+      },
+      offer: {
+        prompt: entry.prompt,
+        chips,
+        options: chips.map((chip, index) => toPackOption(chip, index)),
+      },
+      pinned: null,
+      prompt: null,
+      tradeText: null,
     };
   }
 
@@ -1041,13 +1238,20 @@ function occKey(index: number): string {
  * Never read back is exactly why the shape of the key was free to be wrong for as long as it was.
  */
 export function toPackOption(chip: OfferedChip, index: number): QuestionPackOption {
+  // Pure escape (no occupation, no routing) gets the escape key; routing next/ask/outOfScope
+  // chips carry no occupation yet still need distinct keys, so they get occ keys like trades.
+  const isPureEscape =
+    chip.jobDomainId === null &&
+    (chip.routingNext ?? null) === null &&
+    (chip.routingAskFreeText ?? null) !== true &&
+    (chip.routingOutOfScope ?? null) !== true;
   return {
-    option_key: chip.jobDomainId === null ? DISAMBIGUATION_ESCAPE_KEY : occKey(index),
+    option_key: isPureEscape ? DISAMBIGUATION_ESCAPE_KEY : occKey(index),
     label_text: chip.label,
     // The label IS the value: a disambiguation chip's answer of record is the words the worker
     // tapped, and the occupation it resolves to is carried by the stored offer, not by this.
     value: chip.label,
     implies_skill_id: null,
-    is_none_of_above: chip.jobDomainId === null,
+    is_none_of_above: isPureEscape,
   };
 }

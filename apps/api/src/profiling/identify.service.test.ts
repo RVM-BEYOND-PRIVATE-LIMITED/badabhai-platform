@@ -650,6 +650,7 @@ describe("settling an outstanding offer", () => {
     expect(result.patch).toEqual({
       needsDisambiguation: false,
       disambiguationOffer: [],
+      disambiguationPrompt: null,
       identifyTypeRequested: true,
       // ADDED (#1506 HIGH-1 review fix): the tap is a clean end to this offer episode, so the
       // stall counter that bounds an UNANSWERED offer resets for the type-prompt episode that
@@ -767,6 +768,7 @@ describe("settling an outstanding offer", () => {
     expect(result.patch).toEqual({
       needsDisambiguation: false,
       disambiguationOffer: [],
+      disambiguationPrompt: null,
       identifyStalledTurns: 0,
     });
     expect(emitted(events)).toHaveLength(1);
@@ -811,6 +813,7 @@ describe("settling an outstanding offer", () => {
     expect(result.patch).toEqual({
       needsDisambiguation: false,
       disambiguationOffer: [],
+      disambiguationPrompt: null,
       identifyStalledTurns: 0,
     });
     // The interview gives up on this offer without ever hearing a trade — the same "nothing can
@@ -833,6 +836,7 @@ describe("settling an outstanding offer", () => {
     expect(result.patch).toEqual({
       needsDisambiguation: false,
       disambiguationOffer: [],
+      disambiguationPrompt: null,
       identifyStalledTurns: 0,
     });
     // NOT a catalogue-gap signal: an abusive turn is a safety-valve close, not a worker who was

@@ -512,6 +512,18 @@ export interface OfferedChip {
   readonly label: string;
   readonly jobDomainId: string | null;
   readonly familyId: string | null;
+  /**
+   * First-question routing (#3015), additive and worker-safe (old clients ignore it:
+   * the wire contract is still label + option_key, resolved server-side through this array).
+   *
+   * A chip that chains to another routing entry (`next`) or carries a level rung does not
+   * name an occupation itself (jobDomainId/familyId are null); `settleOffer` looks these up
+   * instead of calling `describeDomain`. Trade chips that also set a level carry both.
+   */
+  readonly routingNext?: string | null;
+  readonly routingLevel?: { readonly levelKey: string; readonly rung: string } | null;
+  readonly routingAskFreeText?: boolean | null;
+  readonly routingOutOfScope?: boolean | null;
 }
 
 /**
@@ -555,6 +567,12 @@ export interface ProfilingEnvelope {
    * abandoned — so a stale array can never resolve a later, unrelated message into an occupation.
    */
   readonly disambiguationOffer: readonly OfferedChip[];
+  /**
+   * First-question routing prompt currently on screen (#3015), if any. When set, re-serves
+   * use it instead of the fixed disambiguation prompt; when null, the fixed prompt is used
+   * (all pre-routing offers). Optional for backwards compat with stored sessions.
+   */
+  readonly disambiguationPrompt?: string | null;
   /**
    * How many turns retrieval has been run and come back with nothing.
    *
@@ -1163,6 +1181,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   hardshipTurns: true,
   needsDisambiguation: true,
   disambiguationOffer: true,
+  disambiguationPrompt: true,
   identifyAttempts: true,
   packId: true,
   packVersion: true,
@@ -1215,6 +1234,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     hardshipTurns: 0,
     needsDisambiguation: false,
     disambiguationOffer: [],
+    disambiguationPrompt: null,
     identifyAttempts: 0,
     packId: null,
     packVersion: null,
@@ -1312,10 +1332,24 @@ function narrowOffer(value: unknown): OfferedChip[] {
     if (typeof raw !== "object" || raw === null) continue;
     const v = raw as Record<string, unknown>;
     if (typeof v.label !== "string" || v.label.trim().length === 0) continue;
+    const routingLevel =
+      typeof v.routingLevel === "object" &&
+      v.routingLevel !== null &&
+      typeof (v.routingLevel as Record<string, unknown>).levelKey === "string" &&
+      typeof (v.routingLevel as Record<string, unknown>).rung === "string"
+        ? {
+            levelKey: (v.routingLevel as Record<string, unknown>).levelKey as string,
+            rung: (v.routingLevel as Record<string, unknown>).rung as string,
+          }
+        : null;
     chips.push({
       label: v.label,
       jobDomainId: typeof v.jobDomainId === "string" ? v.jobDomainId : null,
       familyId: typeof v.familyId === "string" ? v.familyId : null,
+      routingNext: typeof v.routingNext === "string" ? v.routingNext : null,
+      routingLevel,
+      routingAskFreeText: v.routingAskFreeText === true ? true : null,
+      routingOutOfScope: v.routingOutOfScope === true ? true : null,
     });
   }
   return chips;
@@ -1540,6 +1574,7 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     hardshipTurns: nonNegativeInt(v.hardshipTurns),
     needsDisambiguation: v.needsDisambiguation === true,
     disambiguationOffer: narrowOffer(v.disambiguationOffer),
+    disambiguationPrompt: typeof v.disambiguationPrompt === "string" ? v.disambiguationPrompt : null,
     identifyAttempts: nonNegativeInt(v.identifyAttempts),
     packId: typeof v.packId === "string" ? v.packId : null,
     packVersion:
