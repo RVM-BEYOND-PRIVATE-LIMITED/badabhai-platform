@@ -78,6 +78,11 @@ export default async function CampusJobsPage({
         back={{ href: "/jobs", label: "Postings" }}
         title="Campus jobs"
         description="Jobs created on Campus and whether BadaBhai workers can see them."
+        secondaryActions={
+          <Link className="btn btn--ghost" href="/jobs/campus/narrow">
+            Campus narrow queue
+          </Link>
+        }
       />
 
       <nav className="filter-chips" aria-label="Worker visibility">

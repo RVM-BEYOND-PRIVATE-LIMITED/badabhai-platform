@@ -293,6 +293,47 @@ describe("the Edit log", () => {
   });
 });
 
+describe("a Campus label-only role (#3050)", () => {
+  const labelOnly = (): CandidateDetail => {
+    const d = candidateRecord();
+    d.trade.display_name = {
+      value: "Campus role: Interior Designer",
+      source: "resume_import",
+      correction: null,
+    };
+    d.trade.canonical_trade_id = { value: null, source: "none", correction: null };
+    d.trade.canonical_role_id = { value: null, source: "none", correction: null };
+    d.trade.job_domain = { value: null, source: "none", correction: null };
+    d.trade.secondary_roles = { value: [], source: "none", correction: null };
+    return d;
+  };
+
+  it("prints the stated role under its own heading, not in the Trade panel", () => {
+    const p = panel(render(labelOnly()), "profile");
+    expect(p).toContain('<h3 class="panel__section-title">Campus role (not matched)</h3>');
+    expect(p).toContain("Interior Designer");
+    expect(p).not.toContain(">Trade<");
+    expect(p).not.toContain("Campus role: Interior Designer");
+  });
+
+  it("never appears among the skills", () => {
+    const p = panel(render(labelOnly(), { active: "skills" }), "skills");
+    expect(p).not.toContain("Interior Designer");
+  });
+
+  it("a display name that merely starts with the prefix is still a trade when it has a canonical id", () => {
+    const d = candidateRecord();
+    d.trade.display_name = {
+      value: "Campus role: Interior Designer",
+      source: "interview",
+      correction: null,
+    };
+    const p = panel(render(d), "profile");
+    expect(p).toContain('<h3 class="panel__section-title">Trade</h3>');
+    expect(p).not.toContain("Campus role (not matched)");
+  });
+});
+
 describe("the summary line", () => {
   it("is the trade and the city, or nothing", () => {
     expect(recordSummary(candidateRecord())).toBe("TIG Welder · Pune");

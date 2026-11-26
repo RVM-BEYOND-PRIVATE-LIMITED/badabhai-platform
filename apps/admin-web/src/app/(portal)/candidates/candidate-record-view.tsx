@@ -111,6 +111,24 @@ interface CandidateEditContextValue {
 const NO_HISTORY: CorrectionHistoryView = { status: "idle", items: [] };
 const NO_FLASH: ReadonlySet<string> = new Set();
 
+/**
+ * #3050 — a Campus role that is "none, label only" (civil, architecture, interior, BIM, HVAC
+ * design) arrives as the trade display name `"Campus role: <text>"` with BOTH canonical ids
+ * null. It is a label, not a trade: the profile shows it as plain text, never in the Trade or
+ * Skills panel, and nothing matches on it.
+ */
+const CAMPUS_LABEL_PREFIX = "Campus role: ";
+
+export function campusLabelOnlyRole(trade: CandidateDetail["trade"]): string | null {
+  const displayName = trade.display_name.value;
+  if (displayName === null || !displayName.startsWith(CAMPUS_LABEL_PREFIX)) return null;
+  if (trade.canonical_trade_id.value !== null || trade.canonical_role_id.value !== null) {
+    return null;
+  }
+  const label = displayName.slice(CAMPUS_LABEL_PREFIX.length).trim();
+  return label || null;
+}
+
 const CandidateEditContext = createContext<CandidateEditContextValue>({
   canEdit: false,
   history: NO_HISTORY,
@@ -331,6 +349,7 @@ function ProfilePanel({
   canReveal: boolean;
 }) {
   const band = d.salary.band.value;
+  const campusRole = campusLabelOnlyRole(d.trade);
   return (
     <>
       {posture === "capped" ? (
@@ -420,29 +439,39 @@ function ProfilePanel({
         />
       </PanelSection>
 
-      <PanelSection title="Trade" action={<SectionEdit section="trade" label="trade" />}>
-        <DetailList
-          items={[
-            row("trade.display_name", d.trade.display_name, text(d.trade.display_name.value)),
-            row("trade.job_domain", d.trade.job_domain, d.trade.job_domain.value?.label ?? null),
-            row(
-              "trade.secondary_roles",
-              d.trade.secondary_roles,
-              chips(d.trade.secondary_roles.value.map((r) => r.label)),
-            ),
-            row(
-              "trade.canonical_trade_id",
-              d.trade.canonical_trade_id,
-              mono(d.trade.canonical_trade_id.value),
-            ),
-            row(
-              "trade.canonical_role_id",
-              d.trade.canonical_role_id,
-              mono(d.trade.canonical_role_id.value),
-            ),
-          ]}
-        />
-      </PanelSection>
+      {campusRole !== null ? (
+        <PanelSection title="Campus role (not matched)">
+          <p className="panel__body">{campusRole}</p>
+          <p className="panel__sub">
+            This role came from Campus and is kept as a label. It is not a trade or a skill, and
+            nothing matches on it.
+          </p>
+        </PanelSection>
+      ) : (
+        <PanelSection title="Trade" action={<SectionEdit section="trade" label="trade" />}>
+          <DetailList
+            items={[
+              row("trade.display_name", d.trade.display_name, text(d.trade.display_name.value)),
+              row("trade.job_domain", d.trade.job_domain, d.trade.job_domain.value?.label ?? null),
+              row(
+                "trade.secondary_roles",
+                d.trade.secondary_roles,
+                chips(d.trade.secondary_roles.value.map((r) => r.label)),
+              ),
+              row(
+                "trade.canonical_trade_id",
+                d.trade.canonical_trade_id,
+                mono(d.trade.canonical_trade_id.value),
+              ),
+              row(
+                "trade.canonical_role_id",
+                d.trade.canonical_role_id,
+                mono(d.trade.canonical_role_id.value),
+              ),
+            ]}
+          />
+        </PanelSection>
+      )}
 
       <PanelSection title="Languages" action={<SectionEdit section="languages" label="languages" />}>
         <DetailList items={[row("languages", d.languages, chips(d.languages.value))]} />
