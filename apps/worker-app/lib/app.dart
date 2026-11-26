@@ -13,6 +13,8 @@ import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_cubit.dart';
+import 'core/update/app_update.dart';
+import 'core/update/update_required_screen.dart';
 import 'core/widgets/bb_alert_dialog.dart';
 import 'core/widgets/feedback_fab.dart';
 import 'features/auth/domain/auth_session_manager.dart';
@@ -29,8 +31,7 @@ class BadaBhaiApp extends StatefulWidget {
   State<BadaBhaiApp> createState() => _BadaBhaiAppState();
 }
 
-class _BadaBhaiAppState extends State<BadaBhaiApp>
-    with WidgetsBindingObserver {
+class _BadaBhaiAppState extends State<BadaBhaiApp> with WidgetsBindingObserver {
   /// Drives `MaterialApp.themeMode`. Null in the legacy widget-test graph
   /// that never wires DI, so those tests keep the light theme exactly.
   ThemeCubit? _themeCubit;
@@ -83,8 +84,9 @@ class _BadaBhaiAppState extends State<BadaBhaiApp>
     // (the real app + auth/e2e tests). Legacy widget tests that pump the app
     // without `initAuthLocator` skip it — preserving their behaviour exactly.
     if (locator.isRegistered<AuthSessionManager>()) {
-      final LifecycleRelockObserver observer =
-          LifecycleRelockObserver(locator<AuthSessionManager>());
+      final LifecycleRelockObserver observer = LifecycleRelockObserver(
+        locator<AuthSessionManager>(),
+      );
       WidgetsBinding.instance.addObserver(observer);
       _relock = observer;
       // OWNER ASK (2026-10-22) — read the worker's voice-consent answer
@@ -98,17 +100,17 @@ class _BadaBhaiAppState extends State<BadaBhaiApp>
     // seams on a 410 { code: WORKER_ACCOUNT_DELETED }. Guarded like the observer
     // above so legacy widget tests that never wire DI are unaffected.
     if (locator.isRegistered<AccountDeletedSignal>()) {
-      _accountDeletedSub = locator<AccountDeletedSignal>()
-          .stream
-          .listen((_) => _onAccountDeleted());
+      _accountDeletedSub = locator<AccountDeletedSignal>().stream.listen(
+        (_) => _onAccountDeleted(),
+      );
     }
     // Suspended account (#2687): clear local session state and let the router's
     // suspended destination take over. Guarded like the signal above so legacy
     // widget tests that never wire DI are unaffected.
     if (locator.isRegistered<WorkerSuspendedSignal>()) {
-      _workerSuspendedSub = locator<WorkerSuspendedSignal>()
-          .stream
-          .listen(_onWorkerSuspended);
+      _workerSuspendedSub = locator<WorkerSuspendedSignal>().stream.listen(
+        _onWorkerSuspended,
+      );
     }
     // Theme (#2824/#2828): read the server preference on start, and flush an
     // offline choice on resume. Guarded for the DI-free legacy tests.
@@ -124,6 +126,8 @@ class _BadaBhaiAppState extends State<BadaBhaiApp>
     if (state == AppLifecycleState.resumed) {
       final ThemeCubit? theme = _themeCubit;
       if (theme != null) unawaited(theme.flushPending());
+      // #3049 — read the release policy again on return to the foreground.
+      unawaited(AppUpdateController.instance.refresh());
     }
   }
 
@@ -133,8 +137,9 @@ class _BadaBhaiAppState extends State<BadaBhaiApp>
   /// the DPDP exits. The manager clears everything and the router redirects.
   Future<void> _onWorkerSuspended(WorkerSuspension suspension) async {
     if (!locator.isRegistered<AuthSessionManager>()) return;
-    await locator<AuthSessionManager>()
-        .suspendAccount(restrictedToken: suspension.restrictedToken);
+    await locator<AuthSessionManager>().suspendAccount(
+      restrictedToken: suspension.restrictedToken,
+    );
   }
 
   AuthSessionManager? _authForVoiceConsent;
@@ -205,7 +210,35 @@ class _BadaBhaiAppState extends State<BadaBhaiApp>
     );
   }
 
+  /// #3049 — the update gate sits OUTSIDE the router: a build below the minimum
+  /// sees only the update page, and the router (with its state) is rebuilt when
+  /// the gate lifts. A config read that failed leaves this false, so a worker is
+  /// never locked out by a network fault.
   Widget _buildApp(ThemeState themeState) {
+    return ListenableBuilder(
+      listenable: AppUpdateController.instance,
+      builder: (BuildContext context, Widget? _) {
+        final AppUpdateController update = AppUpdateController.instance;
+        if (update.blocking) {
+          return MaterialApp(
+            title: 'BadaBhai',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light(),
+            darkTheme: AppTheme.dark(),
+            themeMode: themeState.themeMode,
+            home: UpdateRequiredScreen(
+              language: appUpdateLanguage(),
+              storeUrl: update.storeUrl,
+              onRetry: update.refresh,
+            ),
+          );
+        }
+        return _routerApp(themeState);
+      },
+    );
+  }
+
+  Widget _routerApp(ThemeState themeState) {
     return MaterialApp.router(
       title: 'BadaBhai',
       debugShowCheckedModeBanner: false,
@@ -244,6 +277,20 @@ class _BadaBhaiAppState extends State<BadaBhaiApp>
           router: _router,
           child: child ?? const SizedBox.shrink(),
         );
+        // #3049 — a build below `latest_build` sees a dismissible notice once a
+        // day. It sits above the router's content and below the mock ribbon.
+        if (AppUpdateController.instance.notice) {
+          content = Column(
+            children: <Widget>[
+              UpdateNoticeBanner(
+                language: appUpdateLanguage(),
+                storeUrl: AppUpdateController.instance.storeUrl,
+                onDismiss: AppUpdateController.instance.dismissNotice,
+              ),
+              Expanded(child: content),
+            ],
+          );
+        }
         if (kUseMocks) {
           content = Banner(
             message: 'MOCK',

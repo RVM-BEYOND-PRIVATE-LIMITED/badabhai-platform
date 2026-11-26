@@ -14,6 +14,8 @@ import 'core/theme/app_page_transitions.dart';
 import 'core/theme/app_system_ui.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_cubit.dart';
+import 'core/update/app_update.dart';
+import 'core/update/update_required_screen.dart';
 import 'core/widgets/bb_alert_dialog.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/shell/presentation/app_shell.dart';
@@ -51,6 +53,8 @@ class _PayerAppState extends State<PayerApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       final ThemeCubit? theme = _themeCubit;
       if (theme != null) unawaited(theme.flushPending());
+      // #3049 — read the release policy again on return to the foreground.
+      unawaited(AppUpdateController.instance.refresh());
     }
   }
 
@@ -78,7 +82,33 @@ class _PayerAppState extends State<PayerApp> with WidgetsBindingObserver {
     );
   }
 
+  /// #3049 — the update gate sits OUTSIDE the session shell, so a build below
+  /// the minimum sees only the update page. A failed config read leaves it false.
   Widget _buildApp(ThemeState themeState) {
+    return ListenableBuilder(
+      listenable: AppUpdateController.instance,
+      builder: (BuildContext context, Widget? _) {
+        final AppUpdateController update = AppUpdateController.instance;
+        if (update.blocking) {
+          return MaterialApp(
+            title: 'BadaBhai · Payer',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light(),
+            darkTheme: AppTheme.dark(),
+            themeMode: themeState.themeMode,
+            home: UpdateRequiredScreen(
+              language: appUpdateLanguage(),
+              storeUrl: update.storeUrl,
+              onRetry: update.refresh,
+            ),
+          );
+        }
+        return _sessionApp(themeState);
+      },
+    );
+  }
+
+  Widget _sessionApp(ThemeState themeState) {
     return MaterialApp(
       title: 'BadaBhai · Payer',
       debugShowCheckedModeBanner: false,
@@ -91,6 +121,20 @@ class _PayerAppState extends State<PayerApp> with WidgetsBindingObserver {
       home: const _Root(),
       builder: (BuildContext context, Widget? child) {
         Widget content = child ?? const SizedBox.shrink();
+        // #3049 — a build below `latest_build` sees a dismissible notice once a
+        // day, above every route and below the mock ribbon.
+        if (AppUpdateController.instance.notice) {
+          content = Column(
+            children: <Widget>[
+              UpdateNoticeBanner(
+                language: appUpdateLanguage(),
+                storeUrl: AppUpdateController.instance.storeUrl,
+                onDismiss: AppUpdateController.instance.dismissNotice,
+              ),
+              Expanded(child: content),
+            ],
+          );
+        }
         if (kUseMocks) {
           content = Banner(
             message: 'MOCK',
@@ -206,7 +250,8 @@ class _RootState extends State<_Root> {
             // Each state carries its own key so the switcher sees a new screen.
             final Widget screen;
             if (!booted) {
-              screen = const _SplashScreen(key: ValueKey<String>('root:splash'));
+              screen =
+                  const _SplashScreen(key: ValueKey<String>('root:splash'));
             } else if (session == null) {
               screen = const KeyedSubtree(
                 key: ValueKey<String>('root:login'),

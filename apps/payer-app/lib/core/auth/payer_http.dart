@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:http/http.dart' as http;
 
+import '../update/app_update.dart';
 import 'payer_account_deleted_signal.dart';
 import 'payer_token_store.dart';
 
@@ -177,7 +178,7 @@ class PayerHttp {
     final Uri uri = Uri.parse('$baseUrl$path');
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
-    };
+    }..addAll(AppRequestIdentity.headers());
     if (body != null) headers['content-type'] = 'application/json';
     // A caller-supplied idempotency key lets the server collapse a repeated
     // write (reserve-before-grant, replay the original balance) — never a PII
@@ -207,9 +208,12 @@ class PayerHttp {
         // spinner, no error, no retry).
         final http.Response res = await switch (method) {
           PayerMethod.get => _client.get(uri, headers: headers),
-          PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
-          PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
-          PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+          PayerMethod.post =>
+            _client.post(uri, headers: headers, body: encoded),
+          PayerMethod.patch =>
+            _client.patch(uri, headers: headers, body: encoded),
+          PayerMethod.delete =>
+            _client.delete(uri, headers: headers, body: encoded),
         }
             .timeout(kRequestTimeout);
 
@@ -336,6 +340,11 @@ class PayerHttp {
     // verb + path — so the app root shows ONE dialog and hard-logs-out. Kept out
     // of the 401 path in `send`: a 410 returns straight to the caller (never
     // refreshed), so this fires exactly once per response, never a refresh.
+    // #3049 — a 426 from any route shows the one update page. The single decode
+    // choke point covers every verb + path.
+    if (isAppUpdateRequiredResponse(res.statusCode, body)) {
+      AppUpdateSignal.instance.fire(appUpdateConfigFromBody(body));
+    }
     if (isPayerAccountDeletedResponse(res.statusCode, body)) {
       _onAccountDeleted?.call();
     }
