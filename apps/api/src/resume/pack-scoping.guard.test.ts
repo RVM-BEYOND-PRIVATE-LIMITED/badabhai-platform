@@ -50,16 +50,28 @@ interface Pack {
   items: PackItem[];
 }
 
-/** Every shipped pack, deduped by `pack_id` (versions sit beside each other as separate files). */
+/** Every shipped pack: the ACTIVE version — the highest `@N` file wins, the undecorated base
+ * file only when no versioned file exists. `readdirSync` order is not version order (`base.json`
+ * sorts before `base@2.json` but that is an accident of punctuation), and the maximal probe below
+ * must answer what the live form asks — a base file that a deepened `@2` superseded would probe
+ * questions the form no longer asks and miss the ones it does. */
 function loadPacks(): Pack[] {
-  const byId = new Map<string, Pack>();
+  const byId = new Map<string, { file: string; pack: Pack }>();
   for (const file of readdirSync(PACK_DIR).filter((f) => f.endsWith(".json"))) {
     const pack = JSON.parse(readFileSync(join(PACK_DIR, file), "utf8")) as Pack;
-    // Later versions of a pack carry the same id and the same question keys; one entry per id is
-    // enough, and taking the first keeps the iteration deterministic.
-    if (!byId.has(pack.pack_id)) byId.set(pack.pack_id, pack);
+    const version = file.includes("@") ? Number.parseInt(file.split("@")[1]!, 10) : 0;
+    const held = byId.get(pack.pack_id);
+    const heldVersion =
+      held === undefined
+        ? -1
+        : held.file.includes("@")
+          ? Number.parseInt(held.file.split("@")[1]!, 10)
+          : 0;
+    // Later versions of a pack carry the same id; one entry per id is enough, and the newest
+    // wins so the iteration probes the live form.
+    if (held === undefined || version > heldVersion) byId.set(pack.pack_id, { file, pack });
   }
-  return [...byId.values()];
+  return [...byId.values()].map((v) => v.pack);
 }
 
 const PACKS = loadPacks();

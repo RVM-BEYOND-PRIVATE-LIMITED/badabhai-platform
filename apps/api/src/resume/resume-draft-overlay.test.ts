@@ -257,7 +257,7 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
   });
 
   it("gives every trade with a machine question a Machines-line row", () => {
-    // The two exceptions ask no machine question at all: a draughtsman's software and an
+    // The exceptions ask no machine question at all: a draughtsman's software and an
     // inspector's instruments are capability, not machines. A new trade must land on one side.
     // Track A #4: a 3D designer's software is capability the same way — the seat is not a
     // machine the worker runs.
@@ -270,12 +270,17 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
       // Phase 2 #7: an EDM is a machine, so this trade DOES print a Machines line.
       // Phase 2 #10: a supervisor's machines are a COUNT under his charge, not machines he runs.
       "qp_production_supervisor",
+      // #3012 Wave 1 desk trades whose capability is method, not equipment: a quality
+      // engineer's instruments are capability the inspector's way; a process engineer's
+      // processes and software the draughtsman's and PLC's way; an NPD engineer's parts, a
+      // PPC engineer's plants and a purchase engineer's categories are scope, not machines.
+      "qp_quality_engineer",
+      "qp_process_engineer",
+      "qp_npd_engineer",
+      "qp_ppc",
+      "qp_purchase",
     ]);
-    // #3009: `qp_foundry_casting` holds only the history rows the foundry split carries over; its
-    // own rows, including the furnace (Machines line), are #3012. Remove it from here then.
-    const HISTORY_ROWS_ONLY = new Set(["qp_foundry_casting"]);
     for (const { pack_id } of TRADE_RESUME_MAPS) {
-      if (HISTORY_ROWS_ONLY.has(pack_id)) continue;
       const hasMachineRow = listRows.some(
         (row) => row.packId === pack_id && MACHINE_ROW_LABELS.has(row.label),
       );

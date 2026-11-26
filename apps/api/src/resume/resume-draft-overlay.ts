@@ -77,6 +77,10 @@ export const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set([
   "Tools used",
   "Machines programmed for",
   "Controllers posted to",
+  // #3012 Wave 1: each trade's equipment row under the name its sheet prints it.
+  "Machines maintained", // qp_maintenance_engineer rank 22 — the "Equipment maintained" reading.
+  "Shops", // qp_production_engineer rank 21 — the shops he runs.
+  "Furnaces", // qp_foundry_casting — the equipment row (rank 43, below 2x like the trade's vocabulary).
 ]);
 
 /**

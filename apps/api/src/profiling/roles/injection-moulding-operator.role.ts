@@ -51,4 +51,18 @@ export const INJECTION_MOULDING_OPERATOR = {
     ],
     levelTerms: ["trainee", "operator", "setter", "process technician", "सेटर"],
   },
+  fresher: {
+    workshopMachines: {
+      injection_moulding: "Injection moulding machine",
+      hand_moulding: "Hand moulding machine",
+      blow_moulding: "Blow moulding machine",
+      extruder: "Extruder",
+      compression_press: "Compression moulding press",
+      grinder: "Scrap grinder",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

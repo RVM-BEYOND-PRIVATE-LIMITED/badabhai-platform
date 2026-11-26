@@ -255,7 +255,16 @@ export function buildFresherRows(
   const tradeTests = packId === null ? undefined : TRADE_TEST[packId];
   if (workshopMachines === undefined && tradeTests === undefined) return [];
 
-  const machines = slugsOf(attributes.iti_workshop_machines)
+  // Desk packs (CEO pack v2 Wave 1) ask no `iti_workshop_machines` question — a student answers
+  // `<trade>_training_exposure` (internship, college project, industrial visit, …) instead. Those
+  // slugs are read through the SAME role vocabulary, so a desk fresher's block names what he did
+  // rather than collapsing to the project line alone. Shop packs store no such key, so this adds
+  // nothing for them.
+  const exposureSlugs: string[] = [];
+  for (const [key, value] of Object.entries(attributes)) {
+    if (key.endsWith("_training_exposure")) exposureSlugs.push(...slugsOf(value));
+  }
+  const machines = [...slugsOf(attributes.iti_workshop_machines), ...exposureSlugs]
     .map((slug) => workshopMachines?.[slug])
     .filter((v): v is string => Boolean(v))
     .slice(0, MAX_WORKSHOP_MACHINES);

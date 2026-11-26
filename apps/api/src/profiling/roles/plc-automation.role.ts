@@ -52,4 +52,20 @@ export const PLC_AUTOMATION = {
     ],
     levelTerms: ["trainee", "technician", "senior technician", "lead", "टेक्नीशियन"],
   },
+  fresher: {
+    workshopMachines: {
+      plc_trainer_kit: "PLC trainer kit",
+      siemens: "Siemens PLC",
+      allen_bradley: "Allen-Bradley PLC",
+      mitsubishi_delta: "Mitsubishi / Delta PLC",
+      hmi_scada: "HMI / SCADA software",
+      vfd: "VFD drive",
+      starter_wiring: "DOL & star-delta starter wiring",
+      pneumatic_kit: "Pneumatic trainer kit",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

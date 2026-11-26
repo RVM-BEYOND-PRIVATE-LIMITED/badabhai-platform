@@ -63,4 +63,18 @@ export const CNC_ROUTER_OPERATOR = {
      */
     extraConflictTerms: ["cam programmer", "carpenter", "laser cutting", "haath ki nakkashi"],
   },
+  fresher: {
+    workshopMachines: {
+      cnc_router: "CNC router / wood carving machine",
+      laser_engraver: "Laser engraving machine",
+      artcam_practice: "ArtCAM / Aspire practice",
+      coreldraw_autocad: "CorelDRAW / AutoCAD practice",
+      vmc: "VMC / CNC milling",
+      wood_working: "Carpentry / wood working machines",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

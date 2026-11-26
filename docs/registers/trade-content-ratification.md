@@ -307,3 +307,200 @@ bump `INTERVIEW_KIT_CONTENT_VERSION` too.
 - Sprint plan: [Phase-1 worker profiling](../sprint-plans/phase-1-worker-profiling.md).
 - Content invariant: per-trade content is **deterministic, static, reviewed copy —
   no LLM**, and PII-free (per-trade, never per-worker).
+
+---
+
+## 7. Wave 1 résumé maps (#3012, drafted 2026-11-26, pending RVM)
+
+> **HUMAN GATE — same as §1.** Every row below is **drafted by engineering** from the
+> compiled Wave 1 forms (`packages/db/data/question-packs/packs/`) against the CEO pack v2
+> sheets, and **awaits RVM ratification**. Chip English is ratification material: where the
+> pack gives no English the map carries the drafter's best effort and the row is flagged in
+> the PR for ratification instead of being silently shipped.
+
+| # | Trade (code) | pack_id | Section title | Rows | Status |
+| - | ------------ | ------- | ------------- | ---- | ------ |
+| 1 | EDM / Wire-cut (T17) | `qp_edm_wirecut` | EDM, machines & capability | 15 | deepened to @2; all old values kept |
+| 2 | CNC Router (T21) | `qp_cnc_router` | Machines, software & capability | 15 | new map |
+| 3 | Foundry / Casting (T24) | `qp_foundry_casting` | Foundry, processes & capability | 14 | full map; old `qp_foundry_forging` values kept |
+| 4 | Die Casting (T25) | `qp_die_casting` | Die casting, machines & capability | 15 | new map |
+| 5 | Forging (T26) | `qp_forging` | Forging, machines & capability | 15 | new map |
+| 6 | Heat Treatment (T27) | `qp_heat_treatment` | Heat treatment, processes & capability | 14 | deepened to @2; all old values kept |
+| 7 | Injection Moulding (T29) | `qp_injection_moulding` | Moulding, machines & capability | 16 | deepened to @2; all old values kept |
+| 8 | CMM (T33) | `qp_cmm` | Machines, software & capability | 15 | new map |
+| 9 | Quality Engineer (T37) | `qp_quality_engineer` | Tools, standards & responsibility | 14 | new map (desk) |
+| 10 | PLC / Automation (T38) | `qp_plc_automation` | Automation, PLC & capability | 15 | deepened to @2; all old values kept |
+| 11 | Maintenance Engineer (T43) | `qp_maintenance_engineer` | Functions, machines & responsibility | 14 | new map (desk) |
+| 12 | Production Supervisor (T45) | `qp_production_supervisor` | Supervision, team & systems | 18 | deepened to @2; all old values kept |
+| 13 | Production Engineer (T46) | `qp_production_engineer` | Shops, systems & responsibility | 14 | new map (desk) |
+| 14 | Process Engineer (T47) | `qp_process_engineer` | Processes, systems & responsibility | 13 | new map (desk) |
+| 15 | NPD Engineer (T48) | `qp_npd_engineer` | Parts, development & responsibility | 14 | new map (desk) |
+| 16 | PPC (T52) | `qp_ppc` | Planning, systems & responsibility | 14 | new map (desk) |
+| 17 | Purchase (T54) | `qp_purchase` | Purchase work, categories & responsibility | 14 | new map (desk) |
+| 18 | 3D CAD Designer (T58) | `qp_cad_design_3d` | Design, software & capability | 13 | deepened to @2; all old values kept |
+
+Checklist meaning is §4's (vocabulary, questions realistic, Hinglish natural, no fabricated
+specifics, safety correct, resume copy accurate). One checklist per trade; all boxes start
+UNCHECKED.
+
+### T17 EDM / Wire-cut (`qp_edm_wirecut`)
+- [ ] Vocabulary accurate (EDM types, wires, electrodes, parameters)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T21 CNC Router (`qp_cnc_router`)
+- [ ] Vocabulary accurate (router types, software, bits, bed sizes)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T24 Foundry / Casting (`qp_foundry_casting`)
+- [ ] Vocabulary accurate (processes, furnaces, metals, defects)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T25 Die Casting (`qp_die_casting`)
+- [ ] Vocabulary accurate (HPDC/LPDC/GDC, machines, tonnage, parameters)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T26 Forging (`qp_forging`)
+- [ ] Vocabulary accurate (hammers, presses, forging types, defects)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T27 Heat Treatment (`qp_heat_treatment`)
+- [ ] Vocabulary accurate (furnaces, quench media, cycles, testing)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T29 Injection Moulding (`qp_injection_moulding`)
+- [ ] Vocabulary accurate (machines, tonnage, materials, defects)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T33 CMM (`qp_cmm`)
+- [ ] Vocabulary accurate (machine types, software, probes, GD&T)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T37 Quality Engineer (`qp_quality_engineer`)
+- [ ] Vocabulary accurate (core tools, standards, audits)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T38 PLC / Automation (`qp_plc_automation`)
+- [ ] Vocabulary accurate (brands, software, drives, networks)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T43 Maintenance Engineer (`qp_maintenance_engineer`)
+- [ ] Vocabulary accurate (functions, machines, systems, statutory)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T45 Production Supervisor (`qp_production_supervisor`)
+- [ ] Vocabulary accurate (shops, line data, people work, audits)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T46 Production Engineer (`qp_production_engineer`)
+- [ ] Vocabulary accurate (shops, systems, metrics, cost work)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T47 Process Engineer (`qp_process_engineer`)
+- [ ] Vocabulary accurate (functions, processes, time study, tooling)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T48 NPD Engineer (`qp_npd_engineer`)
+- [ ] Vocabulary accurate (development work, PPAP, validation)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T52 PPC (`qp_ppc`)
+- [ ] Vocabulary accurate (planning functions, ERP, inventory)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T54 Purchase (`qp_purchase`)
+- [ ] Vocabulary accurate (functions, categories, costing, commercial terms)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
+
+### T58 3D CAD Designer (`qp_cad_design_3d`)
+- [ ] Vocabulary accurate (software, processes, tool design, PDM/PLM)
+- [ ] Questions realistic
+- [ ] Hinglish natural
+- [ ] No fabricated specifics
+- [ ] Safety correct
+- [ ] Resume copy accurate
+- Reviewer: ____________  Date: __________
