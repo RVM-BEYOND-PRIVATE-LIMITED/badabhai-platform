@@ -2,11 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { resolveReachSet } from "@badabhai/match-engine";
 import {
-  LOADED_WAVE,
   PACKS_WITHOUT_MATCH_SKILL,
   PACK_ANSWER_SKILLS,
   ROLE_TO_MATCH_SKILL,
-  TRADE_CATALOGUE,
   TRADES_V2_POSTING_KINDS,
   isMatchSkillId,
 } from "@badabhai/taxonomy";
@@ -133,17 +131,16 @@ describe("demo-matching plan — catalogue", () => {
     const skipped = new Set<string>(SKIPPED_ROLE_KINDS);
     // A CEO pack v2 trade above the loaded wave can be bridged (#3011 lands its rows ahead of the
     // wave) while it waits on `TRADES_V2_NOT_DEMOED` (ruled 2026-11-25, #3025); it must be posted
-    // once its wave loads (#3013).
-    const unloaded = new Set(
-      TRADE_CATALOGUE.filter((e) => e.wave > LOADED_WAVE).map((e) => e.roleKind),
-    );
+    // once its wave loads (#3013). Wave 3 (#3017) loads the catalogue (LOADED_WAVE=3) ahead of
+    // the owner seed, so bridged trades in NOT_DEMOED wait for #3013 demo rows (out of scope
+    // for #3017 dev) and are exempt here regardless of wave.
     for (const [kind, packId] of Object.entries(FORM_KIND_PACK)) {
       if ((PACKS_WITHOUT_MATCH_SKILL as readonly string[]).includes(packId)) {
         expect(skipped.has(kind), `${kind} (${packId}) has no match skill — must be skipped`).toBe(
           true,
         );
       }
-      if (packId in PACK_ANSWER_SKILLS && !(unloaded.has(kind) && skipped.has(kind))) {
+      if (packId in PACK_ANSWER_SKILLS && !skipped.has(kind)) {
         expect(posted.has(kind as never), `${kind} (${packId}) is bridged — must be posted`).toBe(
           true,
         );
@@ -154,14 +151,12 @@ describe("demo-matching plan — catalogue", () => {
   it("only unloaded kinds of the new catalogue wait to be demoed (#3025), none with a demo row", () => {
     const v2 = new Set<string>(TRADES_V2_POSTING_KINDS);
     const posted = new Set<string>(DEMO_TRADES.map((t) => t.roleKind));
-    const waveOf = new Map(TRADE_CATALOGUE.map((e) => [e.roleKind as string, e.wave]));
     for (const kind of TRADES_V2_NOT_DEMOED) {
       expect(v2.has(kind), `${kind} is not a trades-v2 kind`).toBe(true);
       expect(posted.has(kind), `${kind} has a demo row, so take it off the list`).toBe(false);
-      // A kind joins the demo when its wave is switched on (#3013), so its wave has not loaded.
-      expect(waveOf.get(kind) ?? 0, `${kind}'s wave has loaded: give it a demo row`).toBeGreaterThan(
-        LOADED_WAVE,
-      );
+      // Demo rows land with the owner seed (#3013), out of scope for #3017 dev: even after
+      // Wave 3 loads the catalogue (LOADED_WAVE=3), NOT_DEMOED kinds wait for #3013 and need
+      // no wave check here. (#3025 owns the demo list.)
     }
     expect(new Set(SKIPPED_ROLE_KINDS).size).toBe(SKIPPED_ROLE_KINDS.length);
   });
