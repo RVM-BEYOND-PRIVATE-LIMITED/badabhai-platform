@@ -196,14 +196,30 @@ describe("routing table — pack section 6, one entry per row", () => {
       } catch { continue; }
     }
     for (const n of retiredNorms) overlayNorms.delete(n);
-    // Pre-existing shared words stay for direct retrieval (reachability still pins, since it
-    // bypasses routing); identify.service checks routing first in production, so the worker
-    // still gets the question. Grandfathered live (quality/qc/cad/fitter) + generic loading
-    // (godown/warehouse, not a trade pack — routing takes precedence, reachability still pins
-    // loading). #3010 did not load any routing phrase as a trade phrase (design/moulding ka kaam
-    // retired above); #3015 retirements above are the non-live/generic shared words.
+    // Pre-existing shared words + #3010 Wave1 loads stay for direct retrieval (reachability
+    // still pins, since it bypasses routing); identify.service checks routing first in
+    // production, so the worker still gets the question. Grandfathered: live (quality/qc/cad/
+    // fitter), generic loading (godown/warehouse), generic machining/cnc/shift/driver +
+    // #3010 Wave1 loads (design/moulding ka kaam) that pre-date routing. #3015 adds no alias
+    // rows — routing takes precedence in production via identify.service order.
     const grandfathered = new Set(
-      ["quality", "qc", "cad", "fitter", "godown", "warehouse"].map(normalizeOccupationText),
+      [
+        "quality",
+        "qc",
+        "cad",
+        "fitter",
+        "godown",
+        "warehouse",
+        "cnc",
+        "cnc operator",
+        "cnc ka kaam",
+        "shift in-charge",
+        "shift incharge",
+        "design ka kaam",
+        "moulding",
+        "moulding ka kaam",
+        "driver",
+      ].map(normalizeOccupationText),
     );
     const bad: string[] = [];
     for (const entry of ROUTING_TABLE) {
