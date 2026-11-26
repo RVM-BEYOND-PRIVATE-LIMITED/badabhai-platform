@@ -350,11 +350,14 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     // "turning ka kaam") and 7223.0601 took reach from ONE phrase to six, with no change to the
     // alias corpus.
     //
-    // The three `fam_machining` rows are DELIBERATE, not a gap. 7223.5001 owns the
-    // machine-agnostic "cnc" / "cnc operator" / "cnc machine"; a VMC or milling operator says
-    // those words too, and the generic machining pack's first question (`machine_type`)
-    // disambiguates lathe from VMC correctly. Routing them here would ask a milling operator
-    // about chucks and tailstocks.
+    // The `fam_machining` row is DELIBERATE, not a gap. 7223.5001 owns the machine-agnostic
+    // "cnc machine"; a VMC or milling operator says those words too, and the generic machining
+    // pack's first question (`machine_type`) disambiguates lathe from VMC correctly.
+    //
+    // #3015 (first-question routing): "cnc" and "cnc operator" no longer land here — they ask
+    // which CNC machine (routing) instead of landing on the generic form. Listed change in #3015
+    // ("cnc operator no longer lands ... without the routing question"). "cnc machine" stays,
+    // since no routing phrase normalises to it.
     //
     // "machinist" MOVED IN BATCH 2, from fam_machining to fam_conventional_machining, and this
     // row is the whole reason that move is reviewable. 7223.0500 ("Mechanist, General/Machinist")
@@ -370,8 +373,8 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
       kharad: "fam_cnc_turning",
       lathe: "fam_cnc_turning",
       "turning ka kaam": "fam_cnc_turning",
-      cnc: "fam_machining",
-      "cnc operator": "fam_machining",
+      cnc: null,
+      "cnc operator": null,
       "cnc machine": "fam_machining",
       machinist: "fam_conventional_machining",
     });
@@ -481,7 +484,8 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     expect(familyFor("lathe")).toBe("fam_cnc_turning");
     expect(familyFor("milling machine")).toBe("fam_vmc_milling");
     expect(familyFor("vmc operator")).toBe("fam_vmc_milling");
-    expect(familyFor("cnc operator")).toBe("fam_machining");
+    // #3015: "cnc operator" no longer lands here — it asks which CNC machine (routing).
+    expect(familyFor("cnc operator")).toBeNull();
   });
 
   it("binding grinding did not move a single turning or milling phrase", () => {
@@ -494,7 +498,7 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     expect(familyFor("milling machine")).toBe("fam_vmc_milling");
     expect(familyFor("vmc operator")).toBe("fam_vmc_milling");
     // And the machine-agnostic words stay on the disambiguator, as the turning table records.
-    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("cnc operator")).toBeNull(); // #3015: asks which CNC machine (routing), listed change
   });
   it("qp_cam_programming is bound to a family that the resolver can actually reach", () => {
     const cam = corpus.bindings.filter((b) => b.family_id === "fam_cam_programming");
@@ -568,8 +572,8 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     // ("CNC Operator") is NOT, for exactly the reason the turning table records: a VMC operator, a
     // miller and a turner all say "cnc operator", and `qp_machining`'s first question is what
     // separates them. Routing it here would ask a button-pressing operator about post-processors.
-    expect(familyFor("cnc")).toBe("fam_machining");
-    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("cnc")).toBeNull(); // #3015 routing (norm of "cnc ka kaam")
+    expect(familyFor("cnc operator")).toBeNull(); // #3015: asks which CNC machine (routing), listed change
     expect(familyFor("cnc machine")).toBe("fam_machining");
   });
 
@@ -770,7 +774,7 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     expect(familyFor("घिसाई")).toBe("fam_cnc_grinding");
     expect(familyFor("ग्राइंडिंग")).toBe("fam_cnc_grinding");
     // And the machine-agnostic words stay on the disambiguator, as the turning table records.
-    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("cnc operator")).toBeNull(); // #3015: asks which CNC machine (routing), listed change
     // "machinist" is NO LONGER on the disambiguator — Batch 2 gave it a home. See the turning
     // table above for why 7223.0500 is unambiguously the MANUAL trade. Kept in this list, with the
     // new answer, rather than deleted: the property under guard is "the desk trades moved
@@ -857,8 +861,8 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
     expect(familyFor("kharad")).toBe("fam_cnc_turning");
     expect(familyFor("खराद")).toBe("fam_cnc_turning");
     // THE GENERIC MACHINING DISAMBIGUATOR KEEPS THE MACHINE-AGNOSTIC CNC WORDS.
-    expect(familyFor("cnc")).toBe("fam_machining");
-    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("cnc")).toBeNull(); // #3015 routing (norm of "cnc ka kaam")
+    expect(familyFor("cnc operator")).toBeNull(); // #3015: asks which CNC machine (routing), listed change
     // WELDING'S ADJACENT JOINING TRADES STAY ON THE GENERIC PACK. 7212.0500 and 7212.0600 were
     // deliberately not bound: brazing and lead burning are not the arc/gas trade this pack asks
     // eighteen questions about.
@@ -1545,10 +1549,12 @@ describe("Batch 2 part two — quality inspection", () => {
     expect(codes).toEqual(["jd_nco_7543_2001", "jd_nco_7311_0500"]);
     for (const p of [
       "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी", "inspection", "quality check",
-      "quality", "qc engineer", "final inspection", "patrol inspection", "incoming inspection",
+      "quality", "final inspection", "patrol inspection", "incoming inspection",
     ]) {
       expect(familyFor(p), p).toBe("fam_quality_inspection");
     }
+    // #3015: "qc engineer" moved to T37 Quality Engineer (pack section 6 + T37 sheet own it);
+    // it is pinned in the Wave 1 T37 table now, not here.
     // 7311.0500's two published titles — its whole reach; no vernacular alias lands on it.
     expect(familyFor("viewer workshop")).toBe("fam_quality_inspection");
     expect(familyFor("examiner metal working")).toBe("fam_quality_inspection");
@@ -1600,9 +1606,9 @@ describe("Batch 2 part two — quality inspection", () => {
     //    Engineer: Wave 1 (#3008) binds it to that trade's own family, never to this one.
     expect(familyFor("quality control inspector")).toBe("fam_universal");
     expect(familyFor("quality engineer")).toBe("fam_quality_engineer");
-    // 3. BARE "quality" IS RATIFIED ON THE METAL CODE (item 10), so "quality manager" reaches this
-    //    family. NOT in the 2026-09-24 guard ruling — left as an accepted imprecision.
-    expect(familyFor("quality manager")).toBe("fam_quality_inspection");
+    // 3. BARE "quality" IS RATIFIED ON THE METAL CODE (item 10). "quality manager" MOVED IN #3015
+    //    to T37 Quality Engineer (pack section 6 + T37 sheet own it); pinned in the Wave 1 T37 table.
+    expect(familyFor("quality manager")).toBe("fam_quality_engineer");
   });
 
   it("GUARD ROWS (2026-09-24) — four non-metal QC phrases reach their own trade", () => {
@@ -1916,7 +1922,7 @@ describe("Phase 2 #5 — the sheet-21 maintenance words (CEO Launch Plan Pack v1
   });
 
   it("leaves the CNC operator and the electronics mechanic where they were", () => {
-    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("cnc operator")).toBeNull(); // #3015: asks which CNC machine (routing), listed change
     expect(familyFor("maintenance mechanic")).toBe("fam_electronics_install");
   });
 });
@@ -2193,14 +2199,15 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
   });
 
   it("reaches the family on the sheet's words, each the ONLY claimant in production", () => {
+    // #3015 retires "shift in-charge"/"shift incharge" (3122_9900) to routing (supervisor entry):
+    // bare shift incharge must ask department now, not pin production supervisor. Pinned as null
+    // in the routing tests; exact shift phrases ("press shop shift in charge", etc.) still land.
     for (const [phrase, code] of [
       ["production supervisor", "jd_nco_3122_9900"],
       ["production in-charge", "jd_nco_3122_9900"],
       ["production incharge", "jd_nco_3122_9900"],
       ["production in charge", "jd_nco_3122_9900"],
       ["plant in-charge", "jd_nco_3122_9900"],
-      ["shift in-charge", "jd_nco_3122_9900"],
-      ["shift incharge", "jd_nco_3122_9900"],
       ["shift in charge", "jd_nco_3122_9900"],
       ["floor incharge", "jd_nco_3122_9900"],
       ["production team leader", "jd_nco_3122_9900"],
@@ -2662,9 +2669,10 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T24 Foundry / Casting — 25 loaded phrases reach fam_foundry_casting", () => {
+  it("T24 Foundry / Casting — 26 loaded phrases reach fam_foundry_casting", () => {
     const routing = Object.fromEntries(
       [
+        "fettler",
         "hand moulder",
         "moulder",
         "मोल्डर",
@@ -2693,6 +2701,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       ].map((p) => [p, familyFor(p)]),
     );
     expect(routing).toEqual({
+      fettler: "fam_foundry_casting",
       "hand moulder": "fam_foundry_casting",
       "moulder": "fam_foundry_casting",
       "मोल्डर": "fam_foundry_casting",
@@ -2906,7 +2915,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T29 Injection Moulding — 27 loaded phrases reach fam_injection_moulding", () => {
+  it("T29 Injection Moulding — 26 loaded phrases reach fam_injection_moulding", () => {
     const routing = Object.fromEntries(
       [
         "engel machine",
@@ -2926,7 +2935,6 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "प्लास्टिक मोल्डिंग",
         "मोल्डिंग मशीन",
         "molding operator",
-        "moulding ka kaam",
         "मोल्डिंग ऑपरेटर",
         "mold setter",
         "mould change ka kaam",
@@ -2956,7 +2964,6 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "प्लास्टिक मोल्डिंग": "fam_injection_moulding",
       "मोल्डिंग मशीन": "fam_injection_moulding",
       "molding operator": "fam_injection_moulding",
-      "moulding ka kaam": "fam_injection_moulding",
       "मोल्डिंग ऑपरेटर": "fam_injection_moulding",
       "mold setter": "fam_injection_moulding",
       "mould change ka kaam": "fam_injection_moulding",
@@ -3038,7 +3045,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T37 Quality Engineer — 32 loaded phrases reach fam_quality_engineer", () => {
+  it("T37 Quality Engineer — 34 loaded phrases reach fam_quality_engineer", () => {
     const routing = Object.fromEntries(
       [
         "qms engineer",
@@ -3058,8 +3065,10 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "ppap engineer",
         "qa engineer",
         "qa qc engineer",
+        "qc engineer",
         "quality control engineer",
         "quality engg",
+        "quality manager",
         "qulity engineer",
         "sqa engineer",
         "क्यूए इंजीनियर",
@@ -3093,8 +3102,10 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "ppap engineer": "fam_quality_engineer",
       "qa engineer": "fam_quality_engineer",
       "qa qc engineer": "fam_quality_engineer",
+      "qc engineer": "fam_quality_engineer",
       "quality control engineer": "fam_quality_engineer",
       "quality engg": "fam_quality_engineer",
+      "quality manager": "fam_quality_engineer",
       "qulity engineer": "fam_quality_engineer",
       "sqa engineer": "fam_quality_engineer",
       "क्यूए इंजीनियर": "fam_quality_engineer",
@@ -3598,11 +3609,10 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T58 3D CAD — 27 loaded phrases reach fam_cad_design_3d", () => {
+  it("T58 3D CAD — 26 loaded phrases reach fam_cad_design_3d", () => {
     const routing = Object.fromEntries(
       [
         "biw fixture design",
-        "design ka kaam",
         "die design",
         "jig fixture design",
         "mold design",
@@ -3632,7 +3642,6 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     );
     expect(routing).toEqual({
       "biw fixture design": "fam_cad_design_3d",
-      "design ka kaam": "fam_cad_design_3d",
       "die design": "fam_cad_design_3d",
       "jig fixture design": "fam_cad_design_3d",
       "mold design": "fam_cad_design_3d",
@@ -3684,16 +3693,18 @@ describe("Retirements — #3010 (CEO pack v2, 23 Nov 2026)", () => {
 describe("Held phrases — #3010 (listed on #2995)", () => {
   it("digits reach no Wave 1 family (validator refuses them; T58 digits already via domain file)", () => {
     // T21, T33 (Latin + Devanagari), T38: null. T58 digits mostly already reach via
-    // rvm-3d-cad-design.jsonl (pre-existing, grandfathered); only the Devanagari "3D design" is null.
-    for (const p of ["3d carving", "type3", "3d scanner operator", "3d scanning", "s7 300"]) {
+    // rvm-3d-cad-design.jsonl (pre-existing, grandfathered); "3d design" and the Devanagari
+    // "3D design" are null ("3d design" lost its ride when #3015 retired "design ka kaam",
+    // whose norm it matched; it has no exact domain-file row).
+    for (const p of ["3d carving", "type3", "3d scanner operator", "3d scanning", "s7 300", "3d design"]) {
       expect(familyFor(p), p).toBeNull();
     }
-    expect(familyFor("3\u0921\u0940 \u0938\u094d\u0915\u0948\u0928\u0930"), "3D scanner hi").toBeNull();
+    expect(familyFor("3डी स्कैनर"), "3D scanner hi").toBeNull();
     // T58 digits already loaded (domain file, not overlay): they reach the trade, not held as null.
-    for (const p of ["3d design", "3d designer", "3d modelling", "3d modeling", "fusion 360"]) {
+    for (const p of ["3d designer", "3d modelling", "3d modeling", "fusion 360"]) {
       expect(familyFor(p), p).toBe("fam_cad_design_3d");
     }
-    expect(familyFor("3\u0921\u0940 \u0921\u093f\u091c\u093c\u093e\u0907\u0928"), "3D design hi").toBeNull();
+    expect(familyFor("3डी डिज़ाइन"), "3D design hi").toBeNull();
   });
 
   it("shorts held: plc, ppc and plc ka kaam reach nothing (would misroute pinned live phrases)", () => {
@@ -3703,11 +3714,8 @@ describe("Held phrases — #3010 (listed on #2995)", () => {
     for (const p of ["plc", "ppc", "plc ka kaam"]) {
       expect(familyFor(p), p).toBeNull();
     }
-    // Live-collision holds (would move a live pinned route, not listed): they stay on live.
-    expect(familyFor("qc engineer"), "qc engineer").toBe("fam_quality_inspection");
-    expect(familyFor("quality manager"), "quality manager").toBe("fam_quality_inspection");
-    // Fettler stays on the metal plant (ISCO 8122), not the foundry.
-    expect(familyFor("fettler"), "fettler").toBe("fam_metal_plant");
-    expect(familyFor("fettler"), "fettler").not.toBe("fam_foundry_casting");
+    // #3015 moved the former live-collision holds into their trades (pack-mandated, non-live
+    // exact moves): "qc engineer"/"quality manager" to T37, "fettler" to T24. Pinned in the
+    // Wave 1 T37/T24 tables now, not here.
   });
 });
