@@ -1,16 +1,17 @@
 import type { RoleFormDescriptor } from "./role-form-descriptor";
 
 /**
- * PLASTIC PROCESS / QUALITY TECHNICIAN — process setting, parameter optimisation, rejection control.
+ * PLASTIC PROCESS / QUALITY TECHNICIAN — RETIRED, FOLDED INTO INJECTION MOULDING (#3030).
  *
- * DECLARED FOR BATCH 3.
+ * CEO pack v2 Q4 (ruled 23 Nov 2026): "Plastic Process Technician is not a trade: it is the Senior
+ * rung of Injection Moulding (T29), and the phrase leads there."
  *
- * IT IS THE POLYMER CLUSTER'S QC ROLE, AND IT HAS THE SAME NARROWNESS PROBLEM. Like
- * `quality-inspector.role.ts`, its work is described in words every neighbouring role uses —
- * "process setting" is what a moulding setter does all shift, and "in-process QC" is what the
- * inspector at the end of the line does. It sits in `polymer` with the moulding roles precisely so
- * those vetoes derive, and its terms below name the ANALYSIS rather than the machine: nobody but
- * this role runs a rejection analysis or a mould trial report.
+ * The kind stays in `TRADE_FORM_KINDS_ALL` and this file stays registered so the kind can still
+ * be named on stored events — removing either breaks the event spine. But its detection is empty
+ * on purpose: "plastic process technician", "process technician" and "प्रोसेस टेक्नीशियन" moved to
+ * `injection-moulding-operator.role.ts` as level words for its Senior rung (the sheet shows that
+ * rung as "Process Technician"), and this descriptor competes with nobody.
+ * `assertRegistryIsCoherent` allows a disabled role with no occupation terms.
  */
 export const PLASTIC_PROCESS_TECHNICIAN = {
   kind: "plastic_process_technician",
@@ -23,20 +24,8 @@ export const PLASTIC_PROCESS_TECHNICIAN = {
   levelLadder: ["Technician", "Process Engineer"],
   tenureQuestionKey: "process_experience",
   detection: {
-    occupationTerms: [
-      "plastic process technician",
-      "process technician",
-      "plastic quality technician",
-      "प्रोसेस टेक्नीशियन",
-    ],
-    machineTerms: [
-      "rejection analysis",
-      "parameter optimisation",
-      "parameter optimization",
-      "mould trial",
-      "shrinkage check",
-      "melt flow index",
-    ],
-    levelTerms: ["technician", "process engineer", "टेक्नीशियन"],
+    occupationTerms: [],
+    machineTerms: [],
+    levelTerms: [],
   },
 } as const satisfies RoleFormDescriptor;

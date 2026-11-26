@@ -13,6 +13,14 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * THE MACHINE, NOT THE TOOL ROOM. A man who builds the mould (core, cavity, spotting) is a Tool &
  * Die Maker; "mould ka kaam" stays an ask-first disambiguation (A3), so "mould" is not a term here.
+ *
+ * ═══ THE PROCESS TECHNICIAN IS THIS TRADE'S SENIOR RUNG, FOLDED IN (#3030) ═══
+ *
+ * CEO pack v2 Q4 (ruled 23 Nov 2026): "Plastic Process Technician is not a trade: it is the Senior
+ * rung of Injection Moulding (T29), and the phrase leads there." `plastic-process-technician.role.ts`
+ * is retired — its detection is empty and it competes with nobody — and its words live here as level
+ * words for the Senior rung (the sheet shows that rung as "Process Technician"): "plastic process
+ * technician" and "प्रोसेस टेक्नीशियन" beside the "process technician" that was already here.
  */
 export const INJECTION_MOULDING_OPERATOR = {
   kind: "injection_moulding_operator",
@@ -32,6 +40,11 @@ export const INJECTION_MOULDING_OPERATOR = {
       "moulding operator",
       "molding operator",
       "इंजेक्शन मोल्डिंग",
+      // #3030 (CEO pack v2 Q4 / T29 sheet): the machine hand's own words. None of these is a
+      // Tool & Die term or veto, which is what keeps the maker (T07) and the machine (T29) apart.
+      "moulding machine",
+      "mould setter",
+      "mould change",
     ],
     machineTerms: [
       // Sheet 22 "Words": the moulding-machine makes and the machine's own parts. Corroborate a
@@ -49,7 +62,15 @@ export const INJECTION_MOULDING_OPERATOR = {
       "abs",
       "nylon",
     ],
-    levelTerms: ["trainee", "operator", "setter", "process technician", "सेटर"],
+    levelTerms: [
+      "trainee",
+      "operator",
+      "setter",
+      "process technician",
+      "plastic process technician",
+      "प्रोसेस टेक्नीशियन",
+      "सेटर",
+    ],
   },
   fresher: {
     workshopMachines: {

@@ -109,7 +109,10 @@ describe("classifyRoleScope", () => {
 
   describe("declared — something names one of the 63", () => {
     describe("each descriptor's first occupation term, as the role alone", () => {
-      for (const descriptor of ROLE_FORM_DESCRIPTORS) {
+      // #3030: the two retired roles carry no detection — nothing to name them alone.
+      for (const descriptor of ROLE_FORM_DESCRIPTORS.filter(
+        (d) => d.detection.occupationTerms.length > 0,
+      )) {
         const term = descriptor.detection.occupationTerms[0]!;
         it(`${descriptor.kind}: ${JSON.stringify(term)}`, () => {
           expect(scope(term)).toBe("declared");
@@ -398,7 +401,9 @@ describe("classifyRoleScope", () => {
     it("a term that is BOTH an occupation and a rung is read as the occupation, before stripping", () => {
       // Each of these is on its role's ladder AND is its occupation term. Stripping first would
       // leave nothing and read a welder as `unknown`.
-      for (const role of ["Welder", "Mould maker", "Tool maker", "Process technician"]) {
+      // #3030: "Process technician" left this list — it folded into Injection Moulding as a
+      // Senior-rung LEVEL word only, so bare it is `unknown` (pinned, `declared`).
+      for (const role of ["Welder", "Mould maker", "Tool maker"]) {
         expect(scope(role), role).toBe("declared");
       }
       expect(scope("Senior welder")).toBe("declared");
@@ -420,6 +425,21 @@ describe("classifyRoleScope", () => {
       ]) {
         expect(scope(role), role).toBe("unknown");
       }
+    });
+
+    it("a folded Senior rung is unknown bare and declared on its family's pin (#3030)", () => {
+      // "Process technician" is Injection Moulding's Senior rung as a LEVEL word only — it routes
+      // solely by corroborating the family pin, like "setter". Bare it must not read `outside`:
+      // the interview keeps asking.
+      expect(scope("Process technician")).toBe("unknown");
+      // The full phrase keeps `declared` on the material word alone ("plastic" is a scope term):
+      // a false `declared` costs nothing — today's interview — while the family pin retrieval
+      // lands anyway. What matters is neither reads `outside`.
+      expect(scope("Plastic process technician")).toBe("declared");
+      expect(scope("operator", { pinFamilyId: "fam_injection_moulding" })).toBe("declared");
+      expect(scope("Process technician", { pinFamilyId: "fam_injection_moulding" })).toBe(
+        "declared",
+      );
     });
 
     it("the same rung is `declared` when its own family is pinned", () => {

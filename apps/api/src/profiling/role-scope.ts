@@ -185,8 +185,9 @@ export const DECLARED_OCCUPATION_TERMS: readonly string[] = prepareTerms(
 export const SCOPE_DECLARED_TERMS: readonly string[] = prepareTerms([
   // ── THE 5 POLYMER ROLES (R1: they keep today's path). The registry has only the compounds
   // ("injection moulding", "moulding operator", "rubber moulding", "blow moulding"), and "mould" /
-  // "mold" / "मोल्ड" are stripped as the mould maker's machine words — so the bare stem was left
-  // over as proof of `outside`. Retrieval does not save them: the committed corpus pins nothing for
+  // "mold" / "मोल्ड" are stripped as non-evidence words (#3030: the retired mould maker's dropped
+  // bare machine words, kept ambiguous maker-or-machine) — so the bare stem was left over as
+  // proof of `outside`. Retrieval does not save them: the committed corpus pins nothing for
   // "Moulder" or "Plastic moulding", so `fam_rubber_plastic` is never reached.
   "moulding",
   "molding",
@@ -588,6 +589,15 @@ export const NOT_EVIDENCE_WORDS: readonly string[] = prepareTerms([
   "my",
   "is",
   "cum",
+  // ── #3030: THE RETIRED MOULD-MAKER'S BARE MACHINE WORDS. CEO pack v2 Q4 drops "mould", "mold"
+  // and "मोल्ड" from every descriptor (the retired role is empty; Tool & Die must term none of
+  // them), so nothing derives the strip any more — but the bare stem is maker-or-machine
+  // ambiguity ("mould ka kaam" is the routing table's ask-first row, #3015), never a trade on
+  // its own. Kept here so it stays `unknown` (keep asking) rather than flipping to `outside`
+  // (the skills lane). Growing this list is the safe direction, per the header.
+  "mould",
+  "mold",
+  "मोल्ड",
 ]);
 
 /**
@@ -703,8 +713,8 @@ function isQualifiedRuledRung(role: string): boolean {
  * Is this worker's role one of the 63, outside them, or not known yet? See the header.
  *
  * THE ORDER IS THE RULE. `declared` is decided FIRST, on the unstripped text, because several
- * occupation terms are also level terms — "welder", "mould maker", "tool maker", "process
- * technician" — and stripping first would read a welder as `unknown`. Only then does a missing
+ * occupation terms are also level terms — "welder", "mould maker", "tool maker" — and stripping
+ * first would read a welder as `unknown`. Only then does a missing
  * role make the answer `unknown`: the domain and the pin can prove a worker is one of the 63, but
  * they can never prove one is not, because §3.1 requires that the model captured the role.
  */

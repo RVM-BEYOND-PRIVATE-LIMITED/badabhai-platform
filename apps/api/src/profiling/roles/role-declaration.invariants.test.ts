@@ -40,8 +40,16 @@ describe("the declared-role set", () => {
     // occupation term contributes nothing to any sibling's veto, which makes it indistinguishable
     // from a role somebody forgot to finish. `assertRegistryIsCoherent` only enforces this for
     // ENABLED roles, because an enabled one additionally cannot be ROUTED to without it.
+    //
+    // #3030 RETIRES TWO ROLES ON PURPOSE. `mould_die_maker` folded into `tool_die_maker` and
+    // `plastic_process_technician` into `injection_moulding_operator` (CEO pack v2 Q4): their kinds
+    // stay declared so stored events keep loading, but their detection is empty so they compete
+    // with nobody. They are the only silent descriptors allowed.
     const silent = ROLE_FORM_DESCRIPTORS.filter((d) => d.detection.occupationTerms.length === 0);
-    expect(silent.map((d) => d.kind)).toEqual([]);
+    expect(silent.map((d) => d.kind).sort()).toEqual([
+      "mould_die_maker",
+      "plastic_process_technician",
+    ]);
   });
 
   it("never leaves a role alone in a cluster, where its veto would derive nothing", () => {
@@ -94,10 +102,7 @@ describe("the declared-role set", () => {
    * authoring outcome, so only the pairs whose evidence is genuinely two-way are asserted here.
    */
   describe("cross-cluster rivals veto each other in BOTH directions", () => {
-    it.each([
-      ["tool_die_maker", "mould_die_maker"],
-      ["fitter", "assembly_line_worker"],
-    ])("%s ↔ %s", (leftKind, rightKind) => {
+    it.each([["fitter", "assembly_line_worker"]])("%s ↔ %s", (leftKind, rightKind) => {
       const left = byKind(leftKind);
       const right = byKind(rightKind);
       expect(left.cluster, "same cluster — this pair would derive, not need authoring").not.toBe(
@@ -118,6 +123,85 @@ describe("the declared-role set", () => {
         rightVetoes.filter((t) => vocabularyOf(left).includes(t)),
         `${rightKind} does not veto any word ${leftKind} answers to — the mirror is missing`,
       ).not.toEqual([]);
+    });
+
+    /**
+     * ═══ THE #3030 FOLD: THE TWO RETIRED POLYMER ROLES COMPETE WITH NOBODY ═══
+     *
+     * CEO pack v2 Q4: Mould / Die Maker is the live Tool & Die Maker (T07); Plastic Process
+     * Technician is Injection Moulding's Senior rung (T29). The retired descriptors stay
+     * registered (their kinds name stored events) but carry no detection, so they contribute no
+     * vocabulary to any sibling's veto and veto nothing themselves. The words live on the
+     * receiving roles instead — and none of Injection's kept words is a Tool & Die veto or term.
+     */
+    it("#3030: the retired mould-die-maker carries no detection", () => {
+      const retired = byKind("mould_die_maker");
+      expect(retired.formEnabled).toBe(false);
+      expect(retired.detection.occupationTerms).toEqual([]);
+      expect(retired.detection.machineTerms).toEqual([]);
+      expect(retired.detection.levelTerms).toEqual([]);
+      expect(retired.detection.extraConflictTerms ?? []).toEqual([]);
+    });
+
+    it("#3030: the retired plastic-process-technician carries no detection", () => {
+      const retired = byKind("plastic_process_technician");
+      expect(retired.formEnabled).toBe(false);
+      expect(retired.detection.occupationTerms).toEqual([]);
+      expect(retired.detection.machineTerms).toEqual([]);
+      expect(retired.detection.levelTerms).toEqual([]);
+      expect(retired.detection.extraConflictTerms ?? []).toEqual([]);
+    });
+
+    it("#3030: Tool & Die owns the mould-maker words", () => {
+      const toolDie = byKind("tool_die_maker");
+      for (const word of ["mould maker", "mold maker", "mould making", "मोल्ड मेकर"]) {
+        expect(toolDie.detection.occupationTerms, word).toContain(word);
+      }
+      expect(toolDie.detection.machineTerms).toContain("mould polishing");
+    });
+
+    it("#3030: Injection Moulding owns the process-technician words as Senior-rung levels", () => {
+      const injection = byKind("injection_moulding_operator");
+      for (const word of [
+        "plastic process technician",
+        "process technician",
+        "प्रोसेस टेक्नीशियन",
+      ]) {
+        expect(injection.detection.levelTerms, word).toContain(word);
+      }
+    });
+
+    it("#3030: Injection Moulding owns the machine-hand words", () => {
+      const injection = byKind("injection_moulding_operator");
+      for (const word of [
+        "moulding machine",
+        "injection moulding",
+        "mould setter",
+        "mould change",
+      ]) {
+        expect(
+          [...injection.detection.occupationTerms, ...injection.detection.machineTerms],
+          word,
+        ).toContain(word);
+      }
+    });
+
+    it("#3030: Tool & Die vetoes none of Injection Moulding's kept words and terms none of them", () => {
+      const toolDie = byKind("tool_die_maker");
+      const toolDieVetoes = conflictTermsFor(toolDie, ROLE_FORM_DESCRIPTORS);
+      const toolDieVocab = vocabularyOf(toolDie);
+      for (const word of [
+        "moulding machine",
+        "injection moulding",
+        "mould setter",
+        "mould change",
+      ]) {
+        expect(toolDieVetoes, word).not.toContain(word);
+        expect(toolDieVocab, word).not.toContain(word);
+      }
+      for (const word of ["mould", "mold", "injection mould", "hot runner", "मोल्ड"]) {
+        expect(toolDieVetoes, word).not.toContain(word);
+      }
     });
   });
 
