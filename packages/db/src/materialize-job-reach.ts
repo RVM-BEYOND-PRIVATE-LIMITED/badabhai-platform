@@ -144,6 +144,12 @@ export type PostingReachOutcome =
       rowsUpdated: number;
       /** Rows for workers who no longer qualify (dry run: would be deleted). */
       rowsDeleted: number;
+      /** Dry-run tier split only: existing rows by tier. */
+      beforeTier1?: number;
+      beforeTier2?: number;
+      /** Dry-run tier split only: planned rows by tier. */
+      afterTier1?: number;
+      afterTier2?: number;
     };
 
 export interface MaterializeOptions {
@@ -263,7 +269,7 @@ export async function materializePostingReach(
     if (problem !== null) {
       return skipped(jobPostingId, problem.reason, problem.missingMatchSkillIds);
     }
-    return countPlanned(db, jobPostingId, posting.sets.reachSkillIds);
+    return countPlanned(db, jobPostingId, posting.sets.matchSkillIds, posting.sets.reachSkillIds);
   }
 
   return db.transaction(async (raw) => {
@@ -304,9 +310,11 @@ export async function materializePostingReach(
 async function countPlanned(
   db: Database,
   jobPostingId: string,
+  matchSkillIds: readonly string[],
   reachSkillIds: readonly string[],
 ): Promise<PostingReachOutcome> {
   const reach = dsql.param([...reachSkillIds]);
+  const posted = dsql.param([...matchSkillIds]);
   const rows = rowsOf<{ reachable: number; new_rows: number; stale: number }>(
     await db.execute(dsql`
       WITH reachable AS (
@@ -327,6 +335,38 @@ async function countPlanned(
     `),
   );
   const { reachable = 0, new_rows = 0, stale = 0 } = rows[0] ?? {};
+  // #3052 §2 — tier split before/after, counts only. Tier 1 = holds a posted
+  // skill; tier 2 = reach skill but no posted skill (E6 best-tier-wins).
+  const beforeRows = rowsOf<{ tier: number; n: number }>(
+    await db.execute(dsql`
+      SELECT match_tier AS tier, count(*)::int AS n FROM job_reach
+      WHERE job_posting_id = ${jobPostingId}::uuid GROUP BY match_tier
+    `),
+  );
+  let beforeTier1 = 0;
+  let beforeTier2 = 0;
+  for (const r of beforeRows) {
+    if (r.tier === 1) beforeTier1 = r.n;
+    else if (r.tier === 2) beforeTier2 = r.n;
+  }
+  const afterRows = rowsOf<{ tier: number; n: number }>(
+    await db.execute(dsql`
+      WITH wanted AS (
+        SELECT DISTINCT ws.worker_id,
+          MIN(CASE WHEN ws.skill_id = ANY(${posted}::text[]) THEN 1 ELSE 2 END)::int AS tier
+        FROM worker_skill ws
+        WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants
+        GROUP BY ws.worker_id
+      )
+      SELECT tier, count(*)::int AS n FROM wanted GROUP BY tier
+    `),
+  );
+  let afterTier1 = 0;
+  let afterTier2 = 0;
+  for (const r of afterRows) {
+    if (r.tier === 1) afterTier1 = r.n;
+    else if (r.tier === 2) afterTier2 = r.n;
+  }
   return {
     kind: "materialized",
     jobPostingId,
@@ -334,6 +374,10 @@ async function countPlanned(
     rowsInserted: new_rows,
     rowsUpdated: reachable - new_rows,
     rowsDeleted: stale,
+    beforeTier1,
+    beforeTier2,
+    afterTier1,
+    afterTier2,
   };
 }
 
@@ -350,6 +394,8 @@ export interface MaterializeRunSummary {
   clearedIds: string[];
   /** Materialized postings that reach nobody. */
   zeroReachIds: string[];
+  /** Dry-run only (#3052 §2): per open job rows before/after by tier, counts only. */
+  tierLines: string[];
 }
 
 /**
@@ -391,6 +437,7 @@ export async function runMaterializeJobReach(
     skipped: [],
     clearedIds: [],
     zeroReachIds: [],
+    tierLines: [],
   };
   for (const id of ids) {
     const outcome = await materializePostingReach(db, id, { apply: opts.apply });
@@ -408,6 +455,15 @@ export async function runMaterializeJobReach(
     summary.rowsUpdated += outcome.rowsUpdated;
     summary.rowsDeleted += outcome.rowsDeleted;
     if (outcome.reachableWorkers === 0) summary.zeroReachIds.push(id);
+    if (!opts.apply && outcome.beforeTier1 !== undefined) {
+      // #3052 §2 — per open job rows before/after by tier, counts only.
+      // A job losing a tier 1 row stops the seed (§3).
+      summary.tierLines.push(
+        `${id}  before_t1=${outcome.beforeTier1} before_t2=${outcome.beforeTier2} ` +
+          `after_t1=${outcome.afterTier1} after_t2=${outcome.afterTier2} ` +
+          `inserted=${outcome.rowsInserted} refreshed=${outcome.rowsUpdated} deleted=${outcome.rowsDeleted}`,
+      );
+    }
   }
   return summary;
 }
@@ -464,6 +520,12 @@ async function main(): Promise<void> {
       "ZERO-REACH postings (they will show to nobody — verify this is intended):",
       summary.zeroReachIds,
     );
+
+    if (!opts.apply && summary.tierLines.length > 0) {
+      // #3052 §2 — per open job, not truncated: the owner compares before/after by tier.
+      console.log(`[${NAME}] per open job rows before/after by tier (dry run, counts only):`);
+      for (const line of summary.tierLines) console.log(`  ${line}`);
+    }
 
     printFooter(NAME, opts, summary.rowsInserted + summary.rowsUpdated + summary.rowsDeleted);
   } finally {
