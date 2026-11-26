@@ -78,7 +78,7 @@ beforeEach(() => {
 describe("first-question routing (#3015)", () => {
   it("machine operator → machine question, not the machining form", async () => {
     const { svc } = makeIdentify();
-    const result = await svc.identify(freshEnvelope(), "machine operator hoon", { sessionId: SESSION, workerId: WORKER } as never, "other");
+    const result = await svc.identify(freshEnvelope(), "machine operator hoon", { sessionId: SESSION, workerId: WORKER } as never, "answer");
     expect(result.offer).not.toBeNull();
     expect(result.offer?.prompt).toBe("Aap kaunsi machine chalate hain?");
     const labels = (result.offer?.chips ?? []).map((c) => c.label);
@@ -90,10 +90,10 @@ describe("first-question routing (#3015)", () => {
 
   it("VMC chip pins the VMC family (same event as a tapped search chip)", async () => {
     const { svc } = makeIdentify();
-    const first = await svc.identify(freshEnvelope(), "machine operator", { sessionId: SESSION, workerId: WORKER } as never, "other");
+    const first = await svc.identify(freshEnvelope(), "machine operator", { sessionId: SESSION, workerId: WORKER } as never, "answer");
     expect(first.offer).not.toBeNull();
     const envelope = { ...freshEnvelope(), needsDisambiguation: true, disambiguationOffer: first.offer!.chips, disambiguationPrompt: first.offer!.prompt, identifyAttempts: 1 } as ProfilingEnvelope;
-    const tapped = await svc.identify(envelope, "VMC / HMC / milling", { sessionId: SESSION, workerId: WORKER } as never, "other");
+    const tapped = await svc.identify(envelope, "VMC / HMC / milling", { sessionId: SESSION, workerId: WORKER } as never, "answer");
     expect(tapped.pinned).not.toBeNull();
     expect(tapped.patch.occupationFamilyId).toBe("fam_vmc_milling");
     expect(tapped.tradeText).toBe("VMC / HMC / milling");
@@ -102,10 +102,10 @@ describe("first-question routing (#3015)", () => {
 
   it("helper → department → Moulding pins injection moulding with level trainee (unconfirmed)", async () => {
     const { svc } = makeIdentify();
-    const first = await svc.identify(freshEnvelope(), "helper hoon", { sessionId: SESSION, workerId: WORKER } as never, "other");
+    const first = await svc.identify(freshEnvelope(), "helper hoon", { sessionId: SESSION, workerId: WORKER } as never, "answer");
     expect(first.offer?.prompt).toBe("Aap kis department me helper hain?");
     const envelope = { ...freshEnvelope(), needsDisambiguation: true, disambiguationOffer: first.offer!.chips, disambiguationPrompt: first.offer!.prompt, identifyAttempts: 1 } as ProfilingEnvelope;
-    const second = await svc.identify(envelope, "Moulding", { sessionId: SESSION, workerId: WORKER } as never, "other");
+    const second = await svc.identify(envelope, "Moulding", { sessionId: SESSION, workerId: WORKER } as never, "answer");
     expect(second.patch.occupationFamilyId).toBe("fam_injection_moulding");
     const level = (second.patch.answerMap ?? []).find((a: { question_key: string }) => a.question_key === "moulding_level");
     expect(level).toBeDefined();
@@ -114,7 +114,7 @@ describe("first-question routing (#3015)", () => {
 
   it("a more exact phrase never routes (cnc turner operator pins turner)", async () => {
     const { svc } = makeIdentify();
-    const result = await svc.identify(freshEnvelope(), "cnc turner operator", { sessionId: SESSION, workerId: WORKER } as never, "other");
+    const result = await svc.identify(freshEnvelope(), "cnc turner operator", { sessionId: SESSION, workerId: WORKER } as never, "answer");
     expect(result.pinned).not.toBeNull();
     expect(result.patch.occupationFamilyId).toBe("fam_cnc_turning");
     expect(result.offer).toBeNull();
@@ -126,7 +126,7 @@ describe("first-question routing (#3015)", () => {
       freshEnvelope(),
       "maintenance",
       { sessionId: SESSION, workerId: WORKER } as never,
-      "other",
+      "answer",
       { offerChips: false },
     );
     expect(result.offer).toBeNull();

@@ -948,7 +948,13 @@ export class IdentifyService {
     entry: RoutingEntry,
     propagatedLevel: { readonly levelKey: string; readonly rung: string } | null,
     _ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
-  ): { readonly patch: Partial<ProfilingEnvelope>; readonly offer: NonNullable<IdentifyResult["offer"]> } {
+  ): {
+    readonly patch: Partial<ProfilingEnvelope>;
+    readonly offer: NonNullable<IdentifyResult["offer"]>;
+    readonly pinned: null;
+    readonly prompt: null;
+    readonly tradeText: null;
+  } {
     const chips: OfferedChip[] = entry.chips.map((chip) => {
       if (chip.kind === "trade") {
         return {
@@ -1012,6 +1018,9 @@ export class IdentifyService {
         chips,
         options: chips.map((chip, index) => toPackOption(chip, index)),
       },
+      pinned: null,
+      prompt: null,
+      tradeText: null,
     };
   }
 
