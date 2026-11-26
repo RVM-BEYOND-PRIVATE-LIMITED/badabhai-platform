@@ -4889,7 +4889,7 @@ describe("Wave 2 worker phrases (#3016) — every loaded phrase reaches its trad
     });
   });
 
-  it("T42 Utility — 35 loaded phrases reach fam_utility", () => {
+  it("T42 Utility — 34 loaded phrases reach fam_utility", () => {
     const routing = Object.fromEntries(
       [
         "boiler operator",
@@ -4897,7 +4897,6 @@ describe("Wave 2 worker phrases (#3016) — every loaded phrase reaches its trad
         "boiler ka kaam",
         "first class boiler attendant",
         "second class boiler attendant",
-        "boe",
         "utility operator",
         "utility ka kaam",
         "compressor operator",
@@ -4935,7 +4934,6 @@ describe("Wave 2 worker phrases (#3016) — every loaded phrase reaches its trad
       "boiler ka kaam": "fam_utility",
       "first class boiler attendant": "fam_utility",
       "second class boiler attendant": "fam_utility",
-      "boe": "fam_utility",
       "utility operator": "fam_utility",
       "utility ka kaam": "fam_utility",
       "compressor operator": "fam_utility",
@@ -5152,16 +5150,19 @@ describe("Held phrases — #3016 (CEO pack v2, 23 Nov 2026)", () => {
     expect(familyFor("gear change")).not.toBe("fam_gear_cutting");
   });
 
-  it("digits are rows now; shorts proved 0 moves so none held", () => {
-    // Validator change #2995 point 2 (ruled 26 Nov 2026): the contact guard is @/URL/7+ digits,
-    // so T34's levels and T35's "iso 17025" load (tables above). All 10 shorts reached their
-    // trade with 0 moves across 9,924 phrases, so the Held list carries no short.
-    for (const p of ["ndt level 2", "asnt level 2", "isnt level 2", "pcn level 2", "iso 17025", "boe"]) {
+  it("digits are rows now; shorts proved 0 moves so none held — except boe", () => {
+    // Validator change #2995 point 2 (ruled 26 Nov 2026): the contact guard is @/URL only
+    // per #3082, so T34's levels and T35's "iso 17025" load (tables above). All 10 shorts
+    // reached their trade with 0 moves across the alias corpus — except "boe": its L1
+    // skeleton is "b", the same as greeting filler "bhai", so loading it turns every
+    // "Namaste bhai" into a bai/boe disambiguation and breaks the phase1 E2E gate.
+    // Held like bare plc/ppc (#3010): the Board of Engineers word stays out.
+    for (const p of ["ndt level 2", "asnt level 2", "isnt level 2", "pcn level 2", "iso 17025"]) {
       expect(familyFor(p), p).not.toBeNull();
     }
     expect(familyFor("ndt level 2")).toBe("fam_ndt");
     expect(familyFor("iso 17025")).toBe("fam_calibration");
-    expect(familyFor("boe")).toBe("fam_utility");
+    expect(familyFor("boe")).not.toBe("fam_utility");
   });
 
   it("offline-divergent rows are loaded for production and pinned as-is here", () => {

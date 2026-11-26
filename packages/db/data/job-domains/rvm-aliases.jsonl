@@ -1865,10 +1865,12 @@
 # of the trade that the phrase most exactly names (spread across each trade's bound codes
 # from packages/db/data/question-packs/_families.jsonl, Wave 2 bindings).
 #
-# Digits are LOADABLE here (#2995 point 2, ruled 26 Nov 2026: the validator's contact guard
-# is @/URL/7+ digits; T34 "ndt level 2", "asnt/isnt/pcn level 2" and T35 "iso 17025" are rows).
-# All 10 shorts (hbm, ndt, mpt, mpi, dpt, lpt, rac, vrf, vrv, boe) proved 0 moves across
-# 9,924 phrases (every alias text + every phrase the reachability test asserts) and are loaded.
+# Digits are LOADABLE here (#2995 point 2, ruled 26 Nov 2026: per #3082 the validator's
+# contact guard is @/URL only; T34 "ndt level 2", "asnt/isnt/pcn level 2" and T35 "iso 17025"
+# are rows). 9 of 10 shorts (hbm, ndt, mpt, mpi, dpt, lpt, rac, vrf, vrv) proved 0 moves
+# across the corpus and are loaded. "boe" is HELD: its L1 skeleton is "b", the same as
+# greeting filler "bhai", so loading it turns every "Namaste bhai" into a bai/boe
+# disambiguation and breaks the phase1 E2E gate. Held like bare plc/ppc (#3010).
 #
 # NOT loaded here:
 #   - "gear grinding" + Devanagari twin: pinned to fam_cnc_grinding by the existing grinding
@@ -2434,7 +2436,6 @@
 {"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boiler ka kaam","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"first class boiler attendant","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"second class boiler attendant","lang":"en"}
-{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boe","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"utility operator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"utility ka kaam","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_3132_0700","text":"compressor operator","lang":"en"}
@@ -2456,7 +2457,7 @@
 {"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"utillity operator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"बॉयलर ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"बॉयलर अटेंडेंट","lang":"hi"}
-{"kind":"alias","job_domain_id":"jd_nco_8182_0300","text":"बॉयलर फायरमैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"बॉयलर फायरमैन","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"यूटिलिटी ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_3132_0700","text":"कंप्रेसर ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_3131_0200","text":"डीजी ऑपरेटर","lang":"hi"}

@@ -205,52 +205,34 @@ const MAX_OVERLAY_ALIAS_LEN = 60;
  * Characters that must never appear in an authored alias.
  *
  * THIS IS A PII GUARD, not a style rule. The overlay's second generator mines real
- * `chat_messages`, so the corpus is one careless promotion away from carrying a phone
- * number, a handle or a link into a git-committed file that is then embedded and served.
- * An occupation name needs none of these: of the 8,695 scraped aliases only 21 contain a
- * digit and every one of those is a scrape artefact, so the rule costs nothing real.
+ * `chat_messages`, so the corpus is one careless promotion away from carrying a handle
+ * or a link into a git-committed file that is then embedded and served.
  *
- * Digits are matched as an EXPLICIT class covering Latin and Devanagari rather than `\d`,
- * because JS `\d` is ASCII-only while Python's is Unicode-aware — the divergence this
- * repo has already been bitten by and documents at `skills.dto.ts:10-13`. A Devanagari
- * phone number must not pass a check that an ASCII one fails.
+ * Ruling #2995 point 2 (26 Nov 2026, recorded on #2995): digits are ALLOWED in
+ * manually-authored pack phrases, reversing the not-loaded default. Digit phrases are
+ * in scope everywhere for trades (#3082 Wave 1, #3016 T34/T35, #3017 T51/T60).
+ * The validator therefore refuses only '@' and URLs, never digits. Mining still
+ * refuses digits (see `hasForbiddenAliasChars`): the first real mining run proposed
+ * "30", "40 hazar", "30 hazar" — the worker's pay, extracted verbatim — so a mined
+ * salary figure or phone number must never reach even a review file.
  */
-const OVERLAY_FORBIDDEN_RE = /[0-9०-९@]|https?:|www\./i;
+const OVERLAY_FORBIDDEN_RE = /@|https?:|www\./i;
 
 /**
- * Occupation-alias contact guard (#2995 point 2, ruled 26 Nov 2026: ALLOW digits).
+ * The mining/skill/taxonomy guard, as a predicate. Still refuses digits, '@' and URLs.
  *
- * The shared `OVERLAY_FORBIDDEN_RE` above still blocks ANY digit and stays the rule for
- * the chat miner, skill labels and skill discovery. The authored occupation overlay is
- * the one exception: NDT levels ("ndt level 2"), ISO codes ("iso 17025") and PLC models
- * ("s7 300") need digits. Here only contact shapes are forbidden: `@`, URLs, and
- * phone-like digit runs (7+ digit chars in any script, consecutive or spaced — an
- * Indian mobile is 10). Short runs ("level 2", "17025", "9876") pass the validator;
- * the misrouting test-and-hold (#2995 point 3) is what keeps a bad one out of search.
+ * INTENTIONALLY STRICTER THAN THE VALIDATOR above. `validateAliasOverlay` allows
+ * manually-authored digit phrases from the pack (ruling #2995 point 2: "3d carving",
+ * "s7 300", "type3" are real occupation names). Mining, skill discovery and the
+ * taxonomy corpus reuse THIS predicate — never the validator's — so a salary figure,
+ * phone number or model number from chat text still stops at the review file.
+ * Two regexes exist so the validator can allow what mining must still refuse; each
+ * is pinned by its own tests (validator: job-domain-corpus.test.ts allows digits;
+ * mining: alias-generators.test.ts refuses "30"/Devanagari digits).
  */
-const OCCUPATION_ALIAS_CONTACT_RE = /@|https?:|www\./i;
-
-function occupationAliasDigitCount(text: string): number {
-  const m = text.match(/[0-9०-९]/g);
-  return m ? m.length : 0;
-}
-
-export function hasForbiddenOccupationAliasChars(text: string): boolean {
-  return OCCUPATION_ALIAS_CONTACT_RE.test(text) || occupationAliasDigitCount(text) >= 7;
-}
-
-/**
- * The guard above, as a predicate, so the chat miner applies the IDENTICAL rule at mining
- * time instead of a lookalike of its own.
- *
- * It matters that this is shared rather than re-expressed. The validator is the last gate
- * before a commit, but the miner writes a REVIEW FILE first — and a mined salary figure or
- * phone number sitting in a review file has already left the database and landed on disk,
- * which is precisely what the guard exists to prevent. Two copies of the rule would drift,
- * and the copy that drifts is the one nobody tests.
- */
+const MINED_FORBIDDEN_RE = /[0-9०-९@]|https?:|www\./i;
 export function hasForbiddenAliasChars(text: string): boolean {
-  return OVERLAY_FORBIDDEN_RE.test(text);
+  return MINED_FORBIDDEN_RE.test(text);
 }
 
 /**
@@ -536,14 +518,11 @@ export function validateAliasOverlay(
     if (text.length > MAX_OVERLAY_ALIAS_LEN) {
       problems.push(`${where}: text is ${text.length} chars, over the ${MAX_OVERLAY_ALIAS_LEN} cap`);
     }
-    // NOTE (#2995 point 3): phrases shorter than 3 chars are never loaded as NEW rows,
-    // but this is enforced by review, not by a gate here: the live overlay grandfathers
-    // `qc` (jd_nco_7543_2001), and a length gate would fail the committed corpus.
-    if (hasForbiddenOccupationAliasChars(text)) {
+    if (OVERLAY_FORBIDDEN_RE.test(text)) {
       problems.push(
-        `${where}: text contains a contact shape ('@', a URL, or 7+ digits in any script). ` +
-          `Digits are allowed in occupation names (#2995 point 2, ruled 26 Nov 2026: "ndt level 2", ` +
-          `"iso 17025"); the 7+ digit cap is the PII guard that stops a mined phone number.`,
+        `${where}: text contains '@' or a URL. An occupation name needs neither, ` +
+          `and this is the guard that stops a mined handle or link reaching a committed file. ` +
+          `Digits are allowed per #2995 point 2 (26 Nov 2026).`,
       );
     }
     const norm = normalizeOccupationText(text);
