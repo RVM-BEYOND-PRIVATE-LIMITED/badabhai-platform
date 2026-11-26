@@ -3,7 +3,6 @@ import { deriveWorkerSkills, workerSkillDeriveInput } from "@badabhai/match-engi
 import {
   PACK_ANSWER_SKILLS,
   packAnswerFromStoredRow,
-  type MatchSkillId,
 } from "@badabhai/taxonomy";
 
 import {
