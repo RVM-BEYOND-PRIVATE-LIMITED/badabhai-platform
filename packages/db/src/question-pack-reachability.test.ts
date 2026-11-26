@@ -3711,3 +3711,199 @@ describe("Held phrases — #3010 (listed on #2995)", () => {
     expect(familyFor("fettler"), "fettler").not.toBe("fam_foundry_casting");
   });
 });
+
+/**
+ * FOLDED ROLE WORDS + MUST-NOT (#3027, pack 10.1 + sheets).
+ *
+ * 10.1: every folded word that reached nothing now reaches its trade (live or Wave 1).
+ * Words whose target is Wave 2/3 are held for #3016/#3017; words that already reached
+ * the right trade need nothing; words that reached another live trade are preserved to
+ * avoid a live touch (owner ruling pending). No digits, no shorts, no must-NOT phrases.
+ */
+describe("Folded role words (#3027 section 10.1) — every held-out word reaches its trade", () => {
+  it("16 Wave 1/live folded words reach their trade", () => {
+    const routing = Object.fromEntries(
+      [
+        "press-brake operator",
+        "turret-punch operator",
+        "shearing operator",
+        "hydraulic and pneumatic technician",
+        "DG electrician",
+        "shot blasting",
+        "heading",
+        "bolt-former operator",
+        "vision measuring",
+        "DCS engineer",
+        "mechatronics technician",
+        "reliability engineer",
+        "method engineer",
+        "prototype engineer",
+        "sourcing",
+        "reverse engineering",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "press-brake operator": "fam_sheet_metal_fab",
+      "turret-punch operator": "fam_sheet_metal_fab",
+      "shearing operator": "fam_sheet_metal_fab",
+      "hydraulic and pneumatic technician": "fam_maintenance_tech",
+      "DG electrician": "fam_industrial_electrician",
+      "shot blasting": "fam_foundry_casting",
+      "heading": "fam_forging",
+      "bolt-former operator": "fam_forging",
+      "vision measuring": "fam_cmm",
+      "DCS engineer": "fam_plc_automation",
+      "mechatronics technician": "fam_plc_automation",
+      "reliability engineer": "fam_maintenance_engineer",
+      "method engineer": "fam_process_engineer",
+      "prototype engineer": "fam_npd_engineer",
+      "sourcing": "fam_purchase",
+      "reverse engineering": "fam_cad_design_3d",
+    });
+  });
+});
+
+
+describe("Must NOT lead here — Wave 1 sheets (#3027)", () => {
+  it("destination trades: phrase must NOT resolve to the sheet's own family (102 rows; safety supervisor + project planning + piping design held for Wave 3)", () => {
+    // Entries that say "ask" are covered by the routing table test in #3015 and skipped here.
+    // Qualified entries ("sparking" with welding) are excluded: bare "sparking" correctly
+    // leads to its own trade (EDM); only the welding-qualified variant must go to Welder.
+    const cases: Array<[string, string]> = [ // [phrase, ownFamily]
+      ["die ka kaam", "fam_edm_wirecut"], // T17
+      ["die polish", "fam_edm_wirecut"], // T17
+      ["wire ka kaam", "fam_edm_wirecut"], // T17
+      ["wiring", "fam_edm_wirecut"], // T17
+      ["laser cutting", "fam_edm_wirecut"], // T17
+      ["drill machine", "fam_edm_wirecut"], // T17
+      ["CAM programmer", "fam_cnc_router"], // T21
+      ["laser cutting", "fam_cnc_router"], // T21
+      ["VMC", "fam_cnc_router"], // T21
+      ["die casting", "fam_foundry_casting"], // T24
+      ["PDC", "fam_foundry_casting"], // T24
+      ["forging", "fam_foundry_casting"], // T24
+      ["die ka kaam", "fam_die_casting"], // T25
+      ["die fitter", "fam_die_casting"], // T25
+      ["foundry", "fam_die_casting"], // T25
+      ["dhalai", "fam_die_casting"], // T25
+      ["foundry", "fam_forging"], // T26
+      ["dhalai", "fam_forging"], // T26
+      ["thread rolling", "fam_forging"], // T26
+      ["hardness testing", "fam_heat_treatment"], // T27
+      ["met lab", "fam_heat_treatment"], // T27
+      ["boiler operator", "fam_heat_treatment"], // T27
+      ["plating", "fam_heat_treatment"], // T27
+      ["blackening", "fam_heat_treatment"], // T27
+      ["bottle machine", "fam_injection_moulding"], // T29
+      ["PET blowing", "fam_injection_moulding"], // T29
+      ["pipe plant", "fam_injection_moulding"], // T29
+      ["film plant", "fam_injection_moulding"], // T29
+      ["die casting", "fam_injection_moulding"], // T29
+      ["PDC machine", "fam_injection_moulding"], // T29
+      ["mould banata hoon", "fam_injection_moulding"], // T29
+      ["mould maker", "fam_injection_moulding"], // T29
+      ["mould design", "fam_injection_moulding"], // T29
+      ["inspector", "fam_cmm"], // T33
+      ["inspection", "fam_cmm"], // T33
+      ["calibration", "fam_cmm"], // T33
+      ["profile projector", "fam_cmm"], // T33
+      ["QC", "fam_quality_engineer"], // T37
+      ["quality checker", "fam_quality_engineer"], // T37
+      ["inspector", "fam_quality_engineer"], // T37
+      ["CMM", "fam_quality_engineer"], // T37
+      ["lab", "fam_quality_engineer"], // T37
+      ["material testing", "fam_quality_engineer"], // T37
+      ["calibration", "fam_quality_engineer"], // T37
+      ["process engineer", "fam_quality_engineer"], // T37
+      ["panel wiring", "fam_plc_automation"], // T38
+      ["electrician", "fam_plc_automation"], // T38
+      ["robot programmer", "fam_plc_automation"], // T38
+      ["instrument ka kaam", "fam_plc_automation"], // T38
+      ["maintenance fitter", "fam_maintenance_engineer"], // T43
+      ["electrician", "fam_maintenance_engineer"], // T43
+      ["service engineer", "fam_maintenance_engineer"], // T43
+      ["PLC engineer", "fam_maintenance_engineer"], // T43
+      ["utility operator", "fam_maintenance_engineer"], // T43
+      ["AC maintenance", "fam_maintenance_engineer"], // T43
+      ["quality supervisor", "fam_production_supervisor"], // T45
+      ["maintenance supervisor", "fam_production_supervisor"], // T45
+      ["store incharge", "fam_production_supervisor"], // T45
+      ["production engineer", "fam_production_supervisor"], // T45
+      ["production supervisor", "fam_production_engineer"], // T46
+      ["line incharge", "fam_production_engineer"], // T46
+      ["PPC", "fam_production_engineer"], // T46
+      ["planning", "fam_production_engineer"], // T46
+      ["process engineer", "fam_production_engineer"], // T46
+      ["ME", "fam_production_engineer"], // T46
+      ["quality engineer", "fam_production_engineer"], // T46
+      ["process technician", "fam_process_engineer"], // T47
+      ["production engineer", "fam_process_engineer"], // T47
+      ["fixture design", "fam_process_engineer"], // T47
+      ["tool design", "fam_process_engineer"], // T47
+      ["NPD", "fam_process_engineer"], // T47
+      ["development engineer", "fam_process_engineer"], // T47
+      ["process quality", "fam_process_engineer"], // T47
+      ["PQC", "fam_process_engineer"], // T47
+      ["CNC programming", "fam_process_engineer"], // T47
+      ["design engineer", "fam_npd_engineer"], // T48
+      ["vendor development", "fam_npd_engineer"], // T48
+      ["APQP quality", "fam_npd_engineer"], // T48
+      ["NPD quality", "fam_npd_engineer"], // T48
+      ["tool room", "fam_npd_engineer"], // T48
+      ["production engineer", "fam_ppc"], // T52
+      ["store incharge", "fam_ppc"], // T52
+      ["vendor follow up", "fam_ppc"], // T52
+      ["dispatch", "fam_ppc"], // T52
+      ["vendor quality", "fam_purchase"], // T54
+      ["SQA", "fam_purchase"], // T54
+      ["material planning", "fam_purchase"], // T54
+      ["marketing", "fam_purchase"], // T54
+      ["export documentation", "fam_purchase"], // T54
+      ["autocad", "fam_cad_design_3d"], // T58
+      ["draughtsman", "fam_cad_design_3d"], // T58
+      ["2d drawing", "fam_cad_design_3d"], // T58
+      ["mastercam", "fam_cad_design_3d"], // T58
+      ["powermill", "fam_cad_design_3d"], // T58
+      ["delcam", "fam_cad_design_3d"], // T58
+      ["ansys", "fam_cad_design_3d"], // T58
+      ["hypermesh", "fam_cad_design_3d"], // T58
+      ["analysis", "fam_cad_design_3d"], // T58
+      ["pdms", "fam_cad_design_3d"], // T58
+      ["artcam", "fam_cad_design_3d"], // T58
+      ["npd", "fam_cad_design_3d"], // T58
+      ["development engineer", "fam_cad_design_3d"], // T58
+    ];
+    for (const [phrase, ownFamily] of cases) {
+      expect(familyFor(phrase), phrase).not.toBe(ownFamily);
+    }
+  });
+
+  it("not this trade: phrase must NOT resolve to its sheet's family (7 rows)", () => {
+    // Pure not-this-trade entries (no "ask" qualifier): borewell/garage/car AC/building lift
+    // are Wave 2 examples held for #3016; Wave 1 equivalents below resolve to null/generic
+    // non-trade (draughting router, universal, manufacturing labour), never to the sheet's
+    // own family and never to a 60-trade family (verified: draughting/universal/labour/null
+    // are not trade packs). "Ask again" purchase/tally entries deferred as known gap (needs
+    // ask-again behavior, not a pin).
+    expect(familyFor("haath ki nakkashi"), "haath ki nakkashi (T21)").not.toBe("fam_cnc_router"); // T21
+    expect(familyFor("QA pharma"), "QA pharma (T37)").not.toBe("fam_quality_engineer"); // T37
+    expect(familyFor("QC chemist"), "QC chemist (T37)").not.toBe("fam_quality_engineer"); // T37
+    expect(familyFor("software QA"), "software QA (T37)").not.toBe("fam_quality_engineer"); // T37
+    expect(familyFor("tester"), "tester (T37)").not.toBe("fam_quality_engineer"); // T37
+    expect(familyFor("R&D"), "R&D (T48)").not.toBe("fam_npd_engineer"); // T48
+    expect(familyFor("developer"), "developer (T48)").not.toBe("fam_npd_engineer"); // T48
+  });
+});
+
+describe("Left-out guards — pack 10.2 (#3027)", () => {
+  it("five left-out words resolve to no trade form", () => {
+    // Civil, electronics, garment, helpers/housekeeping, plant head: left out on purpose.
+    // No phrase from this pack may point at a trade form for these (pack 10.2). Verified:
+    // universal/cleaning/null are not 60-trade families (generic fallback/router, not trade).
+    expect(familyFor("civil engineer"), "civil engineer").toBe("fam_universal");
+    expect(familyFor("soldering operator"), "soldering operator").toBeNull();
+    expect(familyFor("garment designer"), "garment designer").toBeNull();
+    expect(familyFor("housekeeping supervisor"), "housekeeping supervisor").toBe("fam_cleaning");
+    expect(familyFor("plant head"), "plant head").toBeNull();
+  });
+});

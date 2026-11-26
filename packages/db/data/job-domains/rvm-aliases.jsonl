@@ -1816,3 +1816,26 @@
 {"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "solid works", "lang": "en"}
 {"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "solidworks designer", "lang": "en"}
 {"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "ug nx", "lang": "en"}
+# CEO pack v2, folded role words for live + Wave 1 trades (#3027, section 10.1).
+#
+# Every "Role or word" that reached nothing now reaches its trade (live or Wave 1).
+# Words whose target is Wave 2/3 (T22, T28, T30-T32, T34-T36, T39-T42, T49-T51, T53, T55-T57, T59-T60)
+# are held for the wave that makes the target live (#3016/#3017). Words that already reached
+# the right trade need nothing; words that reached another live trade are preserved to avoid
+# a live touch (owner ruling pending). No digits, no shorts, no must-NOT phrases.
+{"kind": "alias", "job_domain_id": "jd_nco_7213_0101", "text": "press-brake operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7213_0101", "text": "turret-punch operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7213_0101", "text": "shearing operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7233_0101", "text": "hydraulic and pneumatic technician", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0200", "text": "DG electrician", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "shot blasting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "heading", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "bolt-former operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "vision measuring", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "DCS engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "mechatronics technician", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "reliability engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3119_0700", "text": "method engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "prototype engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "sourcing", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "reverse engineering", "lang": "en"}
