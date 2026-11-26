@@ -10,6 +10,7 @@ import '../auth/account_deleted_signal.dart';
 import '../auth/worker_suspended_signal.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
 import '../config/build_info.dart';
+import '../update/app_update.dart';
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -2546,7 +2547,7 @@ class ApiClient {
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
       'x-app-build': kAppBuild,
-    };
+    }..addAll(AppRequestIdentity.headers());
     if (contentType) headers['content-type'] = 'application/json';
     if (authToken != null && authToken.isNotEmpty) {
       headers['authorization'] = 'Bearer $authToken';
@@ -2566,6 +2567,11 @@ class ApiClient {
       // detail (e.g. the profiling stale-answer 409's `stale_reason`, #806)
       // without a second round trip. Null when the body is not a JSON object.
       final Map<String, dynamic>? errorBody = _tryDecodeMap(res.body);
+      // #3049 — a 426 from any route shows the update page, even if this app
+      // ignored the start-up config call. Fired through the one decode seam.
+      if (isAppUpdateRequiredResponse(res.statusCode, errorBody)) {
+        AppUpdateSignal.instance.fire(appUpdateConfigFromBody(errorBody));
+      }
       // The RESERVED account-deleted contract: a valid worker token whose row no
       // longer exists → 410 Gone + { code: WORKER_ACCOUNT_DELETED }. Fire the
       // hard-logout signal, then STILL throw below so this in-flight call fails

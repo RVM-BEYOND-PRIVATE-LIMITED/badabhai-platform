@@ -7,6 +7,7 @@ import 'app.dart';
 import 'core/config/remote_config.dart';
 import 'core/di/locator.dart';
 import 'core/theme/app_typography.dart';
+import 'core/update/app_update.dart';
 import 'core/observability/crash_reporter.dart';
 import 'core/referral/install_referrer_reader.dart';
 import 'core/referral/pending_referral_store.dart';
@@ -31,6 +32,11 @@ Future<void> main() async {
   // registered before runApp below — skip the await and every worker silently
   // gets the Hindi default no matter what they chose.
   setupLocator();
+  // #3049 — load this build's number and platform before any authenticated
+  // call sends its headers, then read the release policy without gating the
+  // first frame (a failed read lets the worker in).
+  await AppUpdateController.instance.init();
+  unawaited(AppUpdateController.instance.refresh());
   await initAuthLocator();
 
   // Resolve the cold-start auth state once (remembered refresh token → locked →

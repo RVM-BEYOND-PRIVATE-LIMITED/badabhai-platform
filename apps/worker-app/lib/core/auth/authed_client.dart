@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart' show kRequestTimeout;
+import '../update/app_update.dart';
 import 'account_deleted_signal.dart';
 import 'auth_failure.dart';
 import 'device_id.dart';
@@ -256,7 +257,7 @@ class AuthedClient {
       'accept': 'application/json',
       'X-Device-Id': await _deviceId.getOrCreate(),
       'X-Locale': _localeStore.read(),
-    };
+    }..addAll(AppRequestIdentity.headers());
     if (hasBody) headers['content-type'] = 'application/json';
     if (idempotencyKey != null) headers['Idempotency-Key'] = idempotencyKey;
     if (authed) {
@@ -281,6 +282,10 @@ class AuthedClient {
               return <String, dynamic>{};
             }
           }();
+    // #3049 — a 426 from any auth route shows the one update page.
+    if (isAppUpdateRequiredResponse(res.statusCode, body)) {
+      AppUpdateSignal.instance.fire(appUpdateConfigFromBody(body));
+    }
     // The RESERVED account-deleted contract (410 Gone + { code:
     // WORKER_ACCOUNT_DELETED }) can arrive on the auth/refresh path too. Fire the
     // hard-logout signal, then continue returning the AuthResponse exactly as

@@ -1,13 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'core/auth/payer_token_store.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_reporter.dart';
+import 'core/update/app_update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   setupLocator();
+  // #3049 — load this build's number and platform before the first request,
+  // then read the release policy without gating the first frame.
+  await AppUpdateController.instance.init();
+  unawaited(AppUpdateController.instance.refresh());
   // Hydrate the persisted bearer from secure storage BEFORE the first frame so
   // AppSessionCubit.bootstrap() can restore a live session on cold start (the
   // session survives an app kill instead of dead-ending at Login). This is a
@@ -24,5 +31,6 @@ Future<void> main() async {
   // 8s on EVERY cold start. Deferred, it costs no crash coverage: init installs
   // the Dart error handlers before it awaits Firebase and buffers anything
   // raised in the gap. Not awaited — it never throws.
-  CrashReporter.initAfterFirstFrame(appName: 'payer-app', ownPackage: 'payer_app');
+  CrashReporter.initAfterFirstFrame(
+      appName: 'payer-app', ownPackage: 'payer_app');
 }

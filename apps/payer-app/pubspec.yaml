@@ -14,6 +14,10 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.0
+  # #3049 — the INTEGER build number (Android versionCode / iOS
+  # CFBundleVersion) sent as `x-app-build-number` and compared with the
+  # server's minimum supported build.
+  package_info_plus: ^9.0.1
   # Crash reporting (FlutterFire). firebase_core boots the SDK from the native
   # config files (android/app/google-services.json, ios GoogleService-Info.plist);
   # firebase_crashlytics is the sink for Dart/Flutter crashes — native Crashlytics
