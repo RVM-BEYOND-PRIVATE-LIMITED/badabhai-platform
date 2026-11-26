@@ -5,6 +5,7 @@ import { AgencyModule } from "../agency/agency.module";
 import { AgencyTwinModule } from "../agency-twin/agency-twin.module";
 import { EventsModule } from "../events/events.module";
 import { JobPostingsModule } from "../job-postings/job-postings.module";
+import { PostingTradesModule } from "../posting-trades/posting-trades.module";
 import { AdminPostingsController } from "./admin-postings.controller";
 import { AdminPostingsRepository } from "./admin-postings.repository";
 import { AdminPostingsService } from "./admin-postings.service";
@@ -14,6 +15,9 @@ import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visi
 import { AdminPostingAudienceController } from "./admin-posting-audience.controller";
 import { AdminPostingAudienceRepository } from "./admin-posting-audience.repository";
 import { AdminPostingAudienceService } from "./admin-posting-audience.service";
+import { AdminCampusNarrowController } from "./admin-campus-narrow.controller";
+import { AdminCampusNarrowRepository } from "./admin-campus-narrow.repository";
+import { AdminCampusNarrowService } from "./admin-campus-narrow.service";
 import { AdminCampusTradesController } from "./admin-campus-trades.controller";
 import { AdminCampusTradesRepository } from "./admin-campus-trades.repository";
 import { AdminCampusTradesService } from "./admin-campus-trades.service";
@@ -33,6 +37,7 @@ import { AdminCampusTradesService } from "./admin-campus-trades.service";
     AdminModule,
     EventsModule,
     JobPostingsModule,
+    PostingTradesModule,
     AgencyModule,
     AgencyTwinModule,
     // #2750 item 4 — welcome credits after an approval. No dependency back.
@@ -40,10 +45,12 @@ import { AdminCampusTradesService } from "./admin-campus-trades.service";
   ],
   // #2891 — BadaBhai worker visibility of Campus-origin postings, under the same capability.
   // #2956 — where a posting shows, decided by an admin, under the same capability.
+  // #3033 — the Campus narrow queue (general CNC → machine trade), under the same capability.
   controllers: [
     AdminPostingsController,
     AdminPostingWorkerVisibilityController,
     AdminPostingAudienceController,
+    AdminCampusNarrowController,
     // #2957 — the trades RVM trains (who may be sent to Campus).
     AdminCampusTradesController,
   ],
@@ -54,6 +61,8 @@ import { AdminCampusTradesService } from "./admin-campus-trades.service";
     AdminPostingWorkerVisibilityService,
     AdminPostingAudienceRepository,
     AdminPostingAudienceService,
+    AdminCampusNarrowRepository,
+    AdminCampusNarrowService,
     AdminCampusTradesRepository,
     AdminCampusTradesService,
   ],

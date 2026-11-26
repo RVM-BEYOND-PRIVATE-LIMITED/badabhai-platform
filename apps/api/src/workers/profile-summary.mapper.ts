@@ -1,5 +1,5 @@
 import type { ProfileSource, ProfileStatus } from "@badabhai/types";
-import { getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
+import { campusRoleDisplayLabel, getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
 import { resolveTradeContent } from "../resume/trade-content";
 import type { WorkerProfileSummary } from "./workers.dto";
 import { NO_FORM_FACTS, type ProfileFormFacts } from "./profile-form-facts";
@@ -197,6 +197,13 @@ function readDisplayName(
     const resolved = resolveTradeContent(roleId, tradeId)?.display_name;
     if (resolved) return resolved;
   }
+  // #3033 — a moved Campus student whose role is "none, label only" keeps it as a label:
+  // "Campus role: Interior Designer", never a trade. Every other label renders as today.
+  const campusLabel = campusRoleDisplayLabel(
+    readRawProfileString(rawProfile, "role_label"),
+    readRawProfileString(rawProfile, "import_source"),
+  );
+  if (campusLabel !== null) return campusLabel;
   return (
     readRawProfileString(rawProfile, "role_label") ??
     readRawProfileString(rawProfile, "domain_label")
@@ -301,14 +308,21 @@ function computeMissingFields(p: ProfileSummarySource): string[] {
  * non-string value maps to `null`, never a throw.
  *
  * THE KEY UNION IS THE ALLOW-LIST, and it is the whole privacy contract of this function. Only
- * these four keys can ever be read; the blob is NEVER spread, so no other field it happens to
+ * these five keys can ever be read; the blob is NEVER spread, so no other field it happens to
  * carry — `experience.summary`, the résumé container, anything a future writer adds — can leak
  * onto the wire by accident. Widening this union is a deliberate act, not a refactor.
  *
- * All four are PII-free by class: closed education tokens, and the occupational labels the
- * model wrote, which the ai-service's pseudonymize gate already certified on the way in.
+ * All five are PII-free by class: closed education tokens, the occupational labels the
+ * model wrote, which the ai-service's pseudonymize gate already certified on the way in,
+ * and the import's closed source marker (`campus`, read only to decide the #3033 label
+ * prefix — it never reaches the wire itself).
  */
-type RawProfileStringKey = "education_level" | "education_field" | "role_label" | "domain_label";
+type RawProfileStringKey =
+  | "education_level"
+  | "education_field"
+  | "role_label"
+  | "domain_label"
+  | "import_source";
 
 function readRawProfileString(rawProfile: unknown, key: RawProfileStringKey): string | null {
   return nonBlankStringOrNull(asObject(rawProfile)?.[key]);

@@ -93,12 +93,14 @@ describe("toProfileSummary — labels never move a business number", () => {
 });
 
 describe("toProfileSummary — the raw_profile blob is read, never spread", () => {
-  it("reads only the four allow-listed keys", () => {
+  it("reads only the five allow-listed keys", () => {
     // The privacy contract of `readRawProfileString`. `experience.summary` is free text that can
     // carry employer PII, and the résumé container carries the whole interview — neither may
-    // reach this wire because the blob happens to hold them.
+    // reach this wire because the blob happens to hold them. `import_source` is the fifth key:
+    // a closed marker read only for the #3033 label prefix, never projected itself.
     const s = from({
       rawProfile: {
+        import_source: "campus",
         role_label: "tandoor cook",
         education_level: "10th",
         education_field: "Arts",
@@ -112,6 +114,7 @@ describe("toProfileSummary — the raw_profile blob is read, never spread", () =
     expect(s.education_field).toBe("Arts");
     expect(JSON.stringify(s)).not.toContain("SECRET EMPLOYER");
     expect(JSON.stringify(s)).not.toContain("9999999999");
+    expect(JSON.stringify(s)).not.toContain("campus");
   });
 
   it("degrades instead of throwing on a malformed blob", () => {
@@ -128,6 +131,46 @@ describe("toProfileSummary — the raw_profile blob is read, never spread", () =
     expect(
       from({ rawProfile: { role_label: "   ", domain_label: "" } }).trade.display_name,
     ).toBeNull();
+  });
+});
+
+describe("toProfileSummary — #3033 the Campus label-only role", () => {
+  it("prints a label-only Campus role as stated text, never as a trade", () => {
+    // A moved student whose only role is "BIM Modeller": the profile carries the label,
+    // no canonical ids, and the headline states it — nothing here can match on it.
+    const s = from({
+      rawProfile: { import_source: "campus", role_label: "BIM Modeller" },
+    });
+    expect(s.trade.display_name).toBe("Campus role: BIM Modeller");
+    expect(s.trade.canonical_role_id).toBeNull();
+    expect(s.trade.canonical_trade_id).toBeNull();
+    // A label is presentation, like every other label: it moves no business number.
+    expect(s.strength).toBe(from().strength);
+    expect(s.missing_fields).toContain("role");
+  });
+
+  it("renders every other label exactly as before", () => {
+    // A Campus student WITH a trade keeps the reviewed name, and a held Campus role keeps
+    // its unstated rendering: the prefix is only for label-only names.
+    expect(
+      from({ rawProfile: { import_source: "campus", role_label: "CNC Turner" } }).trade
+        .display_name,
+    ).toBe("CNC Turner");
+    expect(
+      from({ rawProfile: { import_source: "campus", role_label: "Senior CNC Operator" } }).trade
+        .display_name,
+    ).toBe("Senior CNC Operator");
+    // A non-Campus label with the same text is untouched: the source decides, not the name.
+    expect(
+      from({ rawProfile: { role_label: "Interior Designer" } }).trade.display_name,
+    ).toBe("Interior Designer");
+    // And a label-only role under a canonical id keeps the reviewed name.
+    expect(
+      from({
+        canonicalRoleId: "role_vmc_operator",
+        rawProfile: { import_source: "campus", role_label: "Interior Designer" },
+      }).trade.display_name,
+    ).not.toBe("Campus role: Interior Designer");
   });
 });
 

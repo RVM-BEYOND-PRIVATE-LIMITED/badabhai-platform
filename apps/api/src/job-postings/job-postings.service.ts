@@ -27,6 +27,7 @@ import {
 } from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
 import {
+  GENERAL_CNC_SKILL_ID,
   isLivePostingTradeKind,
   postingTradeFor,
   postingTradeSkillIds,
@@ -1169,6 +1170,20 @@ export class JobPostingsService {
         : null;
     const requested =
       tradeSelection !== null ? tradeSelection.matchSkillIds : (dto.match_skill_ids ?? []);
+    // #3033 — a new job is never saved with the general CNC skill alone. The posting form
+    // already requires a machine trade, and an old Campus job on the general skill waits in the
+    // admin narrow queue (`admin-postings/admin-campus-narrow`); a create that names only the
+    // general skill is refused rather than queuing another one. A trade posting can never reach
+    // this: its base skill is always kept and the general skill is never one of its own.
+    if (
+      tradeSelection === null &&
+      requested.length === 1 &&
+      requested[0] === GENERAL_CNC_SKILL_ID
+    ) {
+      throw new BadRequestException(
+        "A posting cannot be saved with only the general CNC skill: choose the machine trade instead",
+      );
+    }
     const scoped = scopePostingSkills(dto.role_kind, requested);
 
     if (requested.length > 0 || scoped !== undefined) {

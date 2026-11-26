@@ -8,8 +8,10 @@ import {
   CAMPUS_TRADE_MAP_CODES,
   RVM_COURSE_ROWS,
   campusDomainDepartment,
+  campusRoleDisplayLabel,
   campusRoleTrade,
   campusTradeEntry,
+  isCampusLabelOnlyRole,
   normalizeCampusName,
   rvmCourseTrades,
   splitRvmCourses,
@@ -440,5 +442,45 @@ describe("pack 7.1 — Campus domain to department", () => {
             : [];
       for (const d of named) expect(departments.has(d), d).toBe(true);
     }
+  });
+});
+
+describe("#3033 — the label-only display", () => {
+  it.each([
+    "BIM Modeller",
+    "Interior Designer",
+    "Architectural Designer",
+    "HVAC Design Engineer",
+    "Structural Design Engineer",
+    "3D Architectural Visualizer",
+  ])("%s is label only", (role) => {
+    expect(isCampusLabelOnlyRole(role)).toBe(true);
+    expect(campusRoleDisplayLabel(role, "campus")).toBe(`Campus role: ${role}`);
+  });
+
+  it.each(["CNC Operator", "Machine Operator", "CNC Turner", "Welder", "Senior CNC Operator"])(
+    "%s is not label only",
+    (role) => {
+      expect(isCampusLabelOnlyRole(role)).toBe(false);
+      expect(campusRoleDisplayLabel(role, "campus")).toBeNull();
+    },
+  );
+
+  it("prints the label only for a Campus import", () => {
+    // Held, trade and empty names never take the prefix, whatever the source.
+    expect(campusRoleDisplayLabel("Senior CNC Operator", "campus")).toBeNull();
+    expect(campusRoleDisplayLabel("CNC Turner", "campus")).toBeNull();
+    expect(campusRoleDisplayLabel("", "campus")).toBeNull();
+    expect(campusRoleDisplayLabel(null, "campus")).toBeNull();
+    // A non-Campus label renders as today, even when the name is label-only elsewhere.
+    expect(campusRoleDisplayLabel("Interior Designer", null)).toBeNull();
+    expect(campusRoleDisplayLabel("Interior Designer", "chat")).toBeNull();
+    expect(campusRoleDisplayLabel("Interior Designer", "")).toBeNull();
+  });
+
+  it("matches on the normalised name and states the stored text", () => {
+    expect(campusRoleDisplayLabel("  interior   designer ", "campus")).toBe(
+      "Campus role: interior designer",
+    );
   });
 });
