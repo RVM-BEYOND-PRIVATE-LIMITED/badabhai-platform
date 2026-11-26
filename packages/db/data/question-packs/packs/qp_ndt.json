@@ -1,0 +1,1341 @@
+{
+  "_why": "Role track for NDT Technician (T34), new trade (CEO pack v2). fam_ndt binds the new NDT entry under NCO 7543 and 3119 (#3007).",
+  "_scope": "Quality and Metrology shop-floor trade. The interview separates at senior_technician (Level II); higher contact price from senior_technician.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 5, medium 6, advanced 12); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T34 (NDT Technician). Status: NEW",
+  "pack_id": "qp_ndt",
+  "version": 1,
+  "family_id": "fam_ndt",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T34): new trade. The ladder tops at lead (Level III), with no supervisor rung.",
+  "items": [
+    {
+      "question_key": "ndt_experience",
+      "min_tier": "easy",
+      "prompt_text": "NDT ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "ndt_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal NDT ka kaam kiya hai?"
+    },
+    {
+      "question_key": "ndt_level",
+      "min_tier": "easy",
+      "prompt_text": "NDT me aap kis level par kaam karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "ndt_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "NDT Level I",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "NDT Level II",
+          "value_text": "senior_technician"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "NDT Level III",
+          "value_text": "lead"
+        }
+      ],
+      "retry_text": "NDT me helper, level I ya level II hain?"
+    },
+    {
+      "question_key": "ndt_senior_technician_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Test ka result aap khud interpret karke report sign karte hain?",
+      "why_text": "Report khud sign karne wale Level II ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_senior_technician_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud sign karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, koi aur sign karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ndt_level"
+        },
+        "right": {
+          "const": [
+            "senior_technician"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ndt_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "NDT procedure aap khud likh kar approve karte hain?",
+      "why_text": "Procedure approve karne wale Level III ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud approve karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, bana hua procedure follow karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ndt_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ndt_method",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa NDT method karte hain?",
+      "why_text": "Method ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_method",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ut",
+          "label_text": "UT / ultrasonic",
+          "value_text": "ut"
+        },
+        {
+          "option_key": "rt",
+          "label_text": "RT / radiography",
+          "value_text": "rt"
+        },
+        {
+          "option_key": "mpt",
+          "label_text": "MPT / MPI",
+          "value_text": "mpt"
+        },
+        {
+          "option_key": "dpt",
+          "label_text": "DPT / LPT",
+          "value_text": "dpt"
+        },
+        {
+          "option_key": "vt",
+          "label_text": "VT / visual",
+          "value_text": "vt"
+        },
+        {
+          "option_key": "ect",
+          "label_text": "ECT / eddy current",
+          "value_text": "ect"
+        },
+        {
+          "option_key": "paut",
+          "label_text": "PAUT",
+          "value_text": "paut"
+        },
+        {
+          "option_key": "tofd",
+          "label_text": "TOFD",
+          "value_text": "tofd"
+        },
+        {
+          "option_key": "thickness_gauging",
+          "label_text": "Thickness gauging",
+          "value_text": "thickness_gauging"
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_certificate_scheme",
+      "min_tier": "medium",
+      "prompt_text": "Aapka NDT certificate kis scheme ka hai?",
+      "why_text": "Client certificate ki scheme dekh kar hi site par aane deta hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_certificate_scheme",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "asnt_snt_tc",
+          "label_text": "ASNT SNT-TC-1A",
+          "value_text": "asnt_snt_tc"
+        },
+        {
+          "option_key": "isnt",
+          "label_text": "ISNT",
+          "value_text": "isnt"
+        },
+        {
+          "option_key": "iso_pcn",
+          "label_text": "ISO 9712 / PCN",
+          "value_text": "iso_pcn"
+        },
+        {
+          "option_key": "asnt_level_three",
+          "label_text": "ASNT NDT Level III (ASNT se direct)",
+          "value_text": "asnt_level_three"
+        },
+        {
+          "option_key": "nas_aerospace",
+          "label_text": "NAS 410 (aerospace)",
+          "value_text": "nas_aerospace"
+        },
+        {
+          "option_key": "barc_rt",
+          "label_text": "BARC RT Level 1 / 2 (radiographer)",
+          "value_text": "barc_rt"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Abhi koi certificate nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_level_two_methods",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse method me aapke paas Level II certificate hai?",
+      "why_text": "Har method ka Level II alag dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_level_two_methods",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ut",
+          "label_text": "UT",
+          "value_text": "ut"
+        },
+        {
+          "option_key": "rt",
+          "label_text": "RT",
+          "value_text": "rt"
+        },
+        {
+          "option_key": "mpt",
+          "label_text": "MPT",
+          "value_text": "mpt"
+        },
+        {
+          "option_key": "dpt",
+          "label_text": "DPT",
+          "value_text": "dpt"
+        },
+        {
+          "option_key": "vt",
+          "label_text": "VT",
+          "value_text": "vt"
+        },
+        {
+          "option_key": "ect",
+          "label_text": "ECT",
+          "value_text": "ect"
+        },
+        {
+          "option_key": "paut_tofd",
+          "label_text": "PAUT / TOFD",
+          "value_text": "paut_tofd"
+        },
+        {
+          "option_key": "rtfi",
+          "label_text": "RTFI (film interpretation)",
+          "value_text": "rtfi"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kisi me Level II nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_certificate_valid",
+      "min_tier": "medium",
+      "prompt_text": "Aapka NDT certificate abhi valid hai?",
+      "why_text": "Expire certificate par client kaam nahi karne deta.",
+      "target_kind": "attribute",
+      "target_field": "ndt_certificate_valid",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "valid",
+          "label_text": "Haan, valid hai",
+          "value_text": "valid"
+        },
+        {
+          "option_key": "expired",
+          "label_text": "Expire ho gaya, renew karana hai",
+          "value_text": "expired"
+        },
+        {
+          "option_key": "none",
+          "label_text": "Certificate nahi hai",
+          "value_text": "none"
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_level_three_methods",
+      "min_tier": "hard",
+      "prompt_text": "Level III aapke paas kaunse method me hai?",
+      "why_text": "Level III ki maang method ke hisaab se hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_level_three_methods",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ut",
+          "label_text": "UT",
+          "value_text": "ut"
+        },
+        {
+          "option_key": "rt",
+          "label_text": "RT",
+          "value_text": "rt"
+        },
+        {
+          "option_key": "mpt",
+          "label_text": "MT",
+          "value_text": "mpt"
+        },
+        {
+          "option_key": "dpt",
+          "label_text": "PT",
+          "value_text": "dpt"
+        },
+        {
+          "option_key": "vt",
+          "label_text": "VT",
+          "value_text": "vt"
+        },
+        {
+          "option_key": "ect",
+          "label_text": "ET",
+          "value_text": "ect"
+        },
+        {
+          "option_key": "basic_only",
+          "label_text": "Abhi sirf Basic exam pass hai",
+          "value_text": "basic_only"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ndt_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ndt_job_type",
+      "min_tier": "hard",
+      "prompt_text": "Kis cheez ki testing aap karte hain?",
+      "why_text": "Weld, casting aur forging ki testing ka tajurba alag gina jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_job_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "welds",
+          "label_text": "Weld joints",
+          "value_text": "welds"
+        },
+        {
+          "option_key": "castings",
+          "label_text": "Castings",
+          "value_text": "castings"
+        },
+        {
+          "option_key": "forgings",
+          "label_text": "Forgings",
+          "value_text": "forgings"
+        },
+        {
+          "option_key": "pipelines",
+          "label_text": "Pipeline",
+          "value_text": "pipelines"
+        },
+        {
+          "option_key": "pressure_vessels",
+          "label_text": "Pressure vessel aur heat exchanger",
+          "value_text": "pressure_vessels"
+        },
+        {
+          "option_key": "storage_tanks",
+          "label_text": "Storage tank",
+          "value_text": "storage_tanks"
+        },
+        {
+          "option_key": "boiler_piping",
+          "label_text": "Boiler tubes aur piping",
+          "value_text": "boiler_piping"
+        },
+        {
+          "option_key": "raw_material",
+          "label_text": "Plate, bar aur raw material",
+          "value_text": "raw_material"
+        },
+        {
+          "option_key": "machined_components",
+          "label_text": "Machined / auto components",
+          "value_text": "machined_components"
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_equipment",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse NDT equipment aapne khud chalaye hain?",
+      "why_text": "Equipment khud chalane wale ko site par seedha kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_equipment",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ut_flaw_detector",
+          "label_text": "UT flaw detector (EPOCH, USM, Modsonic)",
+          "value_text": "ut_flaw_detector"
+        },
+        {
+          "option_key": "thickness_gauge",
+          "label_text": "UT thickness gauge",
+          "value_text": "thickness_gauge"
+        },
+        {
+          "option_key": "xray_machine",
+          "label_text": "X-ray machine",
+          "value_text": "xray_machine"
+        },
+        {
+          "option_key": "gamma_camera",
+          "label_text": "Gamma camera (Ir-192 / Co-60)",
+          "value_text": "gamma_camera"
+        },
+        {
+          "option_key": "mpi_yoke",
+          "label_text": "MPI yoke",
+          "value_text": "mpi_yoke"
+        },
+        {
+          "option_key": "mpi_bench",
+          "label_text": "MPI bench machine",
+          "value_text": "mpi_bench"
+        },
+        {
+          "option_key": "eddy_current_set",
+          "label_text": "Eddy current instrument",
+          "value_text": "eddy_current_set"
+        },
+        {
+          "option_key": "paut_set",
+          "label_text": "PAUT set (OmniScan)",
+          "value_text": "paut_set"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_surface_method",
+      "min_tier": "hard",
+      "prompt_text": "MPT aur DPT me kaunsa tareeka aapne use kiya hai?",
+      "why_text": "Fluorescent method jaanne wale ko auto aur aerospace ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_surface_method",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "visible_dpt",
+          "label_text": "Visible (red) dye penetrant",
+          "value_text": "visible_dpt"
+        },
+        {
+          "option_key": "fluorescent_dpt",
+          "label_text": "Fluorescent penetrant",
+          "value_text": "fluorescent_dpt"
+        },
+        {
+          "option_key": "yoke_dry",
+          "label_text": "Yoke se dry powder MPT",
+          "value_text": "yoke_dry"
+        },
+        {
+          "option_key": "yoke_wet",
+          "label_text": "Yoke se wet MPT",
+          "value_text": "yoke_wet"
+        },
+        {
+          "option_key": "fluorescent_mpi",
+          "label_text": "Fluorescent MPI, bench par",
+          "value_text": "fluorescent_mpi"
+        },
+        {
+          "option_key": "prod_coil",
+          "label_text": "Prod ya coil method",
+          "value_text": "prod_coil"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_work_place",
+      "min_tier": "hard",
+      "prompt_text": "NDT ka kaam aapne kahaan kahaan kiya hai?",
+      "why_text": "Site aur shutdown ka tajurba alag se dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_work_place",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "shop_floor",
+          "label_text": "Factory ya fabrication shop ke andar",
+          "value_text": "shop_floor"
+        },
+        {
+          "option_key": "project_site",
+          "label_text": "Project / construction site",
+          "value_text": "project_site"
+        },
+        {
+          "option_key": "shutdown",
+          "label_text": "Plant shutdown (refinery, power plant)",
+          "value_text": "shutdown"
+        },
+        {
+          "option_key": "cross_country_pipeline",
+          "label_text": "Cross-country pipeline",
+          "value_text": "cross_country_pipeline"
+        },
+        {
+          "option_key": "offshore",
+          "label_text": "Offshore platform ya rig",
+          "value_text": "offshore"
+        },
+        {
+          "option_key": "overseas",
+          "label_text": "Gulf ya videsh ki site",
+          "value_text": "overseas"
+        }
+      ]
+    },
+    {
+      "question_key": "ndt_ut_work",
+      "min_tier": "hard",
+      "prompt_text": "UT me kaunsa kaam aapne khud kiya hai?",
+      "why_text": "Weld UT khud karne wale technician kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "ndt_ut_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "normal_probe",
+          "label_text": "Normal probe se plate / lamination scanning",
+          "value_text": "normal_probe"
+        },
+        {
+          "option_key": "angle_probe_weld",
+          "label_text": "Angle probe se weld scanning",
+          "value_text": "angle_probe_weld"
+        },
+        {
+          "option_key": "block_calibration",
+          "label_text": "V1 / V2 block se calibration",
+          "value_text": "block_calibration"
+        },
+        {
+          "option_key": "dac_curve",
+          "label_text": "DAC curve banana",
+          "value_text": "dac_curve"
+        },
+        {
+          "option_key": "dgs_avg",
+          "label_text": "DGS / AVG method",
+          "value_text": "dgs_avg"
+        },
+        {
+          "option_key": "forging_casting_ut",
+          "label_text": "Forging ya casting ka UT",
+          "value_text": "forging_casting_ut"
+        },
+        {
+          "option_key": "thickness_survey",
+          "label_text": "Thickness survey",
+          "value_text": "thickness_survey"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "UT nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ndt_rt_work",
+      "min_tier": "hard",
+      "prompt_text": "Radiography me kaunsa kaam aapne khud kiya hai?",
+      "why_text": "Film interpretation karne wale ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_rt_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "xray_exposure",
+          "label_text": "X-ray se exposure lena",
+          "value_text": "xray_exposure"
+        },
+        {
+          "option_key": "gamma_exposure",
+          "label_text": "Gamma source se exposure lena",
+          "value_text": "gamma_exposure"
+        },
+        {
+          "option_key": "film_processing",
+          "label_text": "Film processing, dark room",
+          "value_text": "film_processing"
+        },
+        {
+          "option_key": "film_interpretation",
+          "label_text": "Film interpretation (RTFI)",
+          "value_text": "film_interpretation"
+        },
+        {
+          "option_key": "exposure_technique",
+          "label_text": "SWSI / DWSI / DWDI technique lagana",
+          "value_text": "exposure_technique"
+        },
+        {
+          "option_key": "digital_rt",
+          "label_text": "Digital radiography (CR / DR)",
+          "value_text": "digital_rt"
+        },
+        {
+          "option_key": "radiation_safety",
+          "label_text": "Area cordon aur survey meter se radiation check",
+          "value_text": "radiation_safety"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "RT nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ndt_code_standard",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse code ya standard ke hisaab se aapne kaam kiya hai?",
+      "why_text": "Code ka tajurba client sabse pehle poochhta hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_code_standard",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "asme_sec_v",
+          "label_text": "ASME Sec V",
+          "value_text": "asme_sec_v"
+        },
+        {
+          "option_key": "asme_sec_viii",
+          "label_text": "ASME Sec VIII (pressure vessel)",
+          "value_text": "asme_sec_viii"
+        },
+        {
+          "option_key": "asme_piping",
+          "label_text": "ASME B31.1 / B31.3 (piping)",
+          "value_text": "asme_piping"
+        },
+        {
+          "option_key": "aws_structural",
+          "label_text": "AWS D1.1 (structural)",
+          "value_text": "aws_structural"
+        },
+        {
+          "option_key": "api_pipeline",
+          "label_text": "API 1104 (pipeline)",
+          "value_text": "api_pipeline"
+        },
+        {
+          "option_key": "api_tank",
+          "label_text": "API 650 (storage tank)",
+          "value_text": "api_tank"
+        },
+        {
+          "option_key": "ibr",
+          "label_text": "IBR (boiler)",
+          "value_text": "ibr"
+        },
+        {
+          "option_key": "is_astm",
+          "label_text": "IS / ASTM (casting, forging)",
+          "value_text": "is_astm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ndt_defect_types",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse defect aap khud pehchaan lete hain?",
+      "why_text": "Defect pehchanna hi NDT ka asli kaam hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_defect_types",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "porosity",
+          "label_text": "Porosity / blow hole",
+          "value_text": "porosity"
+        },
+        {
+          "option_key": "slag_inclusion",
+          "label_text": "Slag inclusion",
+          "value_text": "slag_inclusion"
+        },
+        {
+          "option_key": "lack_of_fusion",
+          "label_text": "Lack of fusion",
+          "value_text": "lack_of_fusion"
+        },
+        {
+          "option_key": "lack_of_penetration",
+          "label_text": "Lack of penetration",
+          "value_text": "lack_of_penetration"
+        },
+        {
+          "option_key": "crack",
+          "label_text": "Crack",
+          "value_text": "crack"
+        },
+        {
+          "option_key": "undercut",
+          "label_text": "Undercut",
+          "value_text": "undercut"
+        },
+        {
+          "option_key": "lamination",
+          "label_text": "Lamination",
+          "value_text": "lamination"
+        },
+        {
+          "option_key": "shrinkage",
+          "label_text": "Shrinkage (casting)",
+          "value_text": "shrinkage"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry me aapne NDT ka kaam kiya hai?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas, refinery",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant aur boiler",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "heavy_fabrication",
+          "label_text": "Pressure vessel, heavy fabrication",
+          "value_text": "heavy_fabrication"
+        },
+        {
+          "option_key": "foundry_forging",
+          "label_text": "Foundry ya forging plant",
+          "value_text": "foundry_forging"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ndt_advanced_method",
+      "min_tier": "hard",
+      "prompt_text": "Advanced NDT me aapne kya kya kiya hai?",
+      "why_text": "Advanced NDT jaanne wale technician bahut kam hain.",
+      "target_kind": "attribute",
+      "target_field": "ndt_advanced_method",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "paut_weld",
+          "label_text": "PAUT se weld scanning",
+          "value_text": "paut_weld"
+        },
+        {
+          "option_key": "tofd",
+          "label_text": "TOFD",
+          "value_text": "tofd"
+        },
+        {
+          "option_key": "ect_tube",
+          "label_text": "Eddy current tube testing (heat exchanger)",
+          "value_text": "ect_tube"
+        },
+        {
+          "option_key": "iris_rfet",
+          "label_text": "IRIS / RFET tube inspection",
+          "value_text": "iris_rfet"
+        },
+        {
+          "option_key": "mfl_tank",
+          "label_text": "MFL se tank floor scanning",
+          "value_text": "mfl_tank"
+        },
+        {
+          "option_key": "lrut",
+          "label_text": "LRUT / guided wave",
+          "value_text": "lrut"
+        },
+        {
+          "option_key": "pmi",
+          "label_text": "PMI (alloy analyser)",
+          "value_text": "pmi"
+        },
+        {
+          "option_key": "portable_hardness",
+          "label_text": "Portable hardness testing",
+          "value_text": "portable_hardness"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ndt_responsibility",
+      "min_tier": "hard",
+      "prompt_text": "NDT me kaunsi zimmedari aap sambhalte hain?",
+      "why_text": "Zimmedari sambhalne wale ko team ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ndt_responsibility",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "procedure_writing",
+          "label_text": "Procedure aur technique sheet likhna",
+          "value_text": "procedure_writing"
+        },
+        {
+          "option_key": "report_review",
+          "label_text": "Report review aur approve karna",
+          "value_text": "report_review"
+        },
+        {
+          "option_key": "training_certification",
+          "label_text": "Level I aur II ki training aur exam",
+          "value_text": "training_certification"
+        },
+        {
+          "option_key": "client_tpi",
+          "label_text": "Client ya TPI ke saath inspection witness",
+          "value_text": "client_tpi"
+        },
+        {
+          "option_key": "equipment_calibration",
+          "label_text": "Equipment ka calibration record",
+          "value_text": "equipment_calibration"
+        },
+        {
+          "option_key": "team_handling",
+          "label_text": "Site par NDT team chalana",
+          "value_text": "team_handling"
+        },
+        {
+          "option_key": "rso",
+          "label_text": "RSO ka kaam (radiation safety)",
+          "value_text": "rso"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ndt_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ndt_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunsa NDT method aapne khud practical kiya hai?",
+      "why_text": "Training me kiya hua practical bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dpt",
+          "label_text": "DPT kit se practical",
+          "value_text": "dpt"
+        },
+        {
+          "option_key": "mpt",
+          "label_text": "MPT yoke se practical",
+          "value_text": "mpt"
+        },
+        {
+          "option_key": "ut",
+          "label_text": "UT flaw detector par practical",
+          "value_text": "ut"
+        },
+        {
+          "option_key": "rtfi",
+          "label_text": "RT film dekhna (RTFI)",
+          "value_text": "rtfi"
+        },
+        {
+          "option_key": "vt",
+          "label_text": "Visual testing aur weld gauge",
+          "value_text": "vt"
+        },
+        {
+          "option_key": "theory_only",
+          "label_text": "Sirf theory padhi hai",
+          "value_text": "theory_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ndt_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ndt_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ndt_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

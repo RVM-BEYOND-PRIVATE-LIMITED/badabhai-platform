@@ -352,6 +352,13 @@ export const NOT_A_WORKER_FACT: Readonly<Record<string, string>> = {
   purchase_documents: "purchase documents a buyer prepares (RFQ, purchase order) — capability",
   qe_documents:
     "quality documents a quality engineer maintains (check sheet, PPAP file) — capability",
+  // CEO pack v2, Wave 2 (#3016). Trade capability chips, not the engagement he wants
+  // (`job_type`) or where he wants to work (`preferred_locations`).
+  boring_job_type:
+    "the kind of workpiece a boring operator machines (gearbox housing, engine block) — capability",
+  fab_work_location:
+    "where fabrication work happens (shop or site with erection) — capability of the trade",
+  ndt_job_type: "what an NDT technician tests (weld joints, castings, pipeline) — capability",
 };
 
 /** The page types a trade form serves as markers rather than questions. */

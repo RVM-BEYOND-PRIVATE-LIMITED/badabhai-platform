@@ -125,6 +125,27 @@ const ROBOT_OPERATOR_PROGRAMMER = ["mskill_robot_operator_programmer"] as const;
 /** The 3D CAD trade rides the ROLE bridge to `mskill_cad_designer_3d`. */
 const CAD_DESIGNER_3D = ["role_cad_designer_3d"] as const;
 
+// ── The Wave 2 trades of CEO pack v2 (#3016) — each pack-only skill, named once ─────────────────
+// Minted by #3001 with no role and no corpus id, so the trade's own form is the only evidence.
+const GEAR_CUTTING_OPERATOR = ["mskill_gear_cutting_operator"] as const;
+const BORING_MACHINE_OPERATOR = ["mskill_boring_machine_operator"] as const;
+const SPM_FINISHING_OPERATOR = ["mskill_spm_finishing_operator"] as const;
+const FABRICATOR = ["mskill_fabricator"] as const;
+const TUBE_BENDING_OPERATOR = ["mskill_tube_bending_operator"] as const;
+const PLATING_OPERATOR = ["mskill_plating_operator"] as const;
+const BLOW_MOULDING_OPERATOR = ["mskill_blow_moulding_operator"] as const;
+const PLASTIC_EXTRUSION_OPERATOR = ["mskill_plastic_extrusion_operator"] as const;
+const RUBBER_MOULDING_OPERATOR = ["mskill_rubber_moulding_operator"] as const;
+const NDT_TECHNICIAN = ["mskill_ndt_technician"] as const;
+const CALIBRATION_TECHNICIAN = ["mskill_calibration_technician"] as const;
+const MATERIAL_LAB_TECHNICIAN = ["mskill_material_lab_technician"] as const;
+const INSTRUMENTATION_TECHNICIAN = ["mskill_instrumentation_technician"] as const;
+const HVAC_RAC_TECHNICIAN = ["mskill_hvac_rac_technician"] as const;
+const UTILITY_OPERATOR = ["mskill_utility_operator"] as const;
+const FORKLIFT_OPERATOR = ["mskill_forklift_operator"] as const;
+/** A second-skill chip's skill (pack "Chips that add a second match skill"). */
+const CRANE_OPERATOR = ["mskill_crane_operator"] as const;
+
 /**
  * `pack_id` → `attribute_key` (= the pack item's `question_key`) → `option_key` → taxonomy ids.
  *
@@ -698,6 +719,287 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       upsetter: FORGING_OPERATOR,
       ring_rolling_mill: FORGING_OPERATOR,
       bolt_former: FORGING_OPERATOR,
+    },
+  },
+
+  // ══ WAVE 2 NEW TRADES (CEO pack v2, #3016) ══════════════════════════════════════════════════
+  // One claim question per form (the trade-specific first question after the experience, level
+  // and confirm questions): the machine, process or type question the pack's first posting key
+  // names. Each stem scopes every chip to the trade, so every chip but the none-of-above escape
+  // is the claim, and the escape claims nothing. Only the two second-skill chips named on the
+  // pack ("Chips that add a second match skill") map a second question; no other question of
+  // these forms is mapped (rules 1 to 3). T49 Safety has no related trade and is untouched —
+  // Wave 3 (#3016 step 5 leaves the statutory trade alone).
+
+  // T18 "Gear ka kaunsa process aap karte hain?" — every named gear process is the claim.
+  qp_gear_cutting: {
+    gear_process: {
+      hobbing: GEAR_CUTTING_OPERATOR,
+      shaping: GEAR_CUTTING_OPERATOR,
+      shaving: GEAR_CUTTING_OPERATOR,
+      gear_grinding: GEAR_CUTTING_OPERATOR,
+      bevel_generating: GEAR_CUTTING_OPERATOR,
+      broaching: GEAR_CUTTING_OPERATOR,
+      gear_milling: GEAR_CUTTING_OPERATOR,
+      spline_rolling: GEAR_CUTTING_OPERATOR,
+      chamfer_deburr: GEAR_CUTTING_OPERATOR,
+    },
+  },
+
+  // T19 "Aap kaunsi boring machine chalate hain?" — every named Boring machine is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_boring_machine: {
+    boring_machine_type: {
+      table_type_hbm: BORING_MACHINE_OPERATOR,
+      floor_borer: BORING_MACHINE_OPERATOR,
+      jig_boring: BORING_MACHINE_OPERATOR,
+      plano_miller: BORING_MACHINE_OPERATOR,
+      heavy_vtl: BORING_MACHINE_OPERATOR,
+      portable_line_boring: BORING_MACHINE_OPERATOR,
+    },
+  },
+
+  // T20 "Aap kaunsa process karte hain?" — every named finishing process is the claim.
+  qp_spm_finishing: {
+    spm_process: {
+      honing: SPM_FINISHING_OPERATOR,
+      broaching: SPM_FINISHING_OPERATOR,
+      lapping: SPM_FINISHING_OPERATOR,
+      superfinishing: SPM_FINISHING_OPERATOR,
+      gun_drilling: SPM_FINISHING_OPERATOR,
+      thread_rolling: SPM_FINISHING_OPERATOR,
+      centring_facing: SPM_FINISHING_OPERATOR,
+      multi_spindle: SPM_FINISHING_OPERATOR,
+      burnishing: SPM_FINISHING_OPERATOR,
+    },
+  },
+
+  // T22 "Aap kis tarah ka fabrication karte hain?" — every fabrication type is the claim.
+  qp_fabrication: {
+    fab_work_type: {
+      structural: FABRICATOR,
+      pressure_vessel: FABRICATOR,
+      storage_tank: FABRICATOR,
+      peb: FABRICATOR,
+      machine_frame: FABRICATOR,
+      chassis_body: FABRICATOR,
+      ducting: FABRICATOR,
+      piping_spool: FABRICATOR,
+      gate_grill: FABRICATOR,
+    },
+  },
+
+  // T23 "Aap kaunsi machine chalate hain?" — every named tube machine is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_tube_forming: {
+    tube_machine_type: {
+      cnc_mandrel_bender: TUBE_BENDING_OPERATOR,
+      nc_bender: TUBE_BENDING_OPERATOR,
+      manual_bender: TUBE_BENDING_OPERATOR,
+      three_roll_bender: TUBE_BENDING_OPERATOR,
+      roll_forming_line: TUBE_BENDING_OPERATOR,
+      tube_mill: TUBE_BENDING_OPERATOR,
+      end_forming_machine: TUBE_BENDING_OPERATOR,
+      tube_cutting_machine: TUBE_BENDING_OPERATOR,
+    },
+  },
+
+  // T28 "Aap kaunsi plating ya coating karte hain?" — every named finish is the claim.
+  qp_surface_treatment: {
+    plating_process: {
+      zinc: PLATING_OPERATOR,
+      nickel_chrome: PLATING_OPERATOR,
+      hard_chrome: PLATING_OPERATOR,
+      anodising: PLATING_OPERATOR,
+      phosphating: PLATING_OPERATOR,
+      blackening: PLATING_OPERATOR,
+      electroless_nickel: PLATING_OPERATOR,
+      ced: PLATING_OPERATOR,
+      hot_dip_galvanising: PLATING_OPERATOR,
+    },
+  },
+
+  // T30 "Aap kaunsi blow moulding karte hain?" — every named blow process is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_blow_moulding: {
+    blow_process_type: {
+      extrusion_blow: BLOW_MOULDING_OPERATOR,
+      stretch_blow: BLOW_MOULDING_OPERATOR,
+      single_stage_isbm: BLOW_MOULDING_OPERATOR,
+      injection_blow: BLOW_MOULDING_OPERATOR,
+      accumulator_head: BLOW_MOULDING_OPERATOR,
+      multilayer: BLOW_MOULDING_OPERATOR,
+    },
+  },
+
+  // T31 "Aap kaunsi extrusion line chalate hain?" — every named product line is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_plastic_extrusion: {
+    extrusion_product_line: {
+      pipe: PLASTIC_EXTRUSION_OPERATOR,
+      profile: PLASTIC_EXTRUSION_OPERATOR,
+      blown_film: PLASTIC_EXTRUSION_OPERATOR,
+      sheet: PLASTIC_EXTRUSION_OPERATOR,
+      cable: PLASTIC_EXTRUSION_OPERATOR,
+      tape_monofilament: PLASTIC_EXTRUSION_OPERATOR,
+      compounding: PLASTIC_EXTRUSION_OPERATOR,
+      recycling: PLASTIC_EXTRUSION_OPERATOR,
+    },
+  },
+
+  // T32 "Rubber ka kaunsa kaam aap karte hain?" — every named rubber process is the claim.
+  qp_rubber_moulding: {
+    rubber_process: {
+      compression: RUBBER_MOULDING_OPERATOR,
+      transfer: RUBBER_MOULDING_OPERATOR,
+      rubber_injection: RUBBER_MOULDING_OPERATOR,
+      mixing: RUBBER_MOULDING_OPERATOR,
+      rubber_extrusion: RUBBER_MOULDING_OPERATOR,
+      calendering: RUBBER_MOULDING_OPERATOR,
+      autoclave_hose: RUBBER_MOULDING_OPERATOR,
+      tyre: RUBBER_MOULDING_OPERATOR,
+      finishing: RUBBER_MOULDING_OPERATOR,
+    },
+  },
+
+  // T34 "Aap kaunsa NDT method karte hain?" — every named method is the technician's claim.
+  qp_ndt: {
+    ndt_method: {
+      ut: NDT_TECHNICIAN,
+      rt: NDT_TECHNICIAN,
+      mpt: NDT_TECHNICIAN,
+      dpt: NDT_TECHNICIAN,
+      vt: NDT_TECHNICIAN,
+      ect: NDT_TECHNICIAN,
+      paut: NDT_TECHNICIAN,
+      tofd: NDT_TECHNICIAN,
+      thickness_gauging: NDT_TECHNICIAN,
+    },
+  },
+
+  // T35 "Aap kaunse parameter ka calibration karte hain?" — every parameter is the claim.
+  qp_calibration: {
+    calib_parameter: {
+      dimensional: CALIBRATION_TECHNICIAN,
+      pressure: CALIBRATION_TECHNICIAN,
+      temperature: CALIBRATION_TECHNICIAN,
+      electrical: CALIBRATION_TECHNICIAN,
+      torque: CALIBRATION_TECHNICIAN,
+      mass: CALIBRATION_TECHNICIAN,
+      force: CALIBRATION_TECHNICIAN,
+      volume: CALIBRATION_TECHNICIAN,
+      flow: CALIBRATION_TECHNICIAN,
+    },
+  },
+
+  // T36 "Lab me aap kaunse test karte hain?" — every named lab test is the claim.
+  qp_material_lab: {
+    matlab_test_type: {
+      spectro: MATERIAL_LAB_TECHNICIAN,
+      hardness: MATERIAL_LAB_TECHNICIAN,
+      tensile: MATERIAL_LAB_TECHNICIAN,
+      impact: MATERIAL_LAB_TECHNICIAN,
+      microstructure: MATERIAL_LAB_TECHNICIAN,
+      case_depth: MATERIAL_LAB_TECHNICIAN,
+      salt_spray: MATERIAL_LAB_TECHNICIAN,
+      sand_testing: MATERIAL_LAB_TECHNICIAN,
+      wet_chemical: MATERIAL_LAB_TECHNICIAN,
+    },
+  },
+
+  // T39 "Kaunse brand ke robot par kaam kiya hai?" — every named robot brand is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_robotics: {
+    robot_brand: {
+      fanuc: ROBOT_OPERATOR_PROGRAMMER,
+      yaskawa: ROBOT_OPERATOR_PROGRAMMER,
+      abb: ROBOT_OPERATOR_PROGRAMMER,
+      kuka: ROBOT_OPERATOR_PROGRAMMER,
+      kawasaki: ROBOT_OPERATOR_PROGRAMMER,
+      nachi: ROBOT_OPERATOR_PROGRAMMER,
+      panasonic: ROBOT_OPERATOR_PROGRAMMER,
+      universal_robots: ROBOT_OPERATOR_PROGRAMMER,
+    },
+    // SECOND-SKILL CHIP (pack "Chips that add a second match skill", #3016 §3). The chip claims
+    // PLC ladder work, so it names that skill only; the robot skill comes from the worker's own
+    // robot answers, which the chip presupposes ("bhi khud banata hoon"). Every other interface
+    // (I/O check, handshake signals, fieldbus, safety config) is depth and stays unmapped.
+    robot_plc_interface: {
+      plc_programming: PLC_AUTOMATION_TECH,
+    },
+  },
+
+  // T40 "Kaunse instrument par aapne kaam kiya hai?" — every instrument family is the claim.
+  qp_instrumentation: {
+    instr_instrument_type: {
+      pressure: INSTRUMENTATION_TECHNICIAN,
+      temperature: INSTRUMENTATION_TECHNICIAN,
+      flow: INSTRUMENTATION_TECHNICIAN,
+      level: INSTRUMENTATION_TECHNICIAN,
+      control_valve: INSTRUMENTATION_TECHNICIAN,
+      on_off_valve: INSTRUMENTATION_TECHNICIAN,
+      analyser: INSTRUMENTATION_TECHNICIAN,
+      weighing: INSTRUMENTATION_TECHNICIAN,
+    },
+  },
+
+  // T41 "Aapne kaunse AC ya refrigeration system par kaam kiya hai?" — every system is the claim.
+  qp_hvac_rac: {
+    hvac_system_type: {
+      split_window: HVAC_RAC_TECHNICIAN,
+      ductable_package: HVAC_RAC_TECHNICIAN,
+      vrf_vrv: HVAC_RAC_TECHNICIAN,
+      chiller: HVAC_RAC_TECHNICIAN,
+      ahu_fcu: HVAC_RAC_TECHNICIAN,
+      cold_storage: HVAC_RAC_TECHNICIAN,
+      ammonia_plant: HVAC_RAC_TECHNICIAN,
+      process_chiller: HVAC_RAC_TECHNICIAN,
+      precision_ac: HVAC_RAC_TECHNICIAN,
+    },
+  },
+
+  // T42 "Aap kaunsa utility plant chalate hain?" — every utility plant is the claim.
+  qp_utility: {
+    utility_plant_type: {
+      steam_boiler: UTILITY_OPERATOR,
+      thermic_fluid_heater: UTILITY_OPERATOR,
+      air_compressor: UTILITY_OPERATOR,
+      dg_set: UTILITY_OPERATOR,
+      etp_stp: UTILITY_OPERATOR,
+      water_treatment: UTILITY_OPERATOR,
+      cooling_tower_pump: UTILITY_OPERATOR,
+      chiller_plant: UTILITY_OPERATOR,
+      substation_log: UTILITY_OPERATOR,
+    },
+  },
+
+  // T56 "Aap kaunsi gaadi chalate hain?" — every driven truck is the forklift claim, EXCEPT the
+  // hydra crane: it is the SECOND-SKILL CHIP (pack "Chips that add a second match skill",
+  // #3016 §3) and names the crane skill only, the way the PLC form's robot chip names only the
+  // robot skill. A hand pallet truck is the yard's own equipment and stays the forklift claim:
+  // the form offers no none-of-above escape on this question.
+  qp_forklift: {
+    forklift_equipment: {
+      counterbalance: FORKLIFT_OPERATOR,
+      reach_truck: FORKLIFT_OPERATOR,
+      stacker: FORKLIFT_OPERATOR,
+      bopt: FORKLIFT_OPERATOR,
+      order_picker: FORKLIFT_OPERATOR,
+      tow_truck: FORKLIFT_OPERATOR,
+      hydra_crane: CRANE_OPERATOR,
+      telehandler: FORKLIFT_OPERATOR,
+      hand_pallet: FORKLIFT_OPERATOR,
+    },
+  },
+
+  // T57 "Aap crane chalate hain ya rigging karte hain?" — operating, rigging, both and
+  // signalling are all the trade's claim. The form offers no none-of-above escape here.
+  qp_crane_rigging: {
+    crane_role: {
+      crane_operator: CRANE_OPERATOR,
+      rigger: CRANE_OPERATOR,
+      both: CRANE_OPERATOR,
+      signalman: CRANE_OPERATOR,
     },
   },
 

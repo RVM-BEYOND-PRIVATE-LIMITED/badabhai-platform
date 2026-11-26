@@ -1,0 +1,1241 @@
+{
+  "_why": "Role track for Utility Operator (T42), new trade (CEO pack v2). fam_utility binds the 3122, 3131, 3132 and 8182 utility codes.",
+  "_scope": "Maintenance and Automation shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T42 (Utility Operator (Boiler / Compressor / DG / ETP)). Status: NEW",
+  "pack_id": "qp_utility",
+  "version": 1,
+  "family_id": "fam_utility",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T42): new trade.",
+  "items": [
+    {
+      "question_key": "utility_experience",
+      "min_tier": "easy",
+      "prompt_text": "Boiler, compressor, DG ya ETP jaise utility ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "utility_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Boiler, compressor ya utility ka kaam kiya hai?"
+    },
+    {
+      "question_key": "utility_level",
+      "min_tier": "easy",
+      "prompt_text": "Utility me aap kis level par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "utility_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Licensed / Certified Operator",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Operator / Shift In-charge",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Utility In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Utility me helper, operator ya licensed operator hain?"
+    },
+    {
+      "question_key": "utility_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apni shift me plant akele chalate ho aur log book par aapke sign hote hain?",
+      "why_text": "Akele shift chalane wale operator ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele chalata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ke saath rehta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "utility_level"
+        },
+        "right": {
+          "const": [
+            "skilled"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "utility_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Trip ya breakdown ke baad plant dobara aap khud chalu karte ho?",
+      "why_text": "Trip ke baad plant khud chalu karne wale ko senior maana jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud chalu karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Maintenance ya senior ko bulata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "utility_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "utility_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne operator aur kaunse utility plant aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "utility_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "utility_plant_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa utility plant chalate hain?",
+      "why_text": "Plant ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_plant_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "steam_boiler",
+          "label_text": "Steam boiler",
+          "value_text": "steam_boiler"
+        },
+        {
+          "option_key": "thermic_fluid_heater",
+          "label_text": "Thermic fluid heater, thermopack",
+          "value_text": "thermic_fluid_heater"
+        },
+        {
+          "option_key": "air_compressor",
+          "label_text": "Air compressor aur dryer",
+          "value_text": "air_compressor"
+        },
+        {
+          "option_key": "dg_set",
+          "label_text": "DG set",
+          "value_text": "dg_set"
+        },
+        {
+          "option_key": "etp_stp",
+          "label_text": "ETP / STP",
+          "value_text": "etp_stp"
+        },
+        {
+          "option_key": "water_treatment",
+          "label_text": "WTP, RO, DM ya softener plant",
+          "value_text": "water_treatment"
+        },
+        {
+          "option_key": "cooling_tower_pump",
+          "label_text": "Cooling tower aur pump house",
+          "value_text": "cooling_tower_pump"
+        },
+        {
+          "option_key": "chiller_plant",
+          "label_text": "Chiller plant",
+          "value_text": "chiller_plant"
+        },
+        {
+          "option_key": "substation_log",
+          "label_text": "HT / LT panel ki log reading",
+          "value_text": "substation_log"
+        }
+      ]
+    },
+    {
+      "question_key": "utility_boiler_certificate",
+      "min_tier": "medium",
+      "prompt_text": "Boiler ka kaunsa certificate aapke paas hai?",
+      "why_text": "Kanoon ke hisaab se boiler certificate wala hi chala sakta hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_boiler_certificate",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "second_class_attendant",
+          "label_text": "Second class boiler attendant",
+          "value_text": "second_class_attendant"
+        },
+        {
+          "option_key": "first_class_attendant",
+          "label_text": "First class boiler attendant",
+          "value_text": "first_class_attendant"
+        },
+        {
+          "option_key": "boe",
+          "label_text": "BOE, Boiler Operation Engineer",
+          "value_text": "boe"
+        },
+        {
+          "option_key": "no_certificate",
+          "label_text": "Boiler chalata hoon par certificate nahi hai",
+          "value_text": "no_certificate"
+        },
+        {
+          "option_key": "not_boiler",
+          "label_text": "Boiler nahi chalata",
+          "value_text": "not_boiler"
+        }
+      ]
+    },
+    {
+      "question_key": "utility_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Shift me aap kya kya kaam karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "utility_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "start_stop",
+          "label_text": "Start-stop aur changeover",
+          "value_text": "start_stop"
+        },
+        {
+          "option_key": "log_book",
+          "label_text": "Log book me reading bharna",
+          "value_text": "log_book"
+        },
+        {
+          "option_key": "blow_down",
+          "label_text": "Blow down",
+          "value_text": "blow_down"
+        },
+        {
+          "option_key": "water_testing",
+          "label_text": "Water testing, pH, TDS aur hardness",
+          "value_text": "water_testing"
+        },
+        {
+          "option_key": "chemical_dosing",
+          "label_text": "Chemical dosing",
+          "value_text": "chemical_dosing"
+        },
+        {
+          "option_key": "fuel_ash_handling",
+          "label_text": "Fuel feeding aur ash nikalna",
+          "value_text": "fuel_ash_handling"
+        },
+        {
+          "option_key": "fuel_stock",
+          "label_text": "Diesel ya fuel stock ka hisaab",
+          "value_text": "fuel_stock"
+        },
+        {
+          "option_key": "safety_check",
+          "label_text": "Safety valve aur gauge glass check",
+          "value_text": "safety_check"
+        }
+      ]
+    },
+    {
+      "question_key": "utility_boiler_fuel",
+      "min_tier": "medium",
+      "prompt_text": "Boiler ya heater kaunse fuel par chalta hai?",
+      "why_text": "Har fuel ka boiler chalane ka tareeka alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_boiler_fuel",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "coal",
+          "label_text": "Koyla, coal",
+          "value_text": "coal"
+        },
+        {
+          "option_key": "biomass",
+          "label_text": "Briquette, lakdi ya bhusa",
+          "value_text": "biomass"
+        },
+        {
+          "option_key": "furnace_oil",
+          "label_text": "Furnace oil / LDO",
+          "value_text": "furnace_oil"
+        },
+        {
+          "option_key": "diesel",
+          "label_text": "Diesel, HSD",
+          "value_text": "diesel"
+        },
+        {
+          "option_key": "natural_gas",
+          "label_text": "PNG / natural gas",
+          "value_text": "natural_gas"
+        },
+        {
+          "option_key": "petcoke",
+          "label_text": "Petcoke",
+          "value_text": "petcoke"
+        },
+        {
+          "option_key": "bagasse",
+          "label_text": "Bagasse",
+          "value_text": "bagasse"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Boiler nahi chalata",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_boiler_make",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse make ke boiler ya heater par kaam kiya hai?",
+      "why_text": "Make jaanne wale operator ko usi boiler par jaldi rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_boiler_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "thermax",
+          "label_text": "Thermax",
+          "value_text": "thermax"
+        },
+        {
+          "option_key": "forbes_marshall",
+          "label_text": "Forbes Marshall",
+          "value_text": "forbes_marshall"
+        },
+        {
+          "option_key": "cheema",
+          "label_text": "Cheema Boilers",
+          "value_text": "cheema"
+        },
+        {
+          "option_key": "isgec",
+          "label_text": "ISGEC",
+          "value_text": "isgec"
+        },
+        {
+          "option_key": "thermodyne",
+          "label_text": "Thermodyne",
+          "value_text": "thermodyne"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur make ya boiler nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_boiler_capacity",
+      "min_tier": "hard",
+      "prompt_text": "Sabse bada boiler kitne TPH ka chalaya hai?",
+      "why_text": "Capacity se pata chalta hai aap kitna bada boiler sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "utility_boiler_capacity",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_one",
+          "label_text": "1 TPH tak",
+          "value_text": "1"
+        },
+        {
+          "option_key": "upto_three",
+          "label_text": "1 se 3 TPH",
+          "value_text": "3"
+        },
+        {
+          "option_key": "upto_ten",
+          "label_text": "3 se 10 TPH",
+          "value_text": "10"
+        },
+        {
+          "option_key": "upto_thirty",
+          "label_text": "10 se 30 TPH",
+          "value_text": "30"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "30 TPH se zyada",
+          "value_text": "50"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Boiler nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_compressor_type",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse air compressor aur dryer par kaam kiya hai?",
+      "why_text": "Compressor ka type employer sabse pehle poochhte hain.",
+      "target_kind": "attribute",
+      "target_field": "utility_compressor_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "screw",
+          "label_text": "Screw compressor",
+          "value_text": "screw"
+        },
+        {
+          "option_key": "reciprocating",
+          "label_text": "Reciprocating, piston wala",
+          "value_text": "reciprocating"
+        },
+        {
+          "option_key": "oil_free",
+          "label_text": "Oil-free compressor",
+          "value_text": "oil_free"
+        },
+        {
+          "option_key": "centrifugal",
+          "label_text": "Centrifugal compressor",
+          "value_text": "centrifugal"
+        },
+        {
+          "option_key": "refrigerant_dryer",
+          "label_text": "Refrigerant air dryer",
+          "value_text": "refrigerant_dryer"
+        },
+        {
+          "option_key": "desiccant_dryer",
+          "label_text": "Desiccant ya heatless dryer",
+          "value_text": "desiccant_dryer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Compressor nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_compressor_make",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse make ke compressor par kaam kiya hai?",
+      "why_text": "Make jaanne wale ko usi compressor wale plant me rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_compressor_make",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "atlas_copco",
+          "label_text": "Atlas Copco",
+          "value_text": "atlas_copco"
+        },
+        {
+          "option_key": "elgi",
+          "label_text": "ELGi",
+          "value_text": "elgi"
+        },
+        {
+          "option_key": "ingersoll_rand",
+          "label_text": "Ingersoll Rand",
+          "value_text": "ingersoll_rand"
+        },
+        {
+          "option_key": "kirloskar",
+          "label_text": "Kirloskar",
+          "value_text": "kirloskar"
+        },
+        {
+          "option_key": "chicago_pneumatic",
+          "label_text": "Chicago Pneumatic",
+          "value_text": "chicago_pneumatic"
+        },
+        {
+          "option_key": "kaeser",
+          "label_text": "Kaeser",
+          "value_text": "kaeser"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_dg_work",
+      "min_tier": "hard",
+      "prompt_text": "DG set ka kaunsa kaam aap khud karte hain?",
+      "why_text": "DG ka kaam jaanne wale operator ko har plant me rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_dg_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "start_changeover",
+          "label_text": "Manual start-stop aur load changeover",
+          "value_text": "start_changeover"
+        },
+        {
+          "option_key": "amf_panel",
+          "label_text": "AMF panel se auto changeover",
+          "value_text": "amf_panel"
+        },
+        {
+          "option_key": "synchronising",
+          "label_text": "Do ya zyada DG ki synchronising",
+          "value_text": "synchronising"
+        },
+        {
+          "option_key": "daily_check",
+          "label_text": "Diesel, oil, coolant aur battery check",
+          "value_text": "daily_check"
+        },
+        {
+          "option_key": "b_check",
+          "label_text": "B-check, oil aur filter change",
+          "value_text": "b_check"
+        },
+        {
+          "option_key": "fuel_report",
+          "label_text": "Unit aur diesel average ki report",
+          "value_text": "fuel_report"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "DG nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_water_plant",
+      "min_tier": "hard",
+      "prompt_text": "Paani ke kaunse plant par kaam kiya hai?",
+      "why_text": "Paani ke plant ka tajurba alag se dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_water_plant",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "etp",
+          "label_text": "ETP",
+          "value_text": "etp"
+        },
+        {
+          "option_key": "stp",
+          "label_text": "STP",
+          "value_text": "stp"
+        },
+        {
+          "option_key": "ro_plant",
+          "label_text": "RO plant",
+          "value_text": "ro_plant"
+        },
+        {
+          "option_key": "dm_plant",
+          "label_text": "DM plant",
+          "value_text": "dm_plant"
+        },
+        {
+          "option_key": "softener",
+          "label_text": "Softener",
+          "value_text": "softener"
+        },
+        {
+          "option_key": "ultra_filtration",
+          "label_text": "UF plant",
+          "value_text": "ultra_filtration"
+        },
+        {
+          "option_key": "mee_zld",
+          "label_text": "MEE / ZLD",
+          "value_text": "mee_zld"
+        },
+        {
+          "option_key": "filter_press",
+          "label_text": "Filter press aur sludge",
+          "value_text": "filter_press"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Paani ke plant par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "utility_boiler_work",
+      "min_tier": "hard",
+      "prompt_text": "Boiler ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Boiler ka poora kaam jaanne wale ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_boiler_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "light_up",
+          "label_text": "Light-up aur pressure banana",
+          "value_text": "light_up"
+        },
+        {
+          "option_key": "burner_setting",
+          "label_text": "Burner cleaning aur setting",
+          "value_text": "burner_setting"
+        },
+        {
+          "option_key": "tube_cleaning",
+          "label_text": "Tube cleaning ya soot blowing",
+          "value_text": "tube_cleaning"
+        },
+        {
+          "option_key": "safety_trip_test",
+          "label_text": "Safety valve aur water level trip testing",
+          "value_text": "safety_trip_test"
+        },
+        {
+          "option_key": "feed_water_control",
+          "label_text": "Feed water treatment aur TDS control",
+          "value_text": "feed_water_control"
+        },
+        {
+          "option_key": "steam_trap_prv",
+          "label_text": "Steam trap aur PRV check",
+          "value_text": "steam_trap_prv"
+        },
+        {
+          "option_key": "annual_inspection",
+          "label_text": "Annual inspection aur hydro test ki taiyari",
+          "value_text": "annual_inspection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "utility_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "utility_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "utility_water_work",
+      "min_tier": "hard",
+      "prompt_text": "ETP ya water plant me aap kya kya khud karte hain?",
+      "why_text": "Plant ka poora kaam jaanne wale ko akele shift di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_water_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "regeneration",
+          "label_text": "Softener ya DM ka regeneration",
+          "value_text": "regeneration"
+        },
+        {
+          "option_key": "membrane_cip",
+          "label_text": "RO membrane cleaning, CIP",
+          "value_text": "membrane_cip"
+        },
+        {
+          "option_key": "backwash",
+          "label_text": "Backwash",
+          "value_text": "backwash"
+        },
+        {
+          "option_key": "dosing",
+          "label_text": "Alum, lime aur poly ki dosing",
+          "value_text": "dosing"
+        },
+        {
+          "option_key": "lab_testing",
+          "label_text": "pH, TDS, COD aur BOD ka sample check",
+          "value_text": "lab_testing"
+        },
+        {
+          "option_key": "sludge_dewatering",
+          "label_text": "Sludge dewatering",
+          "value_text": "sludge_dewatering"
+        },
+        {
+          "option_key": "pcb_records",
+          "label_text": "Pollution board ke record bharna",
+          "value_text": "pcb_records"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "utility_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "utility_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke plant me utility chalayi hai?",
+      "why_text": "Plant ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "chemical",
+          "label_text": "Chemical",
+          "value_text": "chemical"
+        },
+        {
+          "option_key": "textile",
+          "label_text": "Textile ya dyeing",
+          "value_text": "textile"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "Food, dairy aur beverage",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "paper_sugar",
+          "label_text": "Paper, sugar ya distillery",
+          "value_text": "paper_sugar"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile ya engineering plant",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "facility",
+          "label_text": "Hospital, hotel ya mall",
+          "value_text": "facility"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "utility_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "utility_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi dikkat aap khud sambhal lete hain?",
+      "why_text": "Dikkat khud sambhalne wale operator ko shift in-charge banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "low_steam_pressure",
+          "label_text": "Boiler ka pressure nahi banna",
+          "value_text": "low_steam_pressure"
+        },
+        {
+          "option_key": "flame_failure",
+          "label_text": "Burner trip ya flame failure",
+          "value_text": "flame_failure"
+        },
+        {
+          "option_key": "low_water_trip",
+          "label_text": "Low water level trip",
+          "value_text": "low_water_trip"
+        },
+        {
+          "option_key": "compressor_trip",
+          "label_text": "Compressor high temperature ya trip",
+          "value_text": "compressor_trip"
+        },
+        {
+          "option_key": "air_pressure_drop",
+          "label_text": "Air pressure girna ya leakage",
+          "value_text": "air_pressure_drop"
+        },
+        {
+          "option_key": "dg_start_fault",
+          "label_text": "DG start nahi hona",
+          "value_text": "dg_start_fault"
+        },
+        {
+          "option_key": "pump_fault",
+          "label_text": "Pump airlock, gland ya seal leak",
+          "value_text": "pump_fault"
+        },
+        {
+          "option_key": "outlet_out_of_limit",
+          "label_text": "ETP outlet ka parameter bahar jaana",
+          "value_text": "outlet_out_of_limit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "utility_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "utility_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "utility_records_planning",
+      "min_tier": "hard",
+      "prompt_text": "Record aur planning ka kaunsa kaam aap karte hain?",
+      "why_text": "Record aur planning sambhalne wale ko in-charge banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "utility_records_planning",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fuel_report",
+          "label_text": "Steam-fuel ratio aur fuel consumption report",
+          "value_text": "fuel_report"
+        },
+        {
+          "option_key": "ibr_register",
+          "label_text": "IBR inspection aur boiler register",
+          "value_text": "ibr_register"
+        },
+        {
+          "option_key": "pm_schedule",
+          "label_text": "PM schedule aur shutdown planning",
+          "value_text": "pm_schedule"
+        },
+        {
+          "option_key": "spares_indent",
+          "label_text": "Spares aur chemical ka indent",
+          "value_text": "spares_indent"
+        },
+        {
+          "option_key": "amc_vendor",
+          "label_text": "AMC vendor se service karwana",
+          "value_text": "amc_vendor"
+        },
+        {
+          "option_key": "shift_roster",
+          "label_text": "Shift roster banana",
+          "value_text": "shift_roster"
+        },
+        {
+          "option_key": "energy_saving",
+          "label_text": "Energy saving, leakage aur condensate recovery",
+          "value_text": "energy_saving"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "utility_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "utility_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunse saamaan par haath se kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "boiler",
+          "label_text": "Boiler",
+          "value_text": "boiler"
+        },
+        {
+          "option_key": "pump",
+          "label_text": "Pump kholna aur jodna",
+          "value_text": "pump"
+        },
+        {
+          "option_key": "air_compressor",
+          "label_text": "Air compressor",
+          "value_text": "air_compressor"
+        },
+        {
+          "option_key": "diesel_engine",
+          "label_text": "Diesel engine ya DG",
+          "value_text": "diesel_engine"
+        },
+        {
+          "option_key": "valve_pipe_fitting",
+          "label_text": "Valve aur pipe fitting",
+          "value_text": "valve_pipe_fitting"
+        },
+        {
+          "option_key": "motor_starter",
+          "label_text": "Motor starter ki wiring",
+          "value_text": "motor_starter"
+        },
+        {
+          "option_key": "water_testing",
+          "label_text": "Water testing kit",
+          "value_text": "water_testing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "utility_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "utility_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "utility_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

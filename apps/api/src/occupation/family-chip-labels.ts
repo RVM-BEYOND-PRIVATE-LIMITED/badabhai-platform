@@ -224,6 +224,26 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_foundry_casting: "foundry / casting",
   fam_die_casting: "die casting",
   fam_forging: "forging",
+  // CEO pack v2, Wave 2 (#3016). Worker-facing trade names. The roles are declared and
+  // disabled (#3004 pattern), so a pin here keeps talking, like the Wave 1 families above.
+  fam_gear_cutting: "gear cutting",
+  fam_boring_machine: "boring machine (HBM)",
+  fam_spm_finishing: "honing / broaching / SPM",
+  fam_fabrication: "fabricator / structural fitter",
+  fam_tube_forming: "tube bending / roll forming",
+  fam_surface_treatment: "plating / surface treatment",
+  fam_blow_moulding: "blow moulding",
+  fam_plastic_extrusion: "plastic extrusion",
+  fam_rubber_moulding: "rubber moulding",
+  fam_ndt: "NDT technician",
+  fam_calibration: "calibration / metrology",
+  fam_material_lab: "material testing / met lab",
+  fam_robotics: "robot operator / programmer",
+  fam_instrumentation: "instrumentation technician",
+  fam_hvac_rac: "refrigeration & AC (HVAC)",
+  fam_utility: "utility operator",
+  fam_forklift: "forklift / reach truck",
+  fam_crane_rigging: "EOT crane / rigger",
 });
 
 /**

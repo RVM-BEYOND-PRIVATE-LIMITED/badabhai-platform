@@ -81,6 +81,17 @@ export const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set([
   "Machines maintained", // qp_maintenance_engineer rank 22 — the "Equipment maintained" reading.
   "Shops", // qp_production_engineer rank 21 — the shops he runs.
   "Furnaces", // qp_foundry_casting — the equipment row (rank 43, below 2x like the trade's vocabulary).
+  // #3016 Wave 2: the plating lines a surface-treatment operator runs.
+  "Lines", // qp_surface_treatment rank 23 — barrel / rack / automatic lines and kettles.
+  // #3016 Wave 2: each machine trade's equipment row under the name its sheet prints it.
+  "Auxiliaries", // qp_blow_moulding — dryers / chillers run beside the machine.
+  "Extruders", // qp_plastic_extrusion — the extruders run.
+  "Presses", // qp_rubber_moulding — the presses run.
+  "Cell equipment", // qp_robotics — the robot-cell equipment run.
+  "Compressors", // qp_hvac_rac — the compressors / chillers run.
+  "Plants run", // qp_utility — boiler / compressor / DG / water plants run.
+  "Trucks driven", // qp_forklift — forklifts / reach trucks driven.
+  "Cranes", // qp_crane_rigging — EOT cranes / rigging gear run.
 ]);
 
 /**

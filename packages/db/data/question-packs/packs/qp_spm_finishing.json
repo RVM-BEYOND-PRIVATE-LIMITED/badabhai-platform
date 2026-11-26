@@ -1,0 +1,1268 @@
+{
+  "_why": "Role track for Honing / Broaching / SPM Operator (T20), new trade (CEO pack v2). fam_spm_finishing binds NCO 7223.2600, 7224.0600, 7224.0700 and 7224.0701.",
+  "_scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T20 (Honing / Broaching / SPM Operator). Status: NEW",
+  "pack_id": "qp_spm_finishing",
+  "version": 1,
+  "family_id": "fam_spm_finishing",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T20): new trade.",
+  "items": [
+    {
+      "question_key": "spm_experience",
+      "min_tier": "easy",
+      "prompt_text": "Honing, broaching ya SPM ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "spm_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Honing, broaching ya SPM ka kaam kiya hai?"
+    },
+    {
+      "question_key": "spm_level",
+      "min_tier": "easy",
+      "prompt_text": "Honing, broaching ya SPM machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "spm_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "spm_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Tooling badalne ke baad size aur finish aap khud set karte ho?",
+      "why_text": "Machine khud set karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "spm_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "spm_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Rejection aaye to stone, tool ya parameter badalne ka faisla aap lete ho?",
+      "why_text": "Process ka faisla khud lene wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Supervisor ya engineer batata hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "spm_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "spm_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "spm_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "spm_process",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa process karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "honing",
+          "label_text": "Honing",
+          "value_text": "honing"
+        },
+        {
+          "option_key": "broaching",
+          "label_text": "Broaching",
+          "value_text": "broaching"
+        },
+        {
+          "option_key": "lapping",
+          "label_text": "Lapping",
+          "value_text": "lapping"
+        },
+        {
+          "option_key": "superfinishing",
+          "label_text": "Superfinishing",
+          "value_text": "superfinishing"
+        },
+        {
+          "option_key": "gun_drilling",
+          "label_text": "Gun drilling / deep hole drilling",
+          "value_text": "gun_drilling"
+        },
+        {
+          "option_key": "thread_rolling",
+          "label_text": "Thread rolling",
+          "value_text": "thread_rolling"
+        },
+        {
+          "option_key": "centring_facing",
+          "label_text": "Centring-facing",
+          "value_text": "centring_facing"
+        },
+        {
+          "option_key": "multi_spindle",
+          "label_text": "Multi-spindle drilling ya tapping SPM",
+          "value_text": "multi_spindle"
+        },
+        {
+          "option_key": "burnishing",
+          "label_text": "Roller burnishing",
+          "value_text": "burnishing"
+        }
+      ]
+    },
+    {
+      "question_key": "spm_machine_make",
+      "min_tier": "medium",
+      "prompt_text": "Machine kis company ki hai?",
+      "why_text": "Usi company ki machine wale employer aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "spm_machine_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "nagel",
+          "label_text": "Nagel",
+          "value_text": "nagel"
+        },
+        {
+          "option_key": "gehring",
+          "label_text": "Gehring",
+          "value_text": "gehring"
+        },
+        {
+          "option_key": "sunnen",
+          "label_text": "Sunnen",
+          "value_text": "sunnen"
+        },
+        {
+          "option_key": "khushbu",
+          "label_text": "Khushbu",
+          "value_text": "khushbu"
+        },
+        {
+          "option_key": "precihole",
+          "label_text": "Precihole (gun drill)",
+          "value_text": "precihole"
+        },
+        {
+          "option_key": "widma",
+          "label_text": "Widma (gun drill, SPM)",
+          "value_text": "widma"
+        },
+        {
+          "option_key": "speedfam_lapmaster",
+          "label_text": "Speedfam ya Lapmaster (lapping)",
+          "value_text": "speedfam_lapmaster"
+        },
+        {
+          "option_key": "local_spm",
+          "label_text": "Local ya company ki banayi SPM",
+          "value_text": "local_spm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "spm_part_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunse part par kaam karte hain?",
+      "why_text": "Part ke hisaab se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_part_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cylinder_liner",
+          "label_text": "Cylinder liner ya block bore",
+          "value_text": "cylinder_liner"
+        },
+        {
+          "option_key": "con_rod",
+          "label_text": "Connecting rod",
+          "value_text": "con_rod"
+        },
+        {
+          "option_key": "gear_bore",
+          "label_text": "Gear ya sprocket ka bore, spline",
+          "value_text": "gear_bore"
+        },
+        {
+          "option_key": "hydraulic_body",
+          "label_text": "Hydraulic cylinder tube ya valve body",
+          "value_text": "hydraulic_body"
+        },
+        {
+          "option_key": "brake_cylinder",
+          "label_text": "Brake ya clutch master cylinder",
+          "value_text": "brake_cylinder"
+        },
+        {
+          "option_key": "fuel_injection",
+          "label_text": "Fuel injection ke part",
+          "value_text": "fuel_injection"
+        },
+        {
+          "option_key": "shaft",
+          "label_text": "Shaft, axle, crankshaft",
+          "value_text": "shaft"
+        },
+        {
+          "option_key": "bearing_parts",
+          "label_text": "Bearing race ya roller",
+          "value_text": "bearing_parts"
+        },
+        {
+          "option_key": "compressor_parts",
+          "label_text": "Compressor ke part",
+          "value_text": "compressor_parts"
+        }
+      ]
+    },
+    {
+      "question_key": "spm_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Roz ke kaam mein aap kya kya karte hain?",
+      "why_text": "Roz ke kaam se pata chalta hai aap kitna sambhal lete hain.",
+      "target_kind": "attribute",
+      "target_field": "spm_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "load_unload",
+          "label_text": "Loading-unloading aur cycle chalana",
+          "value_text": "load_unload"
+        },
+        {
+          "option_key": "piece_checking",
+          "label_text": "Air gauge ya bore gauge se piece check karna",
+          "value_text": "piece_checking"
+        },
+        {
+          "option_key": "size_compensation",
+          "label_text": "Size ka compensation dena",
+          "value_text": "size_compensation"
+        },
+        {
+          "option_key": "tool_change",
+          "label_text": "Stone, tool ya insert badalna",
+          "value_text": "tool_change"
+        },
+        {
+          "option_key": "coolant_care",
+          "label_text": "Honing oil, coolant aur filter dekhna",
+          "value_text": "coolant_care"
+        },
+        {
+          "option_key": "check_sheet",
+          "label_text": "Check sheet aur production report bharna",
+          "value_text": "check_sheet"
+        },
+        {
+          "option_key": "jh_cleaning",
+          "label_text": "Machine ki safai aur oiling (JH)",
+          "value_text": "jh_cleaning"
+        }
+      ]
+    },
+    {
+      "question_key": "spm_machine_type",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Machine ke type se employer aapka kaam samajhta hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_machine_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vertical_honing_single",
+          "label_text": "Vertical honing, single spindle",
+          "value_text": "vertical_honing_single"
+        },
+        {
+          "option_key": "vertical_honing_multi",
+          "label_text": "Vertical honing, multi spindle",
+          "value_text": "vertical_honing_multi"
+        },
+        {
+          "option_key": "horizontal_honing",
+          "label_text": "Horizontal honing",
+          "value_text": "horizontal_honing"
+        },
+        {
+          "option_key": "vertical_broaching",
+          "label_text": "Vertical internal broaching",
+          "value_text": "vertical_broaching"
+        },
+        {
+          "option_key": "horizontal_broaching",
+          "label_text": "Horizontal internal broaching",
+          "value_text": "horizontal_broaching"
+        },
+        {
+          "option_key": "surface_broaching",
+          "label_text": "Surface broaching",
+          "value_text": "surface_broaching"
+        },
+        {
+          "option_key": "lapping_machine",
+          "label_text": "Flat ya double disc lapping machine",
+          "value_text": "lapping_machine"
+        },
+        {
+          "option_key": "rotary_transfer_spm",
+          "label_text": "Rotary index ya transfer line SPM",
+          "value_text": "rotary_transfer_spm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "spm_tooling",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi tooling aap use karte hain?",
+      "why_text": "Tooling jaanne wale operator ko setter banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_tooling",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "abrasive_stone",
+          "label_text": "Abrasive honing stone",
+          "value_text": "abrasive_stone"
+        },
+        {
+          "option_key": "diamond_cbn_stone",
+          "label_text": "Diamond ya CBN honing stone",
+          "value_text": "diamond_cbn_stone"
+        },
+        {
+          "option_key": "honing_mandrel",
+          "label_text": "Honing mandrel / tool head",
+          "value_text": "honing_mandrel"
+        },
+        {
+          "option_key": "internal_broach",
+          "label_text": "Round, spline ya keyway broach",
+          "value_text": "internal_broach"
+        },
+        {
+          "option_key": "surface_broach",
+          "label_text": "Surface broach",
+          "value_text": "surface_broach"
+        },
+        {
+          "option_key": "gun_drill_tool",
+          "label_text": "Gun drill",
+          "value_text": "gun_drill_tool"
+        },
+        {
+          "option_key": "thread_roll_die",
+          "label_text": "Thread rolling die / roll",
+          "value_text": "thread_roll_die"
+        },
+        {
+          "option_key": "lapping_plate",
+          "label_text": "Lapping plate aur compound",
+          "value_text": "lapping_plate"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ke part par kaam kiya hai?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN series ya 20MnCr5 alloy steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "hardened_steel",
+          "label_text": "Hardened steel part",
+          "value_text": "hardened_steel"
+        },
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, mild steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "sintered",
+          "label_text": "Sintered part",
+          "value_text": "sintered"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass ya bronze",
+          "value_text": "brass"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse gauge aur instrument chala lete hain?",
+      "why_text": "Micron me naap lene wale ko fine kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "air_gauge",
+          "label_text": "Air gauge",
+          "value_text": "air_gauge"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Plug gauge (GO / NO GO)",
+          "value_text": "plug_gauge"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "roughness_tester",
+          "label_text": "Surface roughness tester (Ra)",
+          "value_text": "roughness_tester"
+        },
+        {
+          "option_key": "spline_gauge",
+          "label_text": "Spline gauge",
+          "value_text": "spline_gauge"
+        },
+        {
+          "option_key": "thread_gauge",
+          "label_text": "Thread ring gauge",
+          "value_text": "thread_gauge"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "spm_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Setting mein aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "stone_change",
+          "label_text": "Honing stone ya tool badal kar dressing",
+          "value_text": "stone_change"
+        },
+        {
+          "option_key": "stroke_setting",
+          "label_text": "Stroke length aur overrun set karna",
+          "value_text": "stroke_setting"
+        },
+        {
+          "option_key": "expansion_pressure",
+          "label_text": "Expansion / feed pressure set karna",
+          "value_text": "expansion_pressure"
+        },
+        {
+          "option_key": "gauge_mastering",
+          "label_text": "Air gauge ko setting master se zero karna",
+          "value_text": "gauge_mastering"
+        },
+        {
+          "option_key": "broach_setup",
+          "label_text": "Broach lagana, puller aur fixture set karna",
+          "value_text": "broach_setup"
+        },
+        {
+          "option_key": "fixture_change",
+          "label_text": "Model change par fixture aur locator badalna",
+          "value_text": "fixture_change"
+        },
+        {
+          "option_key": "roll_die_matching",
+          "label_text": "Thread rolling die matching",
+          "value_text": "roll_die_matching"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece pass karwana",
+          "value_text": "first_piece"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "spm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "spm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "tolerance_band",
+      "min_tier": "hard",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm (50 micron) tak",
+          "value_text": "0.05"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm (20 micron) tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm (10 micron) tak",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm (5 micron) ya usse kam",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "spm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "spm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "spm_finish_control",
+      "min_tier": "hard",
+      "prompt_text": "Finish aur geometry mein aap kya control karte hain?",
+      "why_text": "Finish control karne wale ki engine parts line me maang hai.",
+      "target_kind": "attribute",
+      "target_field": "spm_finish_control",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ra_value",
+          "label_text": "Ra value / surface roughness",
+          "value_text": "ra_value"
+        },
+        {
+          "option_key": "cross_hatch",
+          "label_text": "Cross-hatch angle",
+          "value_text": "cross_hatch"
+        },
+        {
+          "option_key": "ovality",
+          "label_text": "Bore ovality / roundness",
+          "value_text": "ovality"
+        },
+        {
+          "option_key": "cylindricity",
+          "label_text": "Taper / cylindricity",
+          "value_text": "cylindricity"
+        },
+        {
+          "option_key": "plateau_finish",
+          "label_text": "Plateau finish (Rpk, Rvk)",
+          "value_text": "plateau_finish"
+        },
+        {
+          "option_key": "flatness",
+          "label_text": "Flatness (lapping)",
+          "value_text": "flatness"
+        },
+        {
+          "option_key": "spline_position",
+          "label_text": "Spline ya keyway ka size aur position",
+          "value_text": "spline_position"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "spm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "spm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke parts par kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive engine / transmission parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agriculture",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Hydraulic cylinder, pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "bearings",
+          "label_text": "Bearing",
+          "value_text": "bearings"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "compressor",
+          "label_text": "Compressor / refrigeration",
+          "value_text": "compressor"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job work",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "spm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "spm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Process ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki line par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bore_geometry",
+          "label_text": "Bore taper, oval ya bell mouth",
+          "value_text": "bore_geometry"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Ra out ya scratch mark",
+          "value_text": "surface_finish"
+        },
+        {
+          "option_key": "cross_hatch_error",
+          "label_text": "Cross-hatch angle galat",
+          "value_text": "cross_hatch_error"
+        },
+        {
+          "option_key": "stone_glazing",
+          "label_text": "Stone glazing ya loading",
+          "value_text": "stone_glazing"
+        },
+        {
+          "option_key": "broach_breakage",
+          "label_text": "Broach tootna ya tooth chipping",
+          "value_text": "broach_breakage"
+        },
+        {
+          "option_key": "broach_tear",
+          "label_text": "Spline ya keyway me burr, tear mark",
+          "value_text": "broach_tear"
+        },
+        {
+          "option_key": "drill_runout",
+          "label_text": "Gun drill ka run-out",
+          "value_text": "drill_runout"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "spm_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "spm_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "spm_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "spm_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "slotting",
+          "label_text": "Slotting machine",
+          "value_text": "slotting"
+        },
+        {
+          "option_key": "honing",
+          "label_text": "Honing machine",
+          "value_text": "honing"
+        },
+        {
+          "option_key": "bench_fitting",
+          "label_text": "Bench fitting, lapping aur scraping",
+          "value_text": "bench_fitting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "spm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "spm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "spm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

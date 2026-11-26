@@ -678,7 +678,7 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     for (const phrase of ["fusion welding", "fusion welder", "fusion weld", "seam fusion welder"]) {
       expect(familyFor(phrase), `"${phrase}" left the welding trade`).toBe("fam_welding_trade");
     }
-    expect(familyFor("fusion cutting")).toBe("fam_welding_trade");
+    expect(familyFor("fusion cutting")).toBe("fam_fabrication"); // #3016: on 7212.0400, moved T22
     // THE "fsn" SKELETON IS LEFT UNCLAIMED, which is why bare "fusion" is not an alias and the
     // "fashion" row that guarded it was withdrawn with it. Neither this tranche's packs nor any
     // other family may answer these: an unclaimed bucket falls through to trigram and vector,
@@ -806,8 +806,9 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
         // Tool and die — 7222.0200 is the sole claimant of every one of these.
         "tool maker", "tool room", "टूल रूम", "टूल मेकर", "डाई मेकर", "jig borer", "jig fixture",
         // Welding — the deepest reach in the batch, because 7212.0301 already carried vernacular.
+        // #3016: "gas cutting" retired off the welder (7212.0400 moved to T22) — pinned in Wave 2.
         "welder", "welding", "वेल्डर", "वेल्डिंग", "welding mistri", "jodai ka kaam", "जोड़ाई",
-        "veldar", "arc welding", "mig welding", "tig welding", "gas welding", "gas cutting",
+        "veldar", "arc welding", "mig welding", "tig welding", "gas welding",
         // Powder coating — one contaminated code doing most of the work. See below.
         "spray painter", "स्प्रे पेंटिंग", "industrial painter", "painter spray", "metal sprayer",
       ].map((p) => [p, familyFor(p)]),
@@ -820,13 +821,13 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
       slotter: "fam_conventional_machining",
       "drilling machine": "fam_conventional_machining",
       "radial driller": "fam_conventional_machining",
-      "cylinder borer": "fam_conventional_machining",
+      "cylinder borer": "fam_boring_machine",
       "tool maker": "fam_tool_die_making",
       "tool room": "fam_tool_die_making",
       "टूल रूम": "fam_tool_die_making",
       "टूल मेकर": "fam_tool_die_making",
       "डाई मेकर": "fam_tool_die_making",
-      "jig borer": "fam_tool_die_making",
+      "jig borer": "fam_boring_machine",
       "jig fixture": "fam_tool_die_making",
       welder: "fam_welding_trade",
       welding: "fam_welding_trade",
@@ -840,7 +841,6 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
       "mig welding": "fam_welding_trade",
       "tig welding": "fam_welding_trade",
       "gas welding": "fam_welding_trade",
-      "gas cutting": "fam_welding_trade",
       "spray painter": "fam_powder_coating",
       "स्प्रे पेंटिंग": "fam_powder_coating",
       "industrial painter": "fam_powder_coating",
@@ -903,15 +903,22 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
   it("PHASE 2 #4 — the coating trade's own name and the plating words reach its family", () => {
     // CEO Launch Plan Pack v1, sheet 20. Before this tranche the trade's own name went to the
     // welder (7212.0400 Gas Cutter) and every plating word reached nothing.
+    // #3016: 8122.0100 moved to fam_surface_treatment (T28) — the plating words move with
+    // it. The powder-coating trade's own words stay (their codes did not move).
     for (const p of [
       "powder coating", "पाउडर कोटिंग", "coating operator", "powder coating operator",
-      "electroplating", "इलेक्ट्रोप्लेटिंग", "zinc plating", "nickel plating", "chrome plating",
     ]) {
       expect(familyFor(p), p).toBe("fam_powder_coating");
     }
-    // House painting is untouched, and the welder keeps its own cutting words.
+    for (const p of [
+      "electroplating", "इलेक्ट्रोप्लेटिंग", "zinc plating", "nickel plating", "chrome plating",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_surface_treatment");
+    }
+    // House painting is untouched, and the fabricator keeps its own cutting words (#3016: gas
+    // cutting retired off the welder to T22 fabrication).
     expect(familyFor("painter")).toBe("fam_painting");
-    expect(familyFor("gas cutting")).toBe("fam_welding_trade");
+    expect(familyFor("gas cutting")).toBe("fam_fabrication");
     // Held out on purpose (see the rvm-aliases block): bare "plating" folds onto pleating and
     // plaiting, so it is not a row and must not reach this family.
     expect(familyFor("pleating")).not.toBe("fam_powder_coating");
@@ -941,9 +948,10 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     const routing = Object.fromEntries(
       [
         // Sheet metal — items 1-5, all on 7213.0101, which fam_sheet_metal_fab binds since its pack
-        // shipped — so these five moved off the generic minor-721 pack in that change, by design.
-        "sheet metal", "शीट मेटल", "press brake", "laser cutting", "chadar ka kaam", "fabricator",
-        "fabrication ka kaam",
+        // shipped — so these moved off the generic minor-721 pack in that change, by design.
+        // #3016: "fabricator" and "fabrication ka kaam" retired off 7213.0101 to T22 fabrication
+        // (pinned in the Wave 2 block, not here).
+        "sheet metal", "शीट मेटल", "press brake", "laser cutting", "chadar ka kaam",
         // Quality inspection — items 6-10, all on 7543.2001, which fam_quality_inspection binds since
         // its pack shipped — so these eight moved off the generic minor-754 pack in that change, by
         // design.
@@ -976,8 +984,6 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "press brake": "fam_sheet_metal_fab",
       "laser cutting": "fam_sheet_metal_fab",
       "chadar ka kaam": "fam_sheet_metal_fab",
-      fabricator: "fam_sheet_metal_fab",
-      "fabrication ka kaam": "fam_sheet_metal_fab",
       qc: "fam_quality_inspection",
       "qc inspector": "fam_quality_inspection",
       "qa qc": "fam_quality_inspection",
@@ -1003,9 +1009,11 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     // The family table above cannot see a phrase landing on the WRONG CODE inside the right unit,
     // and the code is what a role family will bind. Pinned by code for exactly that reason.
     const codeFor = (p: string): string | null => resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
-    for (const p of ["sheet metal", "press brake", "chadar ka kaam", "fabricator"]) {
+    for (const p of ["sheet metal", "press brake", "chadar ka kaam"]) {
       expect(codeFor(p), p).toBe("jd_nco_7213_0101");
     }
+    // #3016: "fabricator" retired off 7213.0101 to T22 (now on jd_nco_7224_0102).
+    expect(codeFor("fabricator"), "fabricator").toBe("jd_nco_7224_0102");
     for (const p of ["qc", "quality control", "inspection ka kaam", "quality wala"]) {
       expect(codeFor(p), p).toBe("jd_nco_7543_2001");
     }
@@ -1058,7 +1066,7 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     expect(familyFor("pipe fitting")).toBe("fam_plumbing");
     expect(familyFor("silai machine repair")).toBe("fam_fitting");
     expect(familyFor("mobile repair")).toBe("fam_electronics");
-    expect(familyFor("gas cutting")).toBe("fam_welding_trade");
+    expect(familyFor("gas cutting")).toBe("fam_fabrication"); // #3016: retired off welder to T22
     // "quality inspector" STAYS on fam_other_craft even with the QC family bound: its only alias row
     // is on the unbound ISCO node jd_isco_7543. A known gap, pinned in the QC block at the end.
     expect(familyFor("quality inspector")).toBe("fam_other_craft");
@@ -1115,7 +1123,8 @@ describe("Batch 2 part two — sheet metal", () => {
   });
 
   it("leaves the auto-body and tinsmith codes on the generic pack", () => {
-    for (const p of ["dent remover", "tinsmith", "tin coater", "panel beater", "boilersmith"]) {
+    // #3016: "tin coater" sits on 8122.0100, moved with it to T28 surface treatment.
+    for (const p of ["dent remover", "tinsmith", "panel beater", "boilersmith"]) {
       expect(familyFor(p), p).toBe("fam_sheet_metal");
     }
     expect(familyFor("sheet metal worker structural")).toBe("fam_sheet_metal");
@@ -1466,7 +1475,7 @@ describe("Batch 2 part two — fitter", () => {
     // the word's code, now 7233.0200 — still this family. An AC installer is plainly another trade;
     // alias guard rows, not routing, would fix it.
     expect(familyFor("ac fitter")).toBe("fam_fitter");
-    expect(familyFor("structural fitter")).toBe("fam_fitter");
+    expect(familyFor("structural fitter")).toBe("fam_fabrication"); // #3016: retired off fitter to T22
   });
 
   it("leaves every rejected neighbour where it resolves today", () => {
@@ -1489,9 +1498,11 @@ describe("Batch 2 part two — fitter", () => {
       "fitter-mechanical assembly": "fam_assemblers_other",
       "vehicle assembly fitter": "fam_assemblers_other",
       "assembly line": "fam_assembly_line", // Assembly Line Worker binds 8219.0100
-      // Fabrication fit-up, structural and site steel.
-      "fitter-fabrication": "fam_blacksmithing",
-      "fitter structural": "fam_sheet_metal",
+      // Fabrication fit-up, structural and site steel. #3016: T22 fabrication owns the
+      // fit-up words now ("fitter structural" retired off the fitter to T22; "fitter-fabrication"
+      // sits on the moved 7212.0400).
+      "fitter-fabrication": "fam_fabrication",
+      "fitter structural": "fam_fabrication",
       "fitter construction": "fam_sheet_metal",
       "boiler fitter": "fam_sheet_metal",
       // Other trades whose title carries the word.
@@ -1678,9 +1689,10 @@ describe("Retirements — A4 and item 21", () => {
   };
 
   it("A4 — no bare 'machine' phrase reaches dairy any more; each reaches nothing", () => {
+    // #3016: "boring machine" left this list — T19 boring binds 7223.1701/1800 and owns it now.
     for (const p of [
       "machine", "machine operator", "machine chalana", "machine wala", "machine helper",
-      "boring machine", "press machine", "press machine operator",
+      "press machine", "press machine operator",
     ]) {
       expect(familyFor(p), p).toBeNull();
       expect(prodFamilyFor(p), `${p} (prod view)`).toBeNull();
@@ -2062,16 +2074,18 @@ describe("Phase 2 #9 — injection moulding, a new family on four 8142 codes (CE
   it("moves 'injection moulding operator' off the rubber code, which keeps its own phrase", () => {
     expect(liveClaimants("injection moulding operator")).not.toContain("jd_nco_8141_0713");
     expect(liveClaimants("rubber injection moulding operator")).toEqual(["jd_nco_8141_0713"]);
-    expect(familyFor("rubber injection moulding operator")).toBe("fam_rubber_plastic");
+    // #3016: T32 rubber moulding binds the rubber code now.
+    expect(familyFor("rubber injection moulding operator")).toBe("fam_rubber_moulding");
   });
 
   it("leaves the tool room's mould words with the tool room, and the other plastics machines put", () => {
     for (const phrase of ["mould maker", "tool maker", "tool room"]) {
       expect(familyFor(phrase), phrase).not.toBe("fam_injection_moulding");
     }
-    // Compression moulding and every other 814 code stay on the generic plastics pack.
+    // Compression moulding and every other unbound 814 code stay on the generic plastics pack.
+    // #3016: bottle blowing is T30 blow moulding now.
     expect(familyFor("Compression Moulding Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
-    expect(familyFor("Bottle Blowing Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
+    expect(familyFor("Bottle Blowing Machine Operator (Plastic)")).toBe("fam_blow_moulding");
   });
 });
 
@@ -2380,7 +2394,7 @@ describe("CEO Launch Plan Pack v1 — sheet-word audit (2026-11-04)", () => {
       "die casting die": "fam_tool_die_making",
       "hand finishing": "fam_tool_die_making",
       "ladder logic": "fam_plc_automation",
-      "instrument mechanic": "fam_plc_automation",
+      "instrument mechanic": "fam_instrumentation", // #3016: retired off PLC to T40
       grinder: "fam_cnc_grinding",
       "cylindrical grinder": "fam_cnc_grinding",
       "diamond dresser": "fam_cnc_grinding",
@@ -2394,7 +2408,7 @@ describe("CEO Launch Plan Pack v1 — sheet-word audit (2026-11-04)", () => {
       "powder coat": "fam_powder_coating",
       "spray painting": "fam_powder_coating",
       "ed coating": "fam_powder_coating",
-      "salt spray test": "fam_powder_coating",
+      "salt spray test": "fam_material_lab", // #3016: retired off Painter to T36
       "seal change": "fam_maintenance_tech",
       "manual lathe": "fam_conventional_machining",
       "conventional lathe": "fam_conventional_machining",
@@ -3677,6 +3691,1486 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
+});
+
+/**
+ * WAVE 2 WORKER PHRASES (#3016 step 3) — every loaded phrase reaches its trade.
+ *
+ * One table per Wave 2 trade (T18, T19, T20, T22, T23, T28, T30, T31, T32, T34, T35,
+ * T36, T39, T40, T41, T42, T56, T57), phrase to expected family, for every phrase LOADED
+ * by this change (alias row in rvm-aliases.jsonl pointing at the trade's occupation).
+ *
+ * NOT in these tables: the 23 same-family skips (sheet words already reaching the trade
+ * through a published title or an earlier row — no duplicate row), the 10 ka-kaam stems
+ * covered by their loaded stem, the 7 held phrases (Held block below), and 2 loaded rows
+ * the offline resolver cannot pin: "boring machine operator" and "crane operator" tie an
+ * exact ISCO-unit alias offline and this file resolves through the offline index, so they
+ * pin to fam_machining / fam_mobile_plant here; in production the shadowed ISCO units are
+ * unsearchable and the Wave 2 rows win, so the rows ship. No must-NOT phrase is loaded.
+ * The six ruled moves (#2995 point 5) invalidate the old pins for "fabricator",
+ * "fabrication ka kaam", "gas cutting", "structural fitter", "salt spray test" and
+ * "instrument mechanic" in the blocks above — updated with the owning slices at merge.
+ */
+describe("Wave 2 worker phrases (#3016) — every loaded phrase reaches its trade", () => {
+  it("T18 Gear Cutting — 31 loaded phrases reach fam_gear_cutting", () => {
+    const routing = Object.fromEntries(
+      [
+        "gear cutting",
+        "gear cutting operator",
+        "gear banane ka kaam",
+        "gear hobbing",
+        "hobbing",
+        "hobbing machine",
+        "hobbing operator",
+        "hob machine",
+        "cnc hobbing",
+        "gear shaper",
+        "gear shaping",
+        "gear shaving",
+        "shaving machine",
+        "bevel generator",
+        "gleason machine",
+        "spline hobbing",
+        "sprocket cutting",
+        "worm wheel cutting",
+        "garari ka kaam",
+        "garari cutting",
+        "hmt hobbing",
+        "liebherr hobbing",
+        "gear hobing",
+        "gear cuting",
+        "गियर कटिंग",
+        "गियर हॉबिंग",
+        "हॉबिंग मशीन",
+        "हॉबिंग ऑपरेटर",
+        "गियर शेपर",
+        "गियर शेविंग",
+        "गरारी का काम",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "gear cutting": "fam_gear_cutting",
+      "gear cutting operator": "fam_gear_cutting",
+      "gear banane ka kaam": "fam_gear_cutting",
+      "gear hobbing": "fam_gear_cutting",
+      "hobbing": "fam_gear_cutting",
+      "hobbing machine": "fam_gear_cutting",
+      "hobbing operator": "fam_gear_cutting",
+      "hob machine": "fam_gear_cutting",
+      "cnc hobbing": "fam_gear_cutting",
+      "gear shaper": "fam_gear_cutting",
+      "gear shaping": "fam_gear_cutting",
+      "gear shaving": "fam_gear_cutting",
+      "shaving machine": "fam_gear_cutting",
+      "bevel generator": "fam_gear_cutting",
+      "gleason machine": "fam_gear_cutting",
+      "spline hobbing": "fam_gear_cutting",
+      "sprocket cutting": "fam_gear_cutting",
+      "worm wheel cutting": "fam_gear_cutting",
+      "garari ka kaam": "fam_gear_cutting",
+      "garari cutting": "fam_gear_cutting",
+      "hmt hobbing": "fam_gear_cutting",
+      "liebherr hobbing": "fam_gear_cutting",
+      "gear hobing": "fam_gear_cutting",
+      "gear cuting": "fam_gear_cutting",
+      "गियर कटिंग": "fam_gear_cutting",
+      "गियर हॉबिंग": "fam_gear_cutting",
+      "हॉबिंग मशीन": "fam_gear_cutting",
+      "हॉबिंग ऑपरेटर": "fam_gear_cutting",
+      "गियर शेपर": "fam_gear_cutting",
+      "गियर शेविंग": "fam_gear_cutting",
+      "गरारी का काम": "fam_gear_cutting",
+    });
+  });
+
+  it("T19 Boring Machine — 34 loaded phrases reach fam_boring_machine", () => {
+    const routing = Object.fromEntries(
+      [
+        "hbm",
+        "hbm operator",
+        "hbm machine",
+        "cnc hbm",
+        "horizontal boring",
+        "horizontal boring machine",
+        "horizontal borer",
+        "boring mill",
+        "cnc boring machine",
+        "floor boring",
+        "floor borer",
+        "floor type boring",
+        "table type boring",
+        "jig boring",
+        "plano miller",
+        "planomiller",
+        "plano milling",
+        "line boring",
+        "heavy machining",
+        "heavy job machining",
+        "hmt boring machine",
+        "wmw boring",
+        "tos boring",
+        "skoda boring",
+        "horizantal boring",
+        "boaring machine",
+        "बोरिंग मशीन ऑपरेटर",
+        "हॉरिजॉन्टल बोरिंग",
+        "एचबीएम ऑपरेटर",
+        "एचबीएम मशीन",
+        "फ्लोर बोरिंग",
+        "जिग बोरिंग",
+        "प्लानो मिलर",
+        "लाइन बोरिंग",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "hbm": "fam_boring_machine",
+      "hbm operator": "fam_boring_machine",
+      "hbm machine": "fam_boring_machine",
+      "cnc hbm": "fam_boring_machine",
+      "horizontal boring": "fam_boring_machine",
+      "horizontal boring machine": "fam_boring_machine",
+      "horizontal borer": "fam_boring_machine",
+      "boring mill": "fam_boring_machine",
+      "cnc boring machine": "fam_boring_machine",
+      "floor boring": "fam_boring_machine",
+      "floor borer": "fam_boring_machine",
+      "floor type boring": "fam_boring_machine",
+      "table type boring": "fam_boring_machine",
+      "jig boring": "fam_boring_machine",
+      "plano miller": "fam_boring_machine",
+      "planomiller": "fam_boring_machine",
+      "plano milling": "fam_boring_machine",
+      "line boring": "fam_boring_machine",
+      "heavy machining": "fam_boring_machine",
+      "heavy job machining": "fam_boring_machine",
+      "hmt boring machine": "fam_boring_machine",
+      "wmw boring": "fam_boring_machine",
+      "tos boring": "fam_boring_machine",
+      "skoda boring": "fam_boring_machine",
+      "horizantal boring": "fam_boring_machine",
+      "boaring machine": "fam_boring_machine",
+      "बोरिंग मशीन ऑपरेटर": "fam_boring_machine",
+      "हॉरिजॉन्टल बोरिंग": "fam_boring_machine",
+      "एचबीएम ऑपरेटर": "fam_boring_machine",
+      "एचबीएम मशीन": "fam_boring_machine",
+      "फ्लोर बोरिंग": "fam_boring_machine",
+      "जिग बोरिंग": "fam_boring_machine",
+      "प्लानो मिलर": "fam_boring_machine",
+      "लाइन बोरिंग": "fam_boring_machine",
+    });
+  });
+
+  it("T20 Honing / Broaching / SPM — 36 loaded phrases reach fam_spm_finishing", () => {
+    const routing = Object.fromEntries(
+      [
+        "honing",
+        "honing machine",
+        "honing operator",
+        "vertical honing",
+        "horizontal honing",
+        "liner honing",
+        "broaching",
+        "broaching machine",
+        "broach machine",
+        "broaching operator",
+        "keyway broaching",
+        "lapping machine",
+        "lapping operator",
+        "superfinishing",
+        "super finish machine",
+        "gun drilling",
+        "gun drill machine",
+        "deep hole drilling",
+        "thread rolling",
+        "thread rolling machine",
+        "spm operator",
+        "spm machine",
+        "special purpose machine",
+        "facing centring machine",
+        "multi spindle drilling",
+        "honning machine",
+        "broching machine",
+        "होनिंग मशीन",
+        "होनिंग ऑपरेटर",
+        "ब्रोचिंग मशीन",
+        "ब्रोचिंग ऑपरेटर",
+        "लैपिंग मशीन",
+        "एसपीएम ऑपरेटर",
+        "गन ड्रिलिंग",
+        "थ्रेड रोलिंग",
+        "सुपर फिनिशिंग",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "honing": "fam_spm_finishing",
+      "honing machine": "fam_spm_finishing",
+      "honing operator": "fam_spm_finishing",
+      "vertical honing": "fam_spm_finishing",
+      "horizontal honing": "fam_spm_finishing",
+      "liner honing": "fam_spm_finishing",
+      "broaching": "fam_spm_finishing",
+      "broaching machine": "fam_spm_finishing",
+      "broach machine": "fam_spm_finishing",
+      "broaching operator": "fam_spm_finishing",
+      "keyway broaching": "fam_spm_finishing",
+      "lapping machine": "fam_spm_finishing",
+      "lapping operator": "fam_spm_finishing",
+      "superfinishing": "fam_spm_finishing",
+      "super finish machine": "fam_spm_finishing",
+      "gun drilling": "fam_spm_finishing",
+      "gun drill machine": "fam_spm_finishing",
+      "deep hole drilling": "fam_spm_finishing",
+      "thread rolling": "fam_spm_finishing",
+      "thread rolling machine": "fam_spm_finishing",
+      "spm operator": "fam_spm_finishing",
+      "spm machine": "fam_spm_finishing",
+      "special purpose machine": "fam_spm_finishing",
+      "facing centring machine": "fam_spm_finishing",
+      "multi spindle drilling": "fam_spm_finishing",
+      "honning machine": "fam_spm_finishing",
+      "broching machine": "fam_spm_finishing",
+      "होनिंग मशीन": "fam_spm_finishing",
+      "होनिंग ऑपरेटर": "fam_spm_finishing",
+      "ब्रोचिंग मशीन": "fam_spm_finishing",
+      "ब्रोचिंग ऑपरेटर": "fam_spm_finishing",
+      "लैपिंग मशीन": "fam_spm_finishing",
+      "एसपीएम ऑपरेटर": "fam_spm_finishing",
+      "गन ड्रिलिंग": "fam_spm_finishing",
+      "थ्रेड रोलिंग": "fam_spm_finishing",
+      "सुपर फिनिशिंग": "fam_spm_finishing",
+    });
+  });
+
+  it("T22 Fabricator / Structural Fitter — 34 loaded phrases reach fam_fabrication", () => {
+    const routing = Object.fromEntries(
+      [
+        "fabricator",
+        "fabrication",
+        "fabrication fitter",
+        "fitter fabricator",
+        "structural fitter",
+        "structure fitter",
+        "plate fitter",
+        "fit up",
+        "fitup ka kaam",
+        "tacking ka kaam",
+        "marking fitter",
+        "layout marker",
+        "gas cutting",
+        "plate cutting",
+        "heavy fabrication",
+        "structural fabrication",
+        "tank fabrication",
+        "vessel fabrication",
+        "pressure vessel fitter",
+        "peb fitter",
+        "shed ka kaam",
+        "gate grill ka kaam",
+        "loha fabrication",
+        "fabricater",
+        "febrication",
+        "fabrikator",
+        "फैब्रिकेटर",
+        "फैब्रिकेशन का काम",
+        "स्ट्रक्चर फिटर",
+        "प्लेट फिटर",
+        "फिट अप",
+        "टैंक फैब्रिकेशन",
+        "हैवी फैब्रिकेशन",
+        "मार्किंग फिटर",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "fabricator": "fam_fabrication",
+      "fabrication": "fam_fabrication",
+      "fabrication fitter": "fam_fabrication",
+      "fitter fabricator": "fam_fabrication",
+      "structural fitter": "fam_fabrication",
+      "structure fitter": "fam_fabrication",
+      "plate fitter": "fam_fabrication",
+      "fit up": "fam_fabrication",
+      "fitup ka kaam": "fam_fabrication",
+      "tacking ka kaam": "fam_fabrication",
+      "marking fitter": "fam_fabrication",
+      "layout marker": "fam_fabrication",
+      "gas cutting": "fam_fabrication",
+      "plate cutting": "fam_fabrication",
+      "heavy fabrication": "fam_fabrication",
+      "structural fabrication": "fam_fabrication",
+      "tank fabrication": "fam_fabrication",
+      "vessel fabrication": "fam_fabrication",
+      "pressure vessel fitter": "fam_fabrication",
+      "peb fitter": "fam_fabrication",
+      "shed ka kaam": "fam_fabrication",
+      "gate grill ka kaam": "fam_fabrication",
+      "loha fabrication": "fam_fabrication",
+      "fabricater": "fam_fabrication",
+      "febrication": "fam_fabrication",
+      "fabrikator": "fam_fabrication",
+      "फैब्रिकेटर": "fam_fabrication",
+      "फैब्रिकेशन का काम": "fam_fabrication",
+      "स्ट्रक्चर फिटर": "fam_fabrication",
+      "प्लेट फिटर": "fam_fabrication",
+      "फिट अप": "fam_fabrication",
+      "टैंक फैब्रिकेशन": "fam_fabrication",
+      "हैवी फैब्रिकेशन": "fam_fabrication",
+      "मार्किंग फिटर": "fam_fabrication",
+    });
+  });
+
+  it("T23 Tube Bending / Roll Forming — 36 loaded phrases reach fam_tube_forming", () => {
+    const routing = Object.fromEntries(
+      [
+        "tube bending",
+        "pipe bending",
+        "pipe bending machine",
+        "tube bending machine",
+        "cnc tube bending",
+        "cnc pipe bending",
+        "cnc bender",
+        "nc bending machine",
+        "mandrel bending",
+        "pipe bender",
+        "tube bender",
+        "roll forming",
+        "roll forming machine",
+        "roll forming operator",
+        "tube mill",
+        "tube mill operator",
+        "pipe mill",
+        "end forming",
+        "tube end forming",
+        "swaging machine",
+        "pipe cutting machine",
+        "section bending",
+        "profile bending",
+        "exhaust pipe bending",
+        "silencer pipe bending",
+        "handle bar bending",
+        "pipe banding",
+        "tube banding",
+        "पाइप बेंडिंग",
+        "ट्यूब बेंडिंग",
+        "पाइप बेंडिंग मशीन",
+        "सीएनसी पाइप बेंडिंग",
+        "पाइप बेंडर",
+        "रोल फॉर्मिंग",
+        "ट्यूब मिल",
+        "एंड फॉर्मिंग",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "tube bending": "fam_tube_forming",
+      "pipe bending": "fam_tube_forming",
+      "pipe bending machine": "fam_tube_forming",
+      "tube bending machine": "fam_tube_forming",
+      "cnc tube bending": "fam_tube_forming",
+      "cnc pipe bending": "fam_tube_forming",
+      "cnc bender": "fam_tube_forming",
+      "nc bending machine": "fam_tube_forming",
+      "mandrel bending": "fam_tube_forming",
+      "pipe bender": "fam_tube_forming",
+      "tube bender": "fam_tube_forming",
+      "roll forming": "fam_tube_forming",
+      "roll forming machine": "fam_tube_forming",
+      "roll forming operator": "fam_tube_forming",
+      "tube mill": "fam_tube_forming",
+      "tube mill operator": "fam_tube_forming",
+      "pipe mill": "fam_tube_forming",
+      "end forming": "fam_tube_forming",
+      "tube end forming": "fam_tube_forming",
+      "swaging machine": "fam_tube_forming",
+      "pipe cutting machine": "fam_tube_forming",
+      "section bending": "fam_tube_forming",
+      "profile bending": "fam_tube_forming",
+      "exhaust pipe bending": "fam_tube_forming",
+      "silencer pipe bending": "fam_tube_forming",
+      "handle bar bending": "fam_tube_forming",
+      "pipe banding": "fam_tube_forming",
+      "tube banding": "fam_tube_forming",
+      "पाइप बेंडिंग": "fam_tube_forming",
+      "ट्यूब बेंडिंग": "fam_tube_forming",
+      "पाइप बेंडिंग मशीन": "fam_tube_forming",
+      "सीएनसी पाइप बेंडिंग": "fam_tube_forming",
+      "पाइप बेंडर": "fam_tube_forming",
+      "रोल फॉर्मिंग": "fam_tube_forming",
+      "ट्यूब मिल": "fam_tube_forming",
+      "एंड फॉर्मिंग": "fam_tube_forming",
+    });
+  });
+
+  it("T28 Plating / Surface Treatment — 31 loaded phrases reach fam_surface_treatment", () => {
+    const routing = Object.fromEntries(
+      [
+        "plating",
+        "pleting",
+        "plating operator",
+        "plating plant",
+        "nickel chrome",
+        "nikal polish",
+        "hard chrome",
+        "anodising",
+        "anodizing",
+        "phosphating",
+        "blackening",
+        "galvanising",
+        "galvanizing",
+        "hot dip galvanizing",
+        "jasta chadhana",
+        "ced line",
+        "ced coating",
+        "electroless nickel",
+        "barrel plating",
+        "vat plating",
+        "passivation",
+        "surface treatment",
+        "प्लेटिंग",
+        "प्लेटर",
+        "जिंक प्लेटिंग",
+        "निकल क्रोम",
+        "निकल पॉलिश",
+        "हार्ड क्रोम",
+        "एनोडाइजिंग",
+        "फॉस्फेटिंग",
+        "गैल्वनाइजिंग",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "plating": "fam_surface_treatment",
+      "pleting": "fam_surface_treatment",
+      "plating operator": "fam_surface_treatment",
+      "plating plant": "fam_surface_treatment",
+      "nickel chrome": "fam_surface_treatment",
+      "nikal polish": "fam_surface_treatment",
+      "hard chrome": "fam_surface_treatment",
+      "anodising": "fam_surface_treatment",
+      "anodizing": "fam_surface_treatment",
+      "phosphating": "fam_surface_treatment",
+      "blackening": "fam_surface_treatment",
+      "galvanising": "fam_surface_treatment",
+      "galvanizing": "fam_surface_treatment",
+      "hot dip galvanizing": "fam_surface_treatment",
+      "jasta chadhana": "fam_surface_treatment",
+      "ced line": "fam_surface_treatment",
+      "ced coating": "fam_surface_treatment",
+      "electroless nickel": "fam_surface_treatment",
+      "barrel plating": "fam_surface_treatment",
+      "vat plating": "fam_surface_treatment",
+      "passivation": "fam_surface_treatment",
+      "surface treatment": "fam_surface_treatment",
+      "प्लेटिंग": "fam_surface_treatment",
+      "प्लेटर": "fam_surface_treatment",
+      "जिंक प्लेटिंग": "fam_surface_treatment",
+      "निकल क्रोम": "fam_surface_treatment",
+      "निकल पॉलिश": "fam_surface_treatment",
+      "हार्ड क्रोम": "fam_surface_treatment",
+      "एनोडाइजिंग": "fam_surface_treatment",
+      "फॉस्फेटिंग": "fam_surface_treatment",
+      "गैल्वनाइजिंग": "fam_surface_treatment",
+    });
+  });
+
+  it("T30 Blow Moulding — 36 loaded phrases reach fam_blow_moulding", () => {
+    const routing = Object.fromEntries(
+      [
+        "blow moulding",
+        "blow molding",
+        "blow moulding operator",
+        "blow machine operator",
+        "bottle machine",
+        "bottle banane ki machine",
+        "pet blowing",
+        "pet blow machine",
+        "pet bottle plant",
+        "stretch blow machine",
+        "isbm machine",
+        "ebm machine",
+        "extrusion blow moulding",
+        "jerry can machine",
+        "drum blow moulding",
+        "tank blow moulding",
+        "parison",
+        "blow moulding setter",
+        "jagmohan machine",
+        "cmp machine",
+        "sipa machine",
+        "sidel machine",
+        "asb machine",
+        "kautex",
+        "bottle plant operator",
+        "blowing operator",
+        "blow mold",
+        "hdpe bottle machine",
+        "ब्लो मोल्डिंग",
+        "ब्लो मशीन ऑपरेटर",
+        "बोतल मशीन",
+        "पेट ब्लोइंग",
+        "पेट बोतल प्लांट",
+        "जेरी कैन मशीन",
+        "ड्रम मशीन",
+        "बोतल प्लांट",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "blow moulding": "fam_blow_moulding",
+      "blow molding": "fam_blow_moulding",
+      "blow moulding operator": "fam_blow_moulding",
+      "blow machine operator": "fam_blow_moulding",
+      "bottle machine": "fam_blow_moulding",
+      "bottle banane ki machine": "fam_blow_moulding",
+      "pet blowing": "fam_blow_moulding",
+      "pet blow machine": "fam_blow_moulding",
+      "pet bottle plant": "fam_blow_moulding",
+      "stretch blow machine": "fam_blow_moulding",
+      "isbm machine": "fam_blow_moulding",
+      "ebm machine": "fam_blow_moulding",
+      "extrusion blow moulding": "fam_blow_moulding",
+      "jerry can machine": "fam_blow_moulding",
+      "drum blow moulding": "fam_blow_moulding",
+      "tank blow moulding": "fam_blow_moulding",
+      "parison": "fam_blow_moulding",
+      "blow moulding setter": "fam_blow_moulding",
+      "jagmohan machine": "fam_blow_moulding",
+      "cmp machine": "fam_blow_moulding",
+      "sipa machine": "fam_blow_moulding",
+      "sidel machine": "fam_blow_moulding",
+      "asb machine": "fam_blow_moulding",
+      "kautex": "fam_blow_moulding",
+      "bottle plant operator": "fam_blow_moulding",
+      "blowing operator": "fam_blow_moulding",
+      "blow mold": "fam_blow_moulding",
+      "hdpe bottle machine": "fam_blow_moulding",
+      "ब्लो मोल्डिंग": "fam_blow_moulding",
+      "ब्लो मशीन ऑपरेटर": "fam_blow_moulding",
+      "बोतल मशीन": "fam_blow_moulding",
+      "पेट ब्लोइंग": "fam_blow_moulding",
+      "पेट बोतल प्लांट": "fam_blow_moulding",
+      "जेरी कैन मशीन": "fam_blow_moulding",
+      "ड्रम मशीन": "fam_blow_moulding",
+      "बोतल प्लांट": "fam_blow_moulding",
+    });
+  });
+
+  it("T31 Plastic Extrusion — 39 loaded phrases reach fam_plastic_extrusion", () => {
+    const routing = Object.fromEntries(
+      [
+        "extrusion",
+        "extruder operator",
+        "extrusion line operator",
+        "pipe plant",
+        "pipe plant operator",
+        "pvc pipe machine",
+        "hdpe pipe plant",
+        "cpvc pipe line",
+        "profile extrusion",
+        "blown film",
+        "film plant",
+        "multilayer film plant",
+        "poly film machine",
+        "sheet line",
+        "sheet extrusion",
+        "thermoforming machine",
+        "cable extrusion",
+        "wire insulation line",
+        "tape plant",
+        "raffia tape line",
+        "monofilament plant",
+        "compounding",
+        "masterbatch plant",
+        "twin screw extruder",
+        "dana machine",
+        "plastic dana plant",
+        "recycling pelletizer",
+        "kabra machine",
+        "rajoo machine",
+        "extrution",
+        "एक्सट्रूज़न",
+        "एक्सट्रूडर ऑपरेटर",
+        "पाइप प्लांट",
+        "पीवीसी पाइप मशीन",
+        "फिल्म प्लांट",
+        "दाना मशीन",
+        "केबल एक्सट्रूज़न",
+        "शीट लाइन",
+        "टेप प्लांट",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "extrusion": "fam_plastic_extrusion",
+      "extruder operator": "fam_plastic_extrusion",
+      "extrusion line operator": "fam_plastic_extrusion",
+      "pipe plant": "fam_plastic_extrusion",
+      "pipe plant operator": "fam_plastic_extrusion",
+      "pvc pipe machine": "fam_plastic_extrusion",
+      "hdpe pipe plant": "fam_plastic_extrusion",
+      "cpvc pipe line": "fam_plastic_extrusion",
+      "profile extrusion": "fam_plastic_extrusion",
+      "blown film": "fam_plastic_extrusion",
+      "film plant": "fam_plastic_extrusion",
+      "multilayer film plant": "fam_plastic_extrusion",
+      "poly film machine": "fam_plastic_extrusion",
+      "sheet line": "fam_plastic_extrusion",
+      "sheet extrusion": "fam_plastic_extrusion",
+      "thermoforming machine": "fam_plastic_extrusion",
+      "cable extrusion": "fam_plastic_extrusion",
+      "wire insulation line": "fam_plastic_extrusion",
+      "tape plant": "fam_plastic_extrusion",
+      "raffia tape line": "fam_plastic_extrusion",
+      "monofilament plant": "fam_plastic_extrusion",
+      "compounding": "fam_plastic_extrusion",
+      "masterbatch plant": "fam_plastic_extrusion",
+      "twin screw extruder": "fam_plastic_extrusion",
+      "dana machine": "fam_plastic_extrusion",
+      "plastic dana plant": "fam_plastic_extrusion",
+      "recycling pelletizer": "fam_plastic_extrusion",
+      "kabra machine": "fam_plastic_extrusion",
+      "rajoo machine": "fam_plastic_extrusion",
+      "extrution": "fam_plastic_extrusion",
+      "एक्सट्रूज़न": "fam_plastic_extrusion",
+      "एक्सट्रूडर ऑपरेटर": "fam_plastic_extrusion",
+      "पाइप प्लांट": "fam_plastic_extrusion",
+      "पीवीसी पाइप मशीन": "fam_plastic_extrusion",
+      "फिल्म प्लांट": "fam_plastic_extrusion",
+      "दाना मशीन": "fam_plastic_extrusion",
+      "केबल एक्सट्रूज़न": "fam_plastic_extrusion",
+      "शीट लाइन": "fam_plastic_extrusion",
+      "टेप प्लांट": "fam_plastic_extrusion",
+    });
+  });
+
+  it("T32 Rubber Moulding — 37 loaded phrases reach fam_rubber_moulding", () => {
+    const routing = Object.fromEntries(
+      [
+        "rubber moulding",
+        "rubber molding",
+        "rubber press",
+        "rubber press operator",
+        "compression moulding",
+        "compression press",
+        "transfer moulding",
+        "rubber injection machine",
+        "mixing mill",
+        "rubber mill operator",
+        "banbury",
+        "calender operator",
+        "rubber extruder",
+        "hose plant",
+        "vulcanising",
+        "vulcanizing press",
+        "curing press",
+        "tyre building",
+        "tyre curing",
+        "oil seal ka kaam",
+        "o ring moulding",
+        "gasket moulding",
+        "rubber deflashing",
+        "rubber trimming",
+        "rubber compound mixing",
+        "rubber technician",
+        "rubber factory ka kaam",
+        "रबर मोल्डिंग",
+        "रबर प्रेस",
+        "रबर प्रेस ऑपरेटर",
+        "मिक्सिंग मिल",
+        "रबर मिल",
+        "टायर बिल्डिंग",
+        "टायर क्योरिंग",
+        "ऑयल सील",
+        "ओ-रिंग",
+        "वल्कनाइजिंग",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "rubber moulding": "fam_rubber_moulding",
+      "rubber molding": "fam_rubber_moulding",
+      "rubber press": "fam_rubber_moulding",
+      "rubber press operator": "fam_rubber_moulding",
+      "compression moulding": "fam_rubber_moulding",
+      "compression press": "fam_rubber_moulding",
+      "transfer moulding": "fam_rubber_moulding",
+      "rubber injection machine": "fam_rubber_moulding",
+      "mixing mill": "fam_rubber_moulding",
+      "rubber mill operator": "fam_rubber_moulding",
+      "banbury": "fam_rubber_moulding",
+      "calender operator": "fam_rubber_moulding",
+      "rubber extruder": "fam_rubber_moulding",
+      "hose plant": "fam_rubber_moulding",
+      "vulcanising": "fam_rubber_moulding",
+      "vulcanizing press": "fam_rubber_moulding",
+      "curing press": "fam_rubber_moulding",
+      "tyre building": "fam_rubber_moulding",
+      "tyre curing": "fam_rubber_moulding",
+      "oil seal ka kaam": "fam_rubber_moulding",
+      "o ring moulding": "fam_rubber_moulding",
+      "gasket moulding": "fam_rubber_moulding",
+      "rubber deflashing": "fam_rubber_moulding",
+      "rubber trimming": "fam_rubber_moulding",
+      "rubber compound mixing": "fam_rubber_moulding",
+      "rubber technician": "fam_rubber_moulding",
+      "rubber factory ka kaam": "fam_rubber_moulding",
+      "रबर मोल्डिंग": "fam_rubber_moulding",
+      "रबर प्रेस": "fam_rubber_moulding",
+      "रबर प्रेस ऑपरेटर": "fam_rubber_moulding",
+      "मिक्सिंग मिल": "fam_rubber_moulding",
+      "रबर मिल": "fam_rubber_moulding",
+      "टायर बिल्डिंग": "fam_rubber_moulding",
+      "टायर क्योरिंग": "fam_rubber_moulding",
+      "ऑयल सील": "fam_rubber_moulding",
+      "ओ-रिंग": "fam_rubber_moulding",
+      "वल्कनाइजिंग": "fam_rubber_moulding",
+    });
+  });
+
+  it("T34 NDT — 36 loaded phrases reach fam_ndt", () => {
+    const routing = Object.fromEntries(
+      [
+        "ndt",
+        "ndt inspector",
+        "ndt level 2",
+        "ndt level ii",
+        "asnt level 2",
+        "asnt level ii",
+        "isnt level 2",
+        "pcn level 2",
+        "ut technician",
+        "ut testing",
+        "ultrasonic testing",
+        "rt technician",
+        "radiography",
+        "weld ka x-ray",
+        "rtfi",
+        "film interpreter",
+        "mpt",
+        "mpi",
+        "magnetic particle",
+        "dpt",
+        "dp test",
+        "dye penetrant",
+        "lpt",
+        "pt mt",
+        "paut operator",
+        "eddy current testing",
+        "thickness gauging",
+        "एनडीटी",
+        "एनडीटी टेक्नीशियन",
+        "एनडीटी लेवल 2",
+        "अल्ट्रासोनिक टेस्टिंग",
+        "यूटी टेक्नीशियन",
+        "रेडियोग्राफी",
+        "डीपी टेस्ट",
+        "एमपीटी",
+        "वेल्ड का एक्स-रे",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "ndt": "fam_ndt",
+      "ndt inspector": "fam_ndt",
+      "ndt level 2": "fam_ndt",
+      "ndt level ii": "fam_ndt",
+      "asnt level 2": "fam_ndt",
+      "asnt level ii": "fam_ndt",
+      "isnt level 2": "fam_ndt",
+      "pcn level 2": "fam_ndt",
+      "ut technician": "fam_ndt",
+      "ut testing": "fam_ndt",
+      "ultrasonic testing": "fam_ndt",
+      "rt technician": "fam_ndt",
+      "radiography": "fam_ndt",
+      "weld ka x-ray": "fam_ndt",
+      "rtfi": "fam_ndt",
+      "film interpreter": "fam_ndt",
+      "mpt": "fam_ndt",
+      "mpi": "fam_ndt",
+      "magnetic particle": "fam_ndt",
+      "dpt": "fam_ndt",
+      "dp test": "fam_ndt",
+      "dye penetrant": "fam_ndt",
+      "lpt": "fam_ndt",
+      "pt mt": "fam_ndt",
+      "paut operator": "fam_ndt",
+      "eddy current testing": "fam_ndt",
+      "thickness gauging": "fam_ndt",
+      "एनडीटी": "fam_ndt",
+      "एनडीटी टेक्नीशियन": "fam_ndt",
+      "एनडीटी लेवल 2": "fam_ndt",
+      "अल्ट्रासोनिक टेस्टिंग": "fam_ndt",
+      "यूटी टेक्नीशियन": "fam_ndt",
+      "रेडियोग्राफी": "fam_ndt",
+      "डीपी टेस्ट": "fam_ndt",
+      "एमपीटी": "fam_ndt",
+      "वेल्ड का एक्स-रे": "fam_ndt",
+    });
+  });
+
+  it("T35 Calibration / Metrology Lab — 30 loaded phrases reach fam_calibration", () => {
+    const routing = Object.fromEntries(
+      [
+        "calibration",
+        "calibration executive",
+        "calibration lab",
+        "caliberation",
+        "calibrashan",
+        "instrument calibration",
+        "gauge calibration",
+        "gauge room",
+        "gauge incharge",
+        "standard room",
+        "standards room",
+        "metrology lab",
+        "nabl calibration lab",
+        "dimensional calibration",
+        "pressure gauge calibration",
+        "torque wrench calibration",
+        "on-site calibration",
+        "slip gauge",
+        "master instrument",
+        "gauge r&r",
+        "msa study",
+        "iso 17025",
+        "instrument checking lab",
+        "कैलिब्रेशन",
+        "कैलिब्रेशन टेक्नीशियन",
+        "कैलिब्रेशन लैब",
+        "स्टैंडर्ड रूम",
+        "गेज कैलिब्रेशन",
+        "मेट्रोलॉजी लैब",
+        "इंस्ट्रूमेंट कैलिब्रेशन",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "calibration": "fam_calibration",
+      "calibration executive": "fam_calibration",
+      "calibration lab": "fam_calibration",
+      "caliberation": "fam_calibration",
+      "calibrashan": "fam_calibration",
+      "instrument calibration": "fam_calibration",
+      "gauge calibration": "fam_calibration",
+      "gauge room": "fam_calibration",
+      "gauge incharge": "fam_calibration",
+      "standard room": "fam_calibration",
+      "standards room": "fam_calibration",
+      "metrology lab": "fam_calibration",
+      "nabl calibration lab": "fam_calibration",
+      "dimensional calibration": "fam_calibration",
+      "pressure gauge calibration": "fam_calibration",
+      "torque wrench calibration": "fam_calibration",
+      "on-site calibration": "fam_calibration",
+      "slip gauge": "fam_calibration",
+      "master instrument": "fam_calibration",
+      "gauge r&r": "fam_calibration",
+      "msa study": "fam_calibration",
+      "iso 17025": "fam_calibration",
+      "instrument checking lab": "fam_calibration",
+      "कैलिब्रेशन": "fam_calibration",
+      "कैलिब्रेशन टेक्नीशियन": "fam_calibration",
+      "कैलिब्रेशन लैब": "fam_calibration",
+      "स्टैंडर्ड रूम": "fam_calibration",
+      "गेज कैलिब्रेशन": "fam_calibration",
+      "मेट्रोलॉजी लैब": "fam_calibration",
+      "इंस्ट्रूमेंट कैलिब्रेशन": "fam_calibration",
+    });
+  });
+
+  it("T36 Material Testing / Met Lab — 37 loaded phrases reach fam_material_lab", () => {
+    const routing = Object.fromEntries(
+      [
+        "material testing",
+        "material testing lab",
+        "material lab",
+        "met lab",
+        "metallurgy lab",
+        "metallurgical lab",
+        "metallurgist",
+        "lab chemist foundry",
+        "spectro operator",
+        "spectro ka kaam",
+        "spectro lab",
+        "spectrometer operator",
+        "hardness testing",
+        "hardness checker",
+        "utm operator",
+        "tensile test",
+        "tensile testing",
+        "microstructure",
+        "metallography",
+        "physical lab",
+        "mechanical testing lab",
+        "chemical lab foundry",
+        "wet analysis",
+        "sand testing",
+        "sand lab",
+        "salt spray test",
+        "testing lab incharge",
+        "lab technician metallurgy",
+        "मटेरियल टेस्टिंग",
+        "मेट लैब",
+        "मेटलर्जी लैब",
+        "स्पेक्ट्रो ऑपरेटर",
+        "हार्डनेस टेस्टिंग",
+        "टेंसाइल टेस्ट",
+        "माइक्रोस्ट्रक्चर",
+        "सैंड टेस्टिंग",
+        "मटेरियल लैब टेक्नीशियन",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "material testing": "fam_material_lab",
+      "material testing lab": "fam_material_lab",
+      "material lab": "fam_material_lab",
+      "met lab": "fam_material_lab",
+      "metallurgy lab": "fam_material_lab",
+      "metallurgical lab": "fam_material_lab",
+      "metallurgist": "fam_material_lab",
+      "lab chemist foundry": "fam_material_lab",
+      "spectro operator": "fam_material_lab",
+      "spectro ka kaam": "fam_material_lab",
+      "spectro lab": "fam_material_lab",
+      "spectrometer operator": "fam_material_lab",
+      "hardness testing": "fam_material_lab",
+      "hardness checker": "fam_material_lab",
+      "utm operator": "fam_material_lab",
+      "tensile test": "fam_material_lab",
+      "tensile testing": "fam_material_lab",
+      "microstructure": "fam_material_lab",
+      "metallography": "fam_material_lab",
+      "physical lab": "fam_material_lab",
+      "mechanical testing lab": "fam_material_lab",
+      "chemical lab foundry": "fam_material_lab",
+      "wet analysis": "fam_material_lab",
+      "sand testing": "fam_material_lab",
+      "sand lab": "fam_material_lab",
+      "salt spray test": "fam_material_lab",
+      "testing lab incharge": "fam_material_lab",
+      "lab technician metallurgy": "fam_material_lab",
+      "मटेरियल टेस्टिंग": "fam_material_lab",
+      "मेट लैब": "fam_material_lab",
+      "मेटलर्जी लैब": "fam_material_lab",
+      "स्पेक्ट्रो ऑपरेटर": "fam_material_lab",
+      "हार्डनेस टेस्टिंग": "fam_material_lab",
+      "टेंसाइल टेस्ट": "fam_material_lab",
+      "माइक्रोस्ट्रक्चर": "fam_material_lab",
+      "सैंड टेस्टिंग": "fam_material_lab",
+      "मटेरियल लैब टेक्नीशियन": "fam_material_lab",
+    });
+  });
+
+  it("T39 Robot Operator / Programmer — 37 loaded phrases reach fam_robotics", () => {
+    const routing = Object.fromEntries(
+      [
+        "robot operator",
+        "robot programmer",
+        "robot ka kaam",
+        "robotic welding",
+        "robot welding",
+        "welding robot",
+        "robot teaching",
+        "robot teacher",
+        "teach pendant",
+        "fanuc robot",
+        "yaskawa robot",
+        "motoman",
+        "abb robot",
+        "kuka robot",
+        "kawasaki robot",
+        "nachi robot",
+        "panasonic robot",
+        "spot welding robot",
+        "mig robot",
+        "robot cell",
+        "robot touch up",
+        "cobot",
+        "palletizer robot",
+        "pick and place robot",
+        "roboguide",
+        "robotstudio",
+        "robo operator",
+        "robot programer",
+        "robotic operator",
+        "रोबोट ऑपरेटर",
+        "रोबोट प्रोग्रामर",
+        "रोबोट वेल्डिंग",
+        "रोबोटिक वेल्डिंग",
+        "रोबोट टीचिंग",
+        "टीच पेंडेंट",
+        "फानुक रोबोट",
+        "रोबोट सेल",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "robot operator": "fam_robotics",
+      "robot programmer": "fam_robotics",
+      "robot ka kaam": "fam_robotics",
+      "robotic welding": "fam_robotics",
+      "robot welding": "fam_robotics",
+      "welding robot": "fam_robotics",
+      "robot teaching": "fam_robotics",
+      "robot teacher": "fam_robotics",
+      "teach pendant": "fam_robotics",
+      "fanuc robot": "fam_robotics",
+      "yaskawa robot": "fam_robotics",
+      "motoman": "fam_robotics",
+      "abb robot": "fam_robotics",
+      "kuka robot": "fam_robotics",
+      "kawasaki robot": "fam_robotics",
+      "nachi robot": "fam_robotics",
+      "panasonic robot": "fam_robotics",
+      "spot welding robot": "fam_robotics",
+      "mig robot": "fam_robotics",
+      "robot cell": "fam_robotics",
+      "robot touch up": "fam_robotics",
+      "cobot": "fam_robotics",
+      "palletizer robot": "fam_robotics",
+      "pick and place robot": "fam_robotics",
+      "roboguide": "fam_robotics",
+      "robotstudio": "fam_robotics",
+      "robo operator": "fam_robotics",
+      "robot programer": "fam_robotics",
+      "robotic operator": "fam_robotics",
+      "रोबोट ऑपरेटर": "fam_robotics",
+      "रोबोट प्रोग्रामर": "fam_robotics",
+      "रोबोट वेल्डिंग": "fam_robotics",
+      "रोबोटिक वेल्डिंग": "fam_robotics",
+      "रोबोट टीचिंग": "fam_robotics",
+      "टीच पेंडेंट": "fam_robotics",
+      "फानुक रोबोट": "fam_robotics",
+      "रोबोट सेल": "fam_robotics",
+    });
+  });
+
+  it("T40 Instrumentation — 34 loaded phrases reach fam_instrumentation", () => {
+    const routing = Object.fromEntries(
+      [
+        "instrument technician",
+        "instrumentation technician",
+        "instrumentation",
+        "instrument mechanic",
+        "instrument fitter",
+        "instrument ka kaam",
+        "iti instrument mechanic",
+        "field instrument",
+        "transmitter calibration",
+        "pressure transmitter",
+        "level transmitter",
+        "flow meter",
+        "control valve ka kaam",
+        "positioner",
+        "loop checking",
+        "hart communicator",
+        "rtd thermocouple",
+        "impulse line",
+        "instrument tubing",
+        "dcs instrument",
+        "instrument shutdown",
+        "e and i technician",
+        "load cell ka kaam",
+        "instument technician",
+        "instrument mentenance",
+        "instrumention",
+        "इंस्ट्रूमेंट टेक्नीशियन",
+        "इंस्ट्रूमेंटेशन",
+        "इंस्ट्रूमेंट मैकेनिक",
+        "इंस्ट्रूमेंट फिटर",
+        "ट्रांसमीटर कैलिब्रेशन",
+        "कंट्रोल वाल्व",
+        "लूप चेकिंग",
+        "फ्लो मीटर",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "instrument technician": "fam_instrumentation",
+      "instrumentation technician": "fam_instrumentation",
+      "instrumentation": "fam_instrumentation",
+      "instrument mechanic": "fam_instrumentation",
+      "instrument fitter": "fam_instrumentation",
+      "instrument ka kaam": "fam_instrumentation",
+      "iti instrument mechanic": "fam_instrumentation",
+      "field instrument": "fam_instrumentation",
+      "transmitter calibration": "fam_instrumentation",
+      "pressure transmitter": "fam_instrumentation",
+      "level transmitter": "fam_instrumentation",
+      "flow meter": "fam_instrumentation",
+      "control valve ka kaam": "fam_instrumentation",
+      "positioner": "fam_instrumentation",
+      "loop checking": "fam_instrumentation",
+      "hart communicator": "fam_instrumentation",
+      "rtd thermocouple": "fam_instrumentation",
+      "impulse line": "fam_instrumentation",
+      "instrument tubing": "fam_instrumentation",
+      "dcs instrument": "fam_instrumentation",
+      "instrument shutdown": "fam_instrumentation",
+      "e and i technician": "fam_instrumentation",
+      "load cell ka kaam": "fam_instrumentation",
+      "instument technician": "fam_instrumentation",
+      "instrument mentenance": "fam_instrumentation",
+      "instrumention": "fam_instrumentation",
+      "इंस्ट्रूमेंट टेक्नीशियन": "fam_instrumentation",
+      "इंस्ट्रूमेंटेशन": "fam_instrumentation",
+      "इंस्ट्रूमेंट मैकेनिक": "fam_instrumentation",
+      "इंस्ट्रूमेंट फिटर": "fam_instrumentation",
+      "ट्रांसमीटर कैलिब्रेशन": "fam_instrumentation",
+      "कंट्रोल वाल्व": "fam_instrumentation",
+      "लूप चेकिंग": "fam_instrumentation",
+      "फ्लो मीटर": "fam_instrumentation",
+    });
+  });
+
+  it("T41 Refrigeration & AC (HVAC) — 33 loaded phrases reach fam_hvac_rac", () => {
+    const routing = Object.fromEntries(
+      [
+        "ac mistri",
+        "hvac technician",
+        "hvac",
+        "hvac operator",
+        "refrigeration",
+        "fridge ac mechanic",
+        "rac",
+        "mrac",
+        "iti rac",
+        "chiller technician",
+        "chiller operator",
+        "ahu operator",
+        "vrf",
+        "vrv",
+        "ductable ac",
+        "package ac",
+        "split ac",
+        "cassette ac",
+        "cold storage",
+        "cold room",
+        "ammonia plant",
+        "gas charging",
+        "ac servicing",
+        "refrigration",
+        "hvac techinician",
+        "एसी टेक्नीशियन",
+        "एसी मिस्त्री",
+        "एचवीएसी",
+        "रेफ्रिजरेशन",
+        "चिलर ऑपरेटर",
+        "कोल्ड स्टोरेज",
+        "गैस चार्जिंग",
+        "फ्रिज एसी मैकेनिक",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "ac mistri": "fam_hvac_rac",
+      "hvac technician": "fam_hvac_rac",
+      "hvac": "fam_hvac_rac",
+      "hvac operator": "fam_hvac_rac",
+      "refrigeration": "fam_hvac_rac",
+      "fridge ac mechanic": "fam_hvac_rac",
+      "rac": "fam_hvac_rac",
+      "mrac": "fam_hvac_rac",
+      "iti rac": "fam_hvac_rac",
+      "chiller technician": "fam_hvac_rac",
+      "chiller operator": "fam_hvac_rac",
+      "ahu operator": "fam_hvac_rac",
+      "vrf": "fam_hvac_rac",
+      "vrv": "fam_hvac_rac",
+      "ductable ac": "fam_hvac_rac",
+      "package ac": "fam_hvac_rac",
+      "split ac": "fam_hvac_rac",
+      "cassette ac": "fam_hvac_rac",
+      "cold storage": "fam_hvac_rac",
+      "cold room": "fam_hvac_rac",
+      "ammonia plant": "fam_hvac_rac",
+      "gas charging": "fam_hvac_rac",
+      "ac servicing": "fam_hvac_rac",
+      "refrigration": "fam_hvac_rac",
+      "hvac techinician": "fam_hvac_rac",
+      "एसी टेक्नीशियन": "fam_hvac_rac",
+      "एसी मिस्त्री": "fam_hvac_rac",
+      "एचवीएसी": "fam_hvac_rac",
+      "रेफ्रिजरेशन": "fam_hvac_rac",
+      "चिलर ऑपरेटर": "fam_hvac_rac",
+      "कोल्ड स्टोरेज": "fam_hvac_rac",
+      "गैस चार्जिंग": "fam_hvac_rac",
+      "फ्रिज एसी मैकेनिक": "fam_hvac_rac",
+    });
+  });
+
+  it("T42 Utility — 35 loaded phrases reach fam_utility", () => {
+    const routing = Object.fromEntries(
+      [
+        "boiler operator",
+        "boiler man",
+        "boiler ka kaam",
+        "first class boiler attendant",
+        "second class boiler attendant",
+        "boe",
+        "utility operator",
+        "utility ka kaam",
+        "compressor operator",
+        "dg operator",
+        "dg set operator",
+        "generator operator",
+        "etp operator",
+        "stp operator",
+        "wtp operator",
+        "ro plant operator",
+        "dm plant operator",
+        "water treatment plant",
+        "pump house operator",
+        "thermopack operator",
+        "thermic fluid heater",
+        "cooling tower operator",
+        "boilar operator",
+        "boyler operator",
+        "utillity operator",
+        "बॉयलर ऑपरेटर",
+        "बॉयलर अटेंडेंट",
+        "बॉयलर फायरमैन",
+        "यूटिलिटी ऑपरेटर",
+        "कंप्रेसर ऑपरेटर",
+        "डीजी ऑपरेटर",
+        "जनरेटर ऑपरेटर",
+        "ईटीपी ऑपरेटर",
+        "आरओ प्लांट ऑपरेटर",
+        "पंप ऑपरेटर",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "boiler operator": "fam_utility",
+      "boiler man": "fam_utility",
+      "boiler ka kaam": "fam_utility",
+      "first class boiler attendant": "fam_utility",
+      "second class boiler attendant": "fam_utility",
+      "boe": "fam_utility",
+      "utility operator": "fam_utility",
+      "utility ka kaam": "fam_utility",
+      "compressor operator": "fam_utility",
+      "dg operator": "fam_utility",
+      "dg set operator": "fam_utility",
+      "generator operator": "fam_utility",
+      "etp operator": "fam_utility",
+      "stp operator": "fam_utility",
+      "wtp operator": "fam_utility",
+      "ro plant operator": "fam_utility",
+      "dm plant operator": "fam_utility",
+      "water treatment plant": "fam_utility",
+      "pump house operator": "fam_utility",
+      "thermopack operator": "fam_utility",
+      "thermic fluid heater": "fam_utility",
+      "cooling tower operator": "fam_utility",
+      "boilar operator": "fam_utility",
+      "boyler operator": "fam_utility",
+      "utillity operator": "fam_utility",
+      "बॉयलर ऑपरेटर": "fam_utility",
+      "बॉयलर अटेंडेंट": "fam_utility",
+      "बॉयलर फायरमैन": "fam_utility",
+      "यूटिलिटी ऑपरेटर": "fam_utility",
+      "कंप्रेसर ऑपरेटर": "fam_utility",
+      "डीजी ऑपरेटर": "fam_utility",
+      "जनरेटर ऑपरेटर": "fam_utility",
+      "ईटीपी ऑपरेटर": "fam_utility",
+      "आरओ प्लांट ऑपरेटर": "fam_utility",
+      "पंप ऑपरेटर": "fam_utility",
+    });
+  });
+
+  it("T56 Forklift / Reach Truck — 33 loaded phrases reach fam_forklift", () => {
+    const routing = Object.fromEntries(
+      [
+        "forklift",
+        "fork lift",
+        "forklift operator",
+        "forklift driver",
+        "forklift chalata hoon",
+        "forklifter",
+        "forklit",
+        "folklift",
+        "reach truck",
+        "reach truck operator",
+        "stacker operator",
+        "bopt",
+        "bopt operator",
+        "battery pallet truck",
+        "pallet truck",
+        "mhe operator",
+        "material handling operator",
+        "lifter gaadi",
+        "tow truck operator",
+        "order picker",
+        "telehandler",
+        "godrej forklift",
+        "voltas forklift",
+        "battery forklift",
+        "diesel forklift",
+        "फोर्कलिफ्ट",
+        "फोर्कलिफ्ट ऑपरेटर",
+        "फोर्कलिफ्ट ड्राइवर",
+        "फोर्कलिफ्ट चलाना",
+        "रीच ट्रक",
+        "स्टैकर ऑपरेटर",
+        "पैलेट ट्रक",
+        "बैटरी फोर्कलिफ्ट",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "forklift": "fam_forklift",
+      "fork lift": "fam_forklift",
+      "forklift operator": "fam_forklift",
+      "forklift driver": "fam_forklift",
+      "forklift chalata hoon": "fam_forklift",
+      "forklifter": "fam_forklift",
+      "forklit": "fam_forklift",
+      "folklift": "fam_forklift",
+      "reach truck": "fam_forklift",
+      "reach truck operator": "fam_forklift",
+      "stacker operator": "fam_forklift",
+      "bopt": "fam_forklift",
+      "bopt operator": "fam_forklift",
+      "battery pallet truck": "fam_forklift",
+      "pallet truck": "fam_forklift",
+      "mhe operator": "fam_forklift",
+      "material handling operator": "fam_forklift",
+      "lifter gaadi": "fam_forklift",
+      "tow truck operator": "fam_forklift",
+      "order picker": "fam_forklift",
+      "telehandler": "fam_forklift",
+      "godrej forklift": "fam_forklift",
+      "voltas forklift": "fam_forklift",
+      "battery forklift": "fam_forklift",
+      "diesel forklift": "fam_forklift",
+      "फोर्कलिफ्ट": "fam_forklift",
+      "फोर्कलिफ्ट ऑपरेटर": "fam_forklift",
+      "फोर्कलिफ्ट ड्राइवर": "fam_forklift",
+      "फोर्कलिफ्ट चलाना": "fam_forklift",
+      "रीच ट्रक": "fam_forklift",
+      "स्टैकर ऑपरेटर": "fam_forklift",
+      "पैलेट ट्रक": "fam_forklift",
+      "बैटरी फोर्कलिफ्ट": "fam_forklift",
+    });
+  });
+
+  it("T57 EOT Crane / Rigger — 30 loaded phrases reach fam_crane_rigging", () => {
+    const routing = Object.fromEntries(
+      [
+        "eot operator",
+        "eot crane",
+        "overhead crane",
+        "crane chalata hoon",
+        "crane driver",
+        "crane ka kaam",
+        "crain operator",
+        "cren operator",
+        "rigar",
+        "rigging",
+        "khalasi",
+        "signalman",
+        "hydra operator",
+        "hydra driver",
+        "hydra crane",
+        "farana operator",
+        "gantry crane",
+        "goliath crane",
+        "tower crane operator",
+        "pendant crane",
+        "ladle crane",
+        "क्रेन ऑपरेटर",
+        "ईओटी क्रेन",
+        "क्रेन चलाना",
+        "क्रेन ड्राइवर",
+        "रिगर",
+        "खलासी",
+        "हाइड्रा ऑपरेटर",
+        "ओवरहेड क्रेन",
+        "टावर क्रेन",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "eot operator": "fam_crane_rigging",
+      "eot crane": "fam_crane_rigging",
+      "overhead crane": "fam_crane_rigging",
+      "crane chalata hoon": "fam_crane_rigging",
+      "crane driver": "fam_crane_rigging",
+      "crane ka kaam": "fam_crane_rigging",
+      "crain operator": "fam_crane_rigging",
+      "cren operator": "fam_crane_rigging",
+      "rigar": "fam_crane_rigging",
+      "rigging": "fam_crane_rigging",
+      "khalasi": "fam_crane_rigging",
+      "signalman": "fam_crane_rigging",
+      "hydra operator": "fam_crane_rigging",
+      "hydra driver": "fam_crane_rigging",
+      "hydra crane": "fam_crane_rigging",
+      "farana operator": "fam_crane_rigging",
+      "gantry crane": "fam_crane_rigging",
+      "goliath crane": "fam_crane_rigging",
+      "tower crane operator": "fam_crane_rigging",
+      "pendant crane": "fam_crane_rigging",
+      "ladle crane": "fam_crane_rigging",
+      "क्रेन ऑपरेटर": "fam_crane_rigging",
+      "ईओटी क्रेन": "fam_crane_rigging",
+      "क्रेन चलाना": "fam_crane_rigging",
+      "क्रेन ड्राइवर": "fam_crane_rigging",
+      "रिगर": "fam_crane_rigging",
+      "खलासी": "fam_crane_rigging",
+      "हाइड्रा ऑपरेटर": "fam_crane_rigging",
+      "ओवरहेड क्रेन": "fam_crane_rigging",
+      "टावर क्रेन": "fam_crane_rigging",
+    });
+  });
+
+});
+describe("Held phrases — #3016 (CEO pack v2, 23 Nov 2026)", () => {
+  it("gear grinding stays with grinding: the pack says bare grinding asks", () => {
+    // Ruled #2995 point 5 names it as a T18 move, but the grinding characterization pins
+    // "gear grinding" to fam_cnc_grinding and the T18 sheet says bare "grinding" alone must ask
+    // (CNC Grinding Operator). Retiring it off jd_nco_7223_2200 would flip a pinned Wave-1 row,
+    // so the English row stays and the Devanagari sheet twin is not loaded either.
+    expect(familyFor("gear grinding")).toBe("fam_cnc_grinding");
+    expect(familyFor("गियर ग्राइंडिंग")).toBe("fam_cnc_grinding");
+  });
+
+  it("tie-loss holds: the published title on a live trade wins the exact span", () => {
+    // Each is a sheet word, but the row would be dead weight: the rival is production-visible,
+    // so production would ask rather than pin the trade. Held, not loaded.
+    expect(familyFor("plater")).toBe("fam_handicraft");
+    expect(familyFor("autoclave operator")).toBe("fam_chemical_plant");
+    expect(familyFor("radiographer")).toBe("fam_universal");
+    expect(familyFor("mobile crane operator")).toBe("fam_mobile_plant");
+  });
+
+  it("bare-stem hold: ac ka kaam would move a pinned fitter phrase", () => {
+    // Its norm "ac" is a new 1-token key that steals pinned "ac fitter" (fam_fitter) and flips
+    // pinned-null "ac maintenance" onto HVAC. Held for routing; the AC worker still reaches the
+    // trade through "ac technician", "ac mechanic" and "ac fitting" (pre-existing rows).
+    expect(familyFor("ac ka kaam")).toBeNull();
+    expect(familyFor("ac fitter")).toBe("fam_fitter");
+    expect(familyFor("ac maintenance")).toBeNull();
+  });
+
+  it("bare-stem hold: gear ka kaam would move must-not phrases onto the trade", () => {
+    // The norms "gear" and "गियर" are new 1-token keys that steal must-not "gear oil" and
+    // "gear change" (gaadi ka kaam) off domestic and flip the held hi twin "गियर ग्राइंडिंग"
+    // off grinding. Held for routing; the gear worker still reaches the trade through
+    // "gear cutting", "gear hobbing", "garari ka kaam" and the other rows above.
+    expect(familyFor("gear ka kaam")).not.toBe("fam_gear_cutting");
+    expect(familyFor("गियर का काम")).toBeNull();
+    expect(familyFor("gear oil")).not.toBe("fam_gear_cutting");
+    expect(familyFor("gear change")).not.toBe("fam_gear_cutting");
+  });
+
+  it("digits are rows now; shorts proved 0 moves so none held", () => {
+    // Validator change #2995 point 2 (ruled 26 Nov 2026): the contact guard is @/URL/7+ digits,
+    // so T34's levels and T35's "iso 17025" load (tables above). All 10 shorts reached their
+    // trade with 0 moves across 9,924 phrases, so the Held list carries no short.
+    for (const p of ["ndt level 2", "asnt level 2", "isnt level 2", "pcn level 2", "iso 17025", "boe"]) {
+      expect(familyFor(p), p).not.toBeNull();
+    }
+    expect(familyFor("ndt level 2")).toBe("fam_ndt");
+    expect(familyFor("iso 17025")).toBe("fam_calibration");
+    expect(familyFor("boe")).toBe("fam_utility");
+  });
+
+  it("offline-divergent rows are loaded for production and pinned as-is here", () => {
+    // "boring machine operator" and "crane operator" tie an exact ISCO-unit alias; this file
+    // resolves through the offline index, where the ISCO row comes first. In production the
+    // shadowed ISCO units are unsearchable, so the Wave 2 rows win and workers reach the trade.
+    expect(familyFor("boring machine operator")).toBe("fam_machining");
+    expect(familyFor("crane operator")).toBe("fam_mobile_plant");
+  });
 });
 
 describe("Retirements — #3010 (CEO pack v2, 23 Nov 2026)", () => {

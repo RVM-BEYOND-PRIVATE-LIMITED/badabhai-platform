@@ -8288,6 +8288,4501 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ CEO PACK V2, T18 — GEAR CUTTING OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet T18's headline ("Gear Cutting Operator · {level} ·
+  // {experience} · {gear_process} · {gear_type} · {gear_machine_make} · {city}") is the parity
+  // reference. Process and gear type lead (the hire is for the teeth cut), then the machine make
+  // and control; setting, calculation and CNC work sit with quality and troubleshooting at the
+  // back. Every `values` key is the STORED value; the negative claims (`unknown`, `none`) have no
+  // entry, so they print nothing.
+  {
+    pack_id: "qp_gear_cutting",
+    section_title: "Gears, machines & capability",
+    tier_section_titles: { easy: "Gears & machines" },
+    capability: [
+      {
+        from: "gear_process",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          hobbing: "Hobbing",
+          shaping: "Gear shaping",
+          shaving: "Gear shaving",
+          gear_grinding: "Gear grinding",
+          bevel_generating: "Bevel gear cutting",
+          broaching: "Spline broaching",
+          gear_milling: "Module-cutter milling",
+          spline_rolling: "Spline rolling",
+          chamfer_deburr: "Chamfering & deburring",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "gear_type",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Gears cut",
+        kind: "chips",
+        values: {
+          spur: "Spur gears",
+          helical: "Helical gears",
+          bevel: "Bevel gears",
+          worm: "Worm & wheel",
+          sprocket: "Sprockets",
+          spline_shaft: "Spline shafts",
+          internal_gear: "Internal gears / splines",
+          timing_pulley: "Timing pulleys",
+          rack: "Racks",
+        },
+      },
+      {
+        from: "gear_machine_make",
+        rank: 23,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          hmt: "HMT",
+          liebherr: "Liebherr",
+          gleason_pfauter: "Gleason / Pfauter",
+          mitsubishi: "Mitsubishi",
+          premier: "Premier",
+          cooper: "Cooper",
+          wmw_modul: "WMW / Modul",
+          reishauer: "Reishauer",
+          // `unknown` ("Koi aur company") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "gear_machine_control",
+        rank: 24,
+        label: "Machine control",
+        kind: "fact",
+        values: {
+          manual: "Manual (change-gear)",
+          cnc: "CNC",
+          both_types: "CNC + manual",
+        },
+      },
+      {
+        from: "gear_setting_work",
+        rank: 41,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          hob_mounting: "Hob mounting & runout check",
+          hob_angle: "Hob angle / swivel setting",
+          change_gears: "Index & feed change gears",
+          differential_gears: "Differential gears (helical)",
+          job_runout: "Job runout on mandrel / fixture",
+          depth_setting: "Depth setting to size",
+          hob_shifting: "Hob shifting",
+          shaper_stroke: "Shaper cutter stroke setting",
+          first_piece: "First-piece approval",
+        },
+      },
+      {
+        from: "gear_calculation",
+        rank: 42,
+        label: "Calculations",
+        kind: "ticks",
+        values: {
+          blank_od: "Blank OD from module & teeth",
+          change_gear_ratio: "Change-gear ratio",
+          helix_differential: "Differential from helix angle",
+          cutting_depth: "Whole depth / cutting depth",
+          span_dop_size: "Span / DOP size",
+          chart_only: "Works from charts",
+          // `unknown` ("Calculation koi aur karta hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "gear_cnc_work",
+        rank: 43,
+        label: "CNC work",
+        kind: "fact",
+        values: {
+          run_only: "Runs CNC cycles",
+          offset_only: "Gives size offsets",
+          edit_program: "Edits gear data & cuts",
+          write_program: "Writes full gear programs",
+          // `unknown` ("CNC machine nahi chalayi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Micrometer",
+          flange_micrometer: "Flange micrometer",
+          dop_pins: "DOP with pins / balls",
+          tooth_vernier: "Gear tooth vernier",
+          dial_indicator: "Dial indicator",
+          roll_tester: "Roll tester",
+          lead_profile_tester: "Lead & profile tester",
+          plug_gauge: "Spline plug / ring gauge",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          case_hardening_steel: "Case-hardening steel",
+          alloy_steel: "EN8 / EN19 / EN24",
+          mild_steel: "MS",
+          cast_iron: "Cast iron",
+          bronze: "Phosphor bronze",
+          brass: "Brass",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          plastic: "Nylon / plastic",
+        },
+      },
+      {
+        from: "gear_module_range",
+        rank: 62,
+        label: "Module range",
+        kind: "chips",
+        values: {
+          below_one: "Module below 1",
+          one_to_three: "Module 1–3",
+          three_to_six: "Module 3–6",
+          six_to_ten: "Module 6–10",
+          above_ten: "Module above 10",
+          dp_work: "DP gears",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "gear_quality_class",
+        rank: 63,
+        label: "Gear quality",
+        kind: "fact",
+        values: {
+          commercial: "Commercial (DIN 10 or coarser)",
+          din_eight_nine: "DIN 8–9",
+          din_six_seven: "DIN 6–7",
+          din_five_fine: "DIN 5 or finer (ground)",
+          // `unknown` ("Class pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          pcd_runout: "PCD runout",
+          lead_error: "Lead / helix error",
+          profile_error: "Profile error",
+          size_variation: "Span / DOP variation",
+          surface_finish: "Chatter / finish marks",
+          burr_nick: "Burr & nicks",
+          tool_wear: "Hob wear / breakage",
+          noise_contact: "Gear noise / contact",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Auto gearboxes",
+          two_wheeler: "Two-wheeler gears",
+          agri: "Tractor & agri",
+          industrial_gearbox: "Industrial gearboxes",
+          general_engg: "General engineering",
+          spm_parts: "Machine tool / SPM",
+          defence: "Defence / aerospace",
+          railways: "Railways",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T19 — BORING MACHINE OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the sheet's headline names the machine, the operation and
+  // the job ("Boring Machine Operator · {level} · {experience} · {boring_machine_type} ·
+  // {boring_operation} · {city}"). Machine and operation lead; the job type, the control and the
+  // make follow. Every `values` key is the STORED value; the negative claims (`unknown`, `none`)
+  // have no entry, so they print nothing.
+  {
+    pack_id: "qp_boring_machine",
+    section_title: "Machines, jobs & capability",
+    tier_section_titles: { easy: "Machines" },
+    capability: [
+      {
+        from: "boring_machine_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          table_type_hbm: "Table-type HBM",
+          floor_borer: "Floor borer",
+          jig_boring: "Jig boring",
+          plano_miller: "Plano-miller",
+          heavy_vtl: "Heavy VTL",
+          portable_line_boring: "Portable line boring",
+          // `unknown` ("Koi aur machine") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "boring_operation",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Operations",
+        kind: "chips",
+        values: {
+          boring_op: "Rough & finish boring",
+          line_boring: "Line boring",
+          face_milling: "Face milling",
+          facing_head: "Facing-head work",
+          drilling_tapping: "Drilling / tapping",
+          back_boring: "Back boring / facing",
+          slot_milling: "Slot & keyway milling",
+          four_side_indexing: "Four-side indexing",
+        },
+      },
+      {
+        from: "boring_job_type",
+        rank: 23,
+        maxValues: 4,
+        label: "Jobs machined",
+        kind: "chips",
+        values: {
+          gearbox_housing: "Gearbox housings",
+          machine_bed: "Machine beds & columns",
+          press_frame: "Press frames & crowns",
+          pump_valve_body: "Pump & valve bodies",
+          engine_block: "Engine blocks / crankcases",
+          fabricated_frame: "Fabricated frames",
+          motor_turbine_casing: "Motor / turbine casings",
+          die_mould_base: "Die & mould bases",
+          earthmover_parts: "Earthmover parts",
+        },
+      },
+      {
+        from: "controller_brand",
+        rank: 24,
+        maxValues: 3,
+        label: "Controllers",
+        kind: "chips",
+        values: {
+          fanuc: "Fanuc",
+          siemens: "Siemens",
+          heidenhain: "Heidenhain",
+          mitsubishi: "Mitsubishi",
+          fagor: "Fagor",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "boring_machine_control",
+        rank: 25,
+        label: "Machine control",
+        kind: "fact",
+        values: {
+          manual: "Manual (DRO)",
+          cnc: "CNC",
+          both_types: "CNC + manual",
+        },
+      },
+      {
+        from: "boring_machine_make",
+        rank: 26,
+        maxValues: 4,
+        label: "Machine makes",
+        kind: "chips",
+        values: {
+          hmt: "HMT",
+          wmw: "WMW / Union",
+          tos: "TOS",
+          skoda: "Skoda",
+          juaristi: "Juaristi",
+          pama: "PAMA",
+          kuraki: "Kuraki",
+          fermat: "Fermat",
+          // `unknown` ("Koi aur company") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "boring_setting_work",
+        rank: 41,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          crane_loading: "Crane loading & slinging",
+          levelling: "Levelling on jacks",
+          dialling: "Dialling the job",
+          marking_line_setting: "Setting to marking lines",
+          clamping: "Clamping",
+          centre_zero: "Bore centre & zero setting",
+          boring_bar_setup: "Boring bar & facing-head setup",
+          tool_offset: "Tool length & offsets",
+          optical_alignment: "Optical / laser alignment",
+        },
+      },
+      {
+        from: "boring_programming_level",
+        rank: 43,
+        label: "Programming",
+        kind: "fact",
+        values: {
+          offset_only: "Edits tool offsets",
+          edit_program: "Edits programs",
+          write_program: "Writes programs",
+          cam: "Programs via CAM",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Outside micrometer",
+          inside_micrometer: "Inside / stick micrometer",
+          bore_gauge: "Bore dial gauge",
+          dial_indicator: "Dial / lever indicator",
+          height_gauge: "Height gauge",
+          depth_gauge: "Depth gauge",
+          slip_gauge: "Slip gauges",
+          spirit_level: "Master level",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          cast_iron: "CI castings",
+          sg_iron: "SG iron castings",
+          cast_steel: "Steel castings",
+          mild_steel: "MS fabrication",
+          alloy_steel: "Alloy steel / forgings",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the numeric
+        // string. Keying this by `point_zero_one` would render nothing at all, silently.
+        values: {
+          "0.10": "±0.10 mm",
+          "0.05": "±0.05 mm",
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm / H7 bore",
+          "0.005": "±0.005 mm",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          inspection_report: "Inspection reports",
+          customer_inspection: "Customer / TPI inspection",
+          rejection: "Rejection analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          bore_oval_taper: "Oval / taper bore",
+          bore_misalignment: "Bore misalignment",
+          chatter: "Boring-bar chatter",
+          size_variation: "Size variation",
+          surface_finish: "Surface finish",
+          squareness_error: "Squareness / parallelism error",
+          tool_wear: "Tool wear / breakage",
+          alarm: "Alarm clearing",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          general_engg: "Heavy engineering / job shop",
+          spm_parts: "Machine tool / SPM makers",
+          industrial_gearbox: "Industrial gearboxes",
+          pump_valve: "Pumps & valves",
+          power_plant: "Power plant / turbines",
+          steel_plant: "Steel plant equipment",
+          construction_equipment: "Construction equipment",
+          sugar_cement: "Sugar / cement machinery",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T20 — SPM FINISHING OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the finishing process and the part
+  // ("SPM Finishing Operator · {level} · {experience} · {spm_process} · {spm_part_type} ·
+  // {city}"). Process and part lead; make and machine type follow. Every `values` key is the
+  // STORED value; the negative claims (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_spm_finishing",
+    section_title: "Processes, machines & capability",
+    tier_section_titles: { easy: "Processes & machines" },
+    capability: [
+      {
+        from: "spm_process",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          honing: "Honing",
+          broaching: "Broaching",
+          lapping: "Lapping",
+          superfinishing: "Superfinishing",
+          gun_drilling: "Gun / deep-hole drilling",
+          thread_rolling: "Thread rolling",
+          centring_facing: "Centring-facing",
+          multi_spindle: "Multi-spindle drilling / tapping",
+          burnishing: "Roller burnishing",
+        },
+      },
+      {
+        from: "spm_part_type",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Parts finished",
+        kind: "chips",
+        values: {
+          cylinder_liner: "Cylinder liners / bores",
+          con_rod: "Connecting rods",
+          gear_bore: "Gear bores / splines",
+          hydraulic_body: "Hydraulic cylinders / valve bodies",
+          brake_cylinder: "Brake / clutch cylinders",
+          fuel_injection: "Fuel-injection parts",
+          shaft: "Shafts / axles / crankshafts",
+          bearing_parts: "Bearing races / rollers",
+          compressor_parts: "Compressor parts",
+        },
+      },
+      {
+        from: "spm_machine_make",
+        rank: 23,
+        maxValues: 4,
+        label: "Machine makes",
+        kind: "chips",
+        values: {
+          nagel: "Nagel",
+          gehring: "Gehring",
+          sunnen: "Sunnen",
+          khushbu: "Khushbu",
+          precihole: "Precihole",
+          widma: "Widma",
+          speedfam_lapmaster: "Speedfam / Lapmaster",
+          local_spm: "Local / in-house SPM",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "spm_machine_type",
+        rank: 24,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          vertical_honing_single: "Vertical honing (single spindle)",
+          vertical_honing_multi: "Vertical honing (multi-spindle)",
+          horizontal_honing: "Horizontal honing",
+          vertical_broaching: "Vertical internal broaching",
+          horizontal_broaching: "Horizontal internal broaching",
+          surface_broaching: "Surface broaching",
+          lapping_machine: "Flat / double-disc lapping",
+          rotary_transfer_spm: "Rotary-index / transfer SPM",
+          // `unknown` ("Koi aur machine") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "spm_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          load_unload: "Loading / unloading & cycle running",
+          piece_checking: "In-process gauging",
+          size_compensation: "Size compensation",
+          tool_change: "Stone / tool / insert change",
+          coolant_care: "Honing oil & coolant care",
+          check_sheet: "Check sheets & production reports",
+          jh_cleaning: "Machine cleaning & oiling",
+        },
+      },
+      {
+        from: "spm_setting_work",
+        rank: 42,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          stone_change: "Stone / tool change & dressing",
+          stroke_setting: "Stroke length & overrun setting",
+          expansion_pressure: "Expansion / feed pressure setting",
+          gauge_mastering: "Air-gauge mastering",
+          broach_setup: "Broach & puller setup",
+          fixture_change: "Model-change fixture setting",
+          roll_die_matching: "Thread-roll die matching",
+          first_piece: "First-piece approval",
+        },
+      },
+      {
+        from: "spm_tooling",
+        rank: 43,
+        label: "Tooling",
+        kind: "chips",
+        values: {
+          abrasive_stone: "Abrasive honing stones",
+          diamond_cbn_stone: "Diamond / CBN stones",
+          honing_mandrel: "Honing mandrels / heads",
+          internal_broach: "Internal broaches",
+          surface_broach: "Surface broaches",
+          gun_drill_tool: "Gun drills",
+          thread_roll_die: "Thread rolling dies",
+          lapping_plate: "Lapping plates & compound",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "spm_finish_control",
+        rank: 45,
+        label: "Finish controlled",
+        kind: "ticks",
+        values: {
+          ra_value: "Ra / surface roughness",
+          cross_hatch: "Cross-hatch angle",
+          ovality: "Ovality / roundness",
+          cylindricity: "Taper / cylindricity",
+          plateau_finish: "Plateau finish",
+          flatness: "Flatness",
+          spline_position: "Spline / keyway size & position",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          air_gauge: "Air gauge",
+          bore_gauge: "Bore dial gauge",
+          plug_gauge: "Plug gauges",
+          micrometer: "Micrometer",
+          vernier: "Vernier caliper",
+          dial_indicator: "Dial indicator",
+          roughness_tester: "Surface roughness tester",
+          spline_gauge: "Spline gauges",
+          thread_gauge: "Thread ring gauges",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          cast_iron: "Cast iron",
+          alloy_steel: "EN / 20MnCr5 alloy steel",
+          hardened_steel: "Hardened steel",
+          mild_steel: "MS",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          sintered: "Sintered parts",
+          brass: "Brass / bronze",
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the numeric
+        // string. Keying this by `point_zero_one` would render nothing at all, silently.
+        values: {
+          "0.05": "±0.05 mm",
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm",
+          "0.005": "±0.005 mm or finer",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          bore_geometry: "Bore taper / oval / bell-mouth",
+          size_variation: "Size variation",
+          surface_finish: "Ra out / scratch marks",
+          cross_hatch_error: "Cross-hatch angle error",
+          stone_glazing: "Stone glazing / loading",
+          broach_breakage: "Broach breakage / chipping",
+          broach_tear: "Burr / tear marks",
+          drill_runout: "Gun-drill runout",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Auto engine / transmission parts",
+          two_wheeler: "Two-wheeler parts",
+          agri: "Tractor & agri",
+          pump_valve: "Hydraulics / pumps / valves",
+          bearings: "Bearings",
+          fasteners: "Fasteners",
+          compressor: "Compressors",
+          general_engg: "General engineering",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T22 — FABRICATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the fabrication type and the machines
+  // ("Fabricator · {level} · {experience} · {fab_work_type} · {fab_machine_used} · {city}"). Both
+  // lead; thickness follows beside the machines, as the press shop's tonnage. Every `values` key
+  // is the STORED value; the negative claims (`unknown`, `none`) have no entry.
+  {
+    pack_id: "qp_fabrication",
+    section_title: "Fabrication, machines & capability",
+    tier_section_titles: { easy: "Fabrication & machines" },
+    capability: [
+      {
+        from: "fab_work_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Fabrication",
+        kind: "chips",
+        values: {
+          structural: "Structural steel",
+          pressure_vessel: "Pressure vessels / exchangers",
+          storage_tank: "Storage tanks / silos",
+          peb: "PEB / sheds",
+          machine_frame: "Machine / base frames",
+          chassis_body: "Chassis / tipper bodies",
+          ducting: "Ducting / chimneys / hoppers",
+          piping_spool: "Piping spools",
+          gate_grill: "Gates / grills / railings",
+        },
+      },
+      {
+        from: "fab_machine_used",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          pug_cutting: "Pug cutting machine",
+          cnc_profile_cutting: "CNC profile cutting",
+          plate_rolling: "Plate rolling machine",
+          shearing: "Shearing machine",
+          press_brake: "Press brake",
+          mag_drill: "Magnetic / radial drill",
+          section_bending: "Section bending machine",
+          saw_cutting: "Band / cut-off saw",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "fab_thickness_range",
+        // Beside the machines, as the die-casting tonnage: what the SHOP can hold. The pack asks
+        // the heaviest plate run, so the row reads "Up to", never a lower bound.
+        rank: 23,
+        label: "Plate worked",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "6": "Up to 6 mm",
+          "12": "6–12 mm",
+          "25": "12–25 mm",
+          "50": "25–50 mm",
+          "75": "Over 50 mm",
+        },
+      },
+      {
+        from: "fab_drawing_type",
+        rank: 24,
+        label: "Drawings",
+        kind: "ticks",
+        values: {
+          fabrication_drawing: "Fabrication drawings",
+          ga_drawing: "GA drawings",
+          structural_drawing: "Structural drawings",
+          isometric: "Isometrics",
+          weld_symbols: "Weld symbols",
+          // `unknown` ("Drawing nahi, naap bata kar kaam hota hai") has no entry.
+        },
+      },
+      {
+        from: "fab_fitup_work",
+        rank: 41,
+        label: "Fit-up",
+        kind: "ticks",
+        values: {
+          root_gap_bevel: "Root gap & bevel setting",
+          shell_seam_fitup: "Shell seam fit-up",
+          nozzle_orientation: "Nozzle / flange orientation",
+          structural_fitup: "Beam / column / gusset fit-up",
+          diagonal_level: "Diagonal, level & plumb",
+          jig_fixture: "Jig / fixture fit-up",
+          mismatch_control: "Mismatch (hi-lo) control",
+          camber_preset: "Camber / pre-set",
+        },
+      },
+      {
+        from: "fab_layout_development",
+        rank: 42,
+        label: "Marking & development",
+        kind: "ticks",
+        values: {
+          flat_marking: "Flat marking & cutting plans",
+          shell_development: "Shell development",
+          cone_development: "Cone / reducer development",
+          branch_cut: "Branch / saddle cuts",
+          mitre_bend: "Mitre bends",
+          square_to_round: "Square-to-round transitions",
+          template_making: "Templates (farma)",
+          // `unknown` ("Development koi aur deta hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "fab_code_standard",
+        rank: 43,
+        label: "Codes worked to",
+        kind: "chips",
+        values: {
+          ibr: "IBR",
+          asme_pressure_vessel: "ASME Section VIII",
+          aws_structural: "AWS D1.1",
+          api_tank: "API 650",
+          rdso_railways: "Railways / RDSO",
+          tpi_jobs: "TPI jobs",
+          // `unknown` ("Koi code nahi, normal job work") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "fab_work_location",
+        rank: 44,
+        label: "Work site",
+        kind: "fact",
+        values: {
+          shop: "Shop / factory",
+          site: "Site / erection",
+          both_types: "Shop + site",
+        },
+      },
+      {
+        from: "fab_planning_work",
+        rank: 45,
+        label: "Planning",
+        kind: "ticks",
+        values: {
+          cutting_plan: "Cutting plans",
+          weld_sequence: "Fit-up & welding sequence",
+          work_allocation: "Work allocation",
+          traceability: "Heat-number traceability",
+          lifting_plan: "Lifting plans",
+          material_indent: "Material indents",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Marking & measuring",
+        kind: "ticks",
+        values: {
+          steel_rule: "Measuring tape & rule",
+          try_square: "Try square",
+          spirit_level: "Spirit level",
+          plumb_bob: "Plumb bob",
+          water_level: "Water level pipe",
+          bevel_protractor: "Bevel protractor",
+          vernier: "Vernier caliper",
+          chalk_line: "Chalk line & centre punch",
+          weld_gauge: "Weld / fillet gauge",
+        },
+      },
+      {
+        from: "fab_daily_work",
+        rank: 46,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          marking: "Marking / layout",
+          gas_cutting: "Hand gas cutting",
+          plasma_cutting: "Plasma cutting",
+          fitup_tacking: "Fit-up & tacking",
+          levelling: "Levelling & diagonal check",
+          edge_preparation: "Grinding & edge preparation",
+          drilling_bolting: "Drilling & bolting",
+          straightening: "Straightening",
+          welding_self: "Full welding",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          mild_steel: "MS (IS 2062)",
+          high_tensile: "High-tensile plate",
+          stainless: "SS304 / SS316",
+          boiler_plate: "Boiler-quality plate",
+          alloy_steel: "Alloy steel",
+          aluminium: "Aluminium",
+          galvanised: "GI / galvanised",
+          wear_plate: "Wear plate (Hardox)",
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "Stage inspection",
+          dimension_report: "Dimension reports",
+          ndt_preparation: "NDT preparation",
+          customer_inspection: "Customer / TPI inspection",
+          rejection: "Rejection & rework analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          distortion: "Welding distortion",
+          dimension_out: "Dimension / diagonal out",
+          fitup_mismatch: "Fit-up gaps / mismatch",
+          twist_camber: "Twist & camber",
+          orientation_error: "Nozzle / flange orientation",
+          ovality_peaking: "Shell ovality / peaking",
+          hole_mismatch: "Hole-pitch mismatch",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          general_engg: "General engineering / job shop",
+          oil_gas: "Oil & gas / refinery",
+          power_plant: "Power plant / boilers",
+          steel_plant: "Steel plant",
+          chemical_pharma: "Chemical / pharma equipment",
+          railways: "Railways",
+          automotive: "Automotive (chassis / trailers)",
+          peb_structure: "PEB / building structures",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T23 — TUBE BENDING OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the machine and the part ("Tube Bending
+  // Operator · {level} · {experience} · {tube_machine_type} · {tube_product} · {city}"). Both
+  // lead; make and tube size follow. Every `values` key is the STORED value; the negative claims
+  // (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_tube_forming",
+    section_title: "Machines, products & capability",
+    tier_section_titles: { easy: "Machines & products" },
+    capability: [
+      {
+        from: "tube_machine_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          cnc_mandrel_bender: "CNC mandrel benders",
+          nc_bender: "NC / hydraulic benders",
+          manual_bender: "Manual pipe benders",
+          three_roll_bender: "3-roll section benders",
+          roll_forming_line: "Roll forming lines",
+          tube_mill: "Tube mills (ERW)",
+          end_forming_machine: "End forming machines",
+          tube_cutting_machine: "Pipe cutting machines",
+          // `unknown` ("Koi aur machine") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "tube_product",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Products",
+        kind: "chips",
+        values: {
+          exhaust_pipe: "Exhaust / silencer pipes",
+          seat_frame: "Seat frames",
+          two_wheeler_frame: "Two-wheeler frames / handlebars",
+          furniture: "Furniture frames",
+          hydraulic_line: "Hydraulic lines",
+          fuel_brake_line: "Fuel / brake / AC lines",
+          boiler_coil: "Boiler / heat-exchanger coils",
+          roll_formed_section: "Roll-formed sections",
+          erw_pipe: "ERW pipes",
+        },
+      },
+      {
+        from: "tube_machine_make",
+        rank: 23,
+        maxValues: 4,
+        label: "Machine makes",
+        kind: "chips",
+        values: {
+          electropneumatics: "Electropneumatics",
+          soco: "Soco",
+          ylm: "YLM",
+          blm: "BLM",
+          chiyoda: "Chiyoda",
+          opton: "Opton",
+          shuz_tung: "Shuz Tung",
+          local_make: "Local / in-house machines",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "tube_size_range",
+        // Beside the machines, as the fabrication thickness: what the TOOLING can hold.
+        rank: 24,
+        label: "Tube size",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "12": "Up to 12 mm dia",
+          "25": "12–25 mm",
+          "50": "25–50 mm",
+          "76": "50–76 mm",
+          "100": "Over 76 mm",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "tube_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          load_run: "Loading & cycle running",
+          fixture_check: "Checking-fixture inspection",
+          angle_correction: "Program & angle correction",
+          cut_deburr: "Cutting & deburring",
+          lubrication: "Mandrel lubrication",
+          coil_loading: "Coil / strip loading",
+          check_sheet: "Check sheets & production reports",
+        },
+      },
+      {
+        from: "tube_setting_work",
+        rank: 42,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          die_change: "Bend / clamp / pressure die change",
+          mandrel_position: "Mandrel position setting",
+          wiper_setting: "Wiper die setting",
+          die_pressure: "Clamp & pressure-die pressure",
+          ybc_data: "Y-B-C data entry",
+          springback_comp: "Spring-back compensation",
+          roll_gap_alignment: "Roll gap & pass alignment",
+          first_piece: "First-piece approval",
+        },
+      },
+      {
+        from: "tube_tooling",
+        rank: 43,
+        label: "Tooling",
+        kind: "chips",
+        values: {
+          bend_die: "Bend dies / formers",
+          clamp_pressure_die: "Clamp & pressure dies",
+          mandrel: "Mandrels",
+          wiper_die: "Wiper dies",
+          collet: "Collets",
+          multi_stack: "Multi-stack tooling",
+          forming_rolls: "Forming roll sets",
+          end_form_tooling: "End-forming punches / dies",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "tube_bend_capability",
+        rank: 45,
+        label: "Bends mastered",
+        kind: "ticks",
+        values: {
+          single_plane: "Single-plane bends",
+          multi_plane: "Multi-plane 3D bends",
+          tight_radius: "Tight-radius bends",
+          thin_wall: "Thin-wall tubes",
+          short_straight: "Short straights between bends",
+          roll_bending: "Large-radius roll bends",
+          square_tube: "Square / rectangular tubes",
+          u_bend_coil: "U-bends / coils",
+        },
+      },
+      {
+        from: "tube_program_work",
+        rank: 46,
+        label: "CNC programs",
+        kind: "fact",
+        values: {
+          run_only: "Runs ready programs",
+          edit_program: "Angle & spring-back correction",
+          write_program: "Writes Y-B-C programs from drawings",
+          // `unknown` ("CNC bender nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "tube_new_part_work",
+        rank: 47,
+        label: "New-part development",
+        kind: "ticks",
+        values: {
+          tooling_trial: "Tooling trials & proving",
+          bend_sequence: "Bend sequence & collision check",
+          cut_length: "Cut-length working",
+          cycle_time: "Cycle-time reduction",
+          tooling_repair: "Tooling repair / polishing",
+          operator_training: "Operator training",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          checking_fixture: "Checking fixtures",
+          vernier: "Vernier caliper",
+          bevel_protractor: "Bevel protractor",
+          radius_gauge: "Radius gauges / templates",
+          steel_rule: "Measuring tape & rule",
+          height_gauge: "Height gauge",
+          micrometer: "Micrometer",
+          plug_gauge: "Plug / ring gauges",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          mild_steel: "MS / CRCA / ERW",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          copper: "Copper",
+          brass: "Brass",
+          galvanised: "GI / galvanised",
+          alloy_steel: "Alloy / boiler tube",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          wrinkle: "Wrinkling",
+          ovality: "Ovality",
+          springback: "Spring-back",
+          crack_thinning: "Cracks / wall thinning",
+          clamp_mark: "Clamp slip / die marks",
+          mandrel_mark: "Mandrel marks",
+          size_variation: "Length / rotation variation",
+          twist_bow: "Twist / bow / flare",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automotive",
+          two_wheeler: "Two-wheeler parts",
+          furniture: "Furniture",
+          appliances: "AC / appliances",
+          power_plant: "Boiler / power plant",
+          agri: "Tractor & agri",
+          peb_structure: "PEB / roofing sections",
+          general_engg: "General engineering",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T28 — PLATING OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the finish and the part ("Plating Operator
+  // · {level} · {experience} · {plating_process} · {plating_part} · {city}"). Both lead; the line
+  // type follows, as the equipment behind the advertised word. Every `values` key is the STORED
+  // value; the negative claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_surface_treatment",
+    section_title: "Plating, lines & capability",
+    tier_section_titles: { easy: "Plating & lines" },
+    capability: [
+      {
+        from: "plating_process",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          zinc: "Zinc plating",
+          nickel_chrome: "Nickel-chrome",
+          hard_chrome: "Hard chrome",
+          anodising: "Anodising",
+          phosphating: "Phosphating",
+          blackening: "Blackening",
+          electroless_nickel: "Electroless nickel",
+          ced: "CED / e-coat",
+          hot_dip_galvanising: "Hot-dip galvanising",
+        },
+      },
+      {
+        from: "plating_part",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Parts plated",
+        kind: "chips",
+        values: {
+          fasteners: "Nuts / bolts / screws",
+          press_parts: "Sheet-metal / press parts",
+          chrome_parts: "Two-wheeler chrome parts",
+          hydraulic_rods: "Hydraulic rods / rolls",
+          bath_fittings: "Bath fittings / hardware",
+          aluminium_profiles: "Aluminium sections / profiles",
+          structures: "Towers / structures / pipes",
+          electrical_parts: "Busbars / electrical contacts",
+          // `unknown` ("Koi aur part") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_line_type",
+        rank: 23,
+        label: "Lines",
+        kind: "chips",
+        values: {
+          barrel: "Barrel lines",
+          rack: "Rack / vat lines",
+          manual_line: "Manual lines",
+          auto_line: "Automatic PLC lines",
+          kettle: "Galvanising kettles",
+          ced_line: "CED dip lines",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          jigging: "Jigging / racking",
+          barrel_loading: "Barrel loading / unloading",
+          pretreatment: "Degreasing & pickling",
+          tank_operation: "Plating-tank operation",
+          passivation: "Passivation & sealing",
+          baking: "Dryer / oven baking",
+          buffing: "Buffing & polishing",
+          inspection: "Visual check & packing",
+        },
+      },
+      {
+        from: "plating_bath_control",
+        rank: 42,
+        label: "Bath control",
+        kind: "ticks",
+        values: {
+          ph_check: "pH checks",
+          titration: "Titration",
+          hull_cell: "Hull-cell tests",
+          baume: "Baume / hydrometer checks",
+          dosing: "Chemical & brightener dosing",
+          filtration: "Filtration / carbon treatment",
+          bath_makeup: "New-bath makeup",
+          // `unknown` ("Bath ka kaam chemist karta hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_rectifier_work",
+        rank: 43,
+        label: "Rectifier & tank setting",
+        kind: "ticks",
+        values: {
+          current_setting: "Current setting by area",
+          time_voltage: "Voltage & plating-time setting",
+          anode_care: "Anode care & replacement",
+          contact_cleaning: "Jig contact & busbar cleaning",
+          temperature_agitation: "Bath temperature & agitation",
+          // `unknown` ("Sirf set kiya hua chalata hoon") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_chemical_safety",
+        rank: 44,
+        label: "Chemicals handled",
+        kind: "chips",
+        values: {
+          acid: "Acids",
+          alkali: "Caustic / alkali",
+          cyanide: "Cyanide baths",
+          chromic_acid: "Chromic acid",
+          molten_zinc: "Molten zinc",
+          // `unknown` ("Chemical nahi sambhalta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_passivation",
+        rank: 45,
+        label: "Passivation",
+        kind: "chips",
+        values: {
+          trivalent_blue: "Trivalent blue / white",
+          trivalent_yellow: "Trivalent yellow",
+          trivalent_black: "Trivalent black",
+          hexavalent: "Hexavalent",
+          sealer: "Sealer / top coat",
+          // `unknown` ("Passivation nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_testing",
+        rank: 46,
+        label: "Testing",
+        kind: "ticks",
+        values: {
+          thickness_gauge: "Coating-thickness gauges",
+          xrf: "XRF thickness machines",
+          salt_spray: "Salt spray tests",
+          adhesion: "Adhesion tests",
+          coating_weight: "Phosphate coating weight",
+          visual_check: "Visual finish checks",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Base metals",
+        kind: "chips",
+        values: {
+          mild_steel: "MS / steel",
+          alloy_steel: "Alloy / hardened steel",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          brass: "Brass / copper",
+          zinc_diecast: "Zinc die-castings",
+          cast_iron: "Cast iron",
+          plastic: "Plastic (ABS)",
+        },
+      },
+      {
+        from: "plating_other_finish",
+        rank: 62,
+        label: "Other finishes",
+        kind: "chips",
+        values: {
+          copper: "Copper plating",
+          tin: "Tin plating",
+          silver_gold: "Silver / gold plating",
+          zinc_alloy: "Zinc-alloy plating",
+          zinc_flake: "Zinc-flake coating",
+          ss_passivation: "SS passivation / electropolish",
+          pretreatment_line: "Pre-treatment lines",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          peeling: "Peeling / blisters",
+          burning: "Burning",
+          dull_deposit: "Dull / patchy deposits",
+          pitting: "Pitting / roughness",
+          low_thickness: "Low / uneven thickness",
+          sst_fail: "White rust / salt-spray fail",
+          colour_variation: "Uneven passivation colour",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "plating_etp_work",
+        // 7x — volunteered depth the guideline never names, like the CAD draughtsman's sector
+        // rows: the effluent plant is real senior work and it drops before any trade row.
+        rank: 73,
+        label: "ETP work",
+        kind: "ticks",
+        values: {
+          etp_dosing: "ETP dosing & neutralisation",
+          chrome_cyanide_treatment: "Chrome / cyanide effluent treatment",
+          filter_press: "Sludge filter press",
+          hazardous_waste: "Hazardous-waste records",
+          pcb_record: "Pollution-board records",
+          scrubber: "Fume scrubbers",
+          // `unknown` ("ETP ka kaam nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobiles",
+          two_wheeler: "Two-wheelers",
+          fasteners: "Fasteners",
+          hardware: "Hardware / bath fittings",
+          electronics: "Electrical / electronics",
+          appliances: "Home appliances",
+          structural_steel: "Towers / structural steel",
+          general_engg: "General engineering",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T30 — BLOW MOULDING OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the process and the container ("Blow
+  // Moulding Operator · {level} · {experience} · {blow_process_type} · {blow_product} · {city}").
+  // Both lead; make and shot size follow. Every `values` key is the STORED value; the negative
+  // claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_blow_moulding",
+    section_title: "Blow moulding, machines & capability",
+    tier_section_titles: { easy: "Moulding & machines" },
+    capability: [
+      {
+        from: "blow_process_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          extrusion_blow: "Extrusion blow (EBM)",
+          stretch_blow: "Stretch blow (PET)",
+          single_stage_isbm: "Single-stage ISBM",
+          injection_blow: "Injection blow (IBM)",
+          accumulator_head: "Accumulator-head machines",
+          multilayer: "Multilayer / co-ex blow",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "blow_product",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Products",
+        kind: "chips",
+        values: {
+          pet_bottle: "PET bottles / jars",
+          preform: "PET preforms",
+          hdpe_bottle: "HDPE bottles / containers",
+          jerry_can: "Jerry cans",
+          drum: "Drums / barrels",
+          tank: "Water tanks",
+          water_jar: "20 L water jars",
+          auto_part: "Auto ducts / reservoirs",
+          // `unknown` ("Koi aur product") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "blow_machine_brand",
+        rank: 23,
+        maxValues: 4,
+        label: "Machine makes",
+        kind: "chips",
+        values: {
+          jagmohan: "Jagmohan",
+          cmp: "CMP",
+          kautex: "Kautex",
+          parker: "Parker",
+          sipa: "SIPA",
+          sidel: "Sidel",
+          asb: "Nissei ASB",
+          khs: "KHS",
+          // `unknown` ("Koi aur machine") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "blow_capacity",
+        // Beside the machines, as the press tonnage: the biggest container the machine makes.
+        rank: 24,
+        label: "Container size",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "1": "Up to 1 L",
+          "5": "1–5 L",
+          "30": "5–30 L",
+          "250": "30–250 L",
+          "1000": "Over 250 L",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "blow_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          deflashing: "Deflashing",
+          weight_check: "Bottle weight checks",
+          leak_test: "Leak testing",
+          visual_packing: "Visual checking & packing",
+          material_loading: "Material / preform feeding",
+          regrind: "Scrap grinding & regrind mixing",
+          production_report: "Production reports",
+        },
+      },
+      {
+        from: "blow_setting_work",
+        rank: 42,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          mould_change: "Mould change",
+          die_head_change: "Die-head / die / pin change",
+          parison_centring: "Parison centring",
+          blow_pin_setting: "Blow pin & cutting-ring setting",
+          stretch_rod_setting: "Stretch-rod & preform-heater setting",
+          cooling_connection: "Cooling-water connections",
+          deflash_setting: "Deflashing-punch setting",
+          purging: "Material / colour change & purging",
+          first_piece: "First-piece approval",
+        },
+      },
+      {
+        from: "blow_parameter_setting",
+        rank: 43,
+        label: "Parameters set",
+        kind: "ticks",
+        values: {
+          barrel_temperature: "Extruder & die temperatures",
+          parison_program: "Parison programming",
+          weight_setting: "Bottle weight setting",
+          blow_pressure: "Blow pressure & time",
+          cycle_time: "Cooling & cycle time",
+          lamp_profile: "Preform heating-lamp profile",
+          pre_blow: "Pre-blow & stretch timing",
+          // `unknown` ("Koi nahi, parameter lock rehte hain") has no entry.
+        },
+      },
+      {
+        from: "blow_auxiliary",
+        rank: 45,
+        label: "Auxiliaries",
+        kind: "chips",
+        values: {
+          hp_compressor: "High-pressure compressors",
+          chiller: "Chillers",
+          loader_dryer: "Hopper loaders / dryers",
+          auto_deflasher: "Auto deflashing units",
+          online_leak_tester: "Online leak testers",
+          preform_feeder: "Preform feeders",
+          grinder: "Scrap grinders",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          weighing_scale: "Weighing scale",
+          vernier: "Vernier caliper",
+          thickness_gauge: "Wall-thickness gauge",
+          plug_gauge: "Neck plug / ring gauge",
+          height_gauge: "Height gauge",
+          leak_tester: "Leak tester",
+          top_load_tester: "Top-load tester",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          hdpe: "HDPE",
+          ldpe: "LDPE / LLDPE",
+          pp: "PP",
+          pet: "PET",
+          pvc: "PVC",
+          pc: "Polycarbonate",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          drop_test: "Drop & top-load tests",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          uneven_wall: "Uneven wall thickness",
+          weight_variation: "Weight variation",
+          leak_pinhole: "Leaks / pinholes",
+          pinch_off: "Pinch-off / excess flash",
+          die_line: "Die / parison lines",
+          neck_defect: "Neck defects",
+          haze_pearl: "Haze / pearlescence",
+          rocker_bottom: "Rocker bottoms",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "blow_process_control",
+        // 7x — volunteered depth the guideline never names: senior process ownership.
+        rank: 73,
+        label: "Process ownership",
+        kind: "ticks",
+        values: {
+          mould_trial: "New-mould trials",
+          process_sheet: "Process parameter sheets",
+          weight_reduction: "Weight reduction",
+          cycle_time_reduction: "Cycle-time reduction",
+          regrind_control: "Regrind-ratio control",
+          mould_pm: "Mould & die-head PM",
+          operator_training: "Operator training",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          fmcg: "FMCG bottles",
+          beverage: "Water / soft drinks",
+          food: "Edible oil / food",
+          pharma: "Pharma bottles",
+          lubricant_chemical: "Lube / chemical containers",
+          agri: "Agrochemical bottles",
+          automotive: "Auto parts",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T31 — PLASTIC EXTRUSION OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the line ("Plastic Extrusion Operator ·
+  // {level} · {experience} · {extrusion_product_line} · {city}"). The line leads; extruder type,
+  // make and downstream follow, as the hardware behind the advertised word. Every `values` key is
+  // the STORED value; the negative claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_plastic_extrusion",
+    section_title: "Extrusion lines & capability",
+    tier_section_titles: { easy: "Lines & machines" },
+    capability: [
+      {
+        from: "extrusion_product_line",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Lines run",
+        kind: "chips",
+        values: {
+          pipe: "Pipe lines",
+          profile: "Profile lines",
+          blown_film: "Blown / multilayer film",
+          sheet: "Cast film / sheet lines",
+          cable: "Wire / cable insulation",
+          tape_monofilament: "Raffia tape / monofilament",
+          compounding: "Compounding / masterbatch",
+          recycling: "Recycling / pelletiser lines",
+          // `unknown` ("Koi aur line") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "extrusion_extruder_type",
+        rank: 22,
+        label: "Extruders",
+        kind: "chips",
+        values: {
+          single_screw: "Single screw",
+          twin_conical: "Twin-screw conical",
+          twin_parallel: "Twin-screw parallel",
+          co_rotating: "Co-rotating twin-screw",
+          co_extrusion: "Co-extrusion",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "extrusion_machine_brand",
+        rank: 23,
+        maxValues: 4,
+        label: "Line makes",
+        kind: "chips",
+        values: {
+          kabra: "Kabra / KET",
+          windsor: "Windsor",
+          rajoo: "Rajoo",
+          theysohn: "Theysohn",
+          lohia: "Lohia",
+          steer: "Steer",
+          supermac: "Supermac",
+          // `unknown` ("Koi aur machine") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "extrusion_downstream",
+        rank: 24,
+        maxValues: 4,
+        label: "Downstream units",
+        kind: "chips",
+        values: {
+          vacuum_tank: "Vacuum sizing tanks",
+          cooling_tank: "Cooling / spray tanks",
+          haul_off: "Haul-offs / pullers",
+          cutter: "Cutters / saws",
+          belling: "Belling / socketing",
+          winder: "Winders / coilers",
+          film_tower: "Air rings / bubble cages",
+          roll_stack: "Chill / polishing rolls",
+          corona: "Corona treaters",
+        },
+      },
+      {
+        from: "extrusion_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          material_feeding: "Material feeding",
+          winding: "Winding / coiling",
+          cutting_stacking: "Cutting & stacking",
+          socketing: "Socketing / belling",
+          size_check: "Size / weight checks",
+          marking: "Printing / marking units",
+          screen_change: "Screen / jaali change",
+          production_report: "Production reports",
+        },
+      },
+      {
+        from: "extrusion_setting_work",
+        rank: 42,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          die_change: "Die / mandrel / pin change",
+          die_centring: "Die centring",
+          calibrator_setting: "Calibrator / sizer setting",
+          screen_pack: "Screen pack & breaker-plate change",
+          heater_fitting: "Heater & thermocouple fitting",
+          line_threading: "Line threading at start-up",
+          purging: "Purging & colour change",
+          speed_sync: "Haul-off & cutter speed sync",
+          bubble_start: "Film bubble start-up",
+        },
+      },
+      {
+        from: "extrusion_parameter_setting",
+        rank: 43,
+        label: "Parameters set",
+        kind: "ticks",
+        values: {
+          temperature_zones: "Barrel & die temperature zones",
+          screw_rpm: "Screw RPM",
+          line_speed: "Haul-off / line speed",
+          vacuum_cooling: "Vacuum & cooling",
+          melt_pressure: "Melt-pressure adjustment",
+          dosing: "Feeder / dosing units",
+          blow_up_ratio: "Blow-up ratio",
+          winder_tension: "Winder tension",
+          // `unknown` ("Koi nahi, parameter lock rehte hain") has no entry.
+        },
+      },
+      {
+        from: "extrusion_lab_tests",
+        rank: 45,
+        label: "Lab tests",
+        kind: "ticks",
+        values: {
+          pressure_test: "Hydrostatic pressure tests",
+          impact_test: "Impact / drop tests",
+          density_ash: "Density & ash content",
+          mfi: "MFI tests",
+          film_strength: "Film / tape strength tests",
+          denier: "Denier & strength",
+          spark_test: "Spark / HV tests (cable)",
+          // `unknown` ("Koi test nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Micrometer",
+          pi_tape: "Pi tape",
+          thickness_gauge: "Dial thickness gauge",
+          weighing_scale: "Weighing scale",
+          steel_rule: "Steel rule & tape",
+          plug_gauge: "Go / No-Go gauges",
+          spark_tester: "Spark tester",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          pvc: "PVC / uPVC",
+          cpvc: "CPVC",
+          hdpe: "HDPE",
+          ldpe: "LDPE / LLDPE",
+          pp: "PP",
+          pet: "PET",
+          hips: "HIPS",
+          xlpe: "XLPE",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          gauge_variation: "Gauge variation",
+          melt_fracture: "Melt fracture",
+          die_line: "Die lines / scratches",
+          black_spot: "Burning / black spots",
+          moisture_bubble: "Bubbles / voids / moisture",
+          ovality: "Ovality",
+          gel_fish_eye: "Gels / fish-eyes",
+          surging: "Surging",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "extrusion_process_control",
+        // 7x — volunteered depth the guideline never names: senior process ownership.
+        rank: 73,
+        label: "Process ownership",
+        kind: "ticks",
+        values: {
+          product_trial: "New-product / new-die trials",
+          process_sheet: "Process parameter sheets",
+          scrap_reduction: "Scrap & start-up waste reduction",
+          weight_control: "Metre-weight control",
+          output_improvement: "Output (kg/hr) improvement",
+          formulation: "PVC formulation & mixing",
+          die_maintenance: "Screw-barrel & die maintenance",
+          operator_training: "Operator training",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          plumbing: "Plumbing / building pipes",
+          agri: "Agriculture / irrigation",
+          infrastructure: "Water / gas / telecom ducts",
+          fmcg: "Packaging / FMCG / food",
+          woven_sack: "Woven sacks / FIBC",
+          wire_cable: "Wire & cable",
+          automotive: "Automobiles",
+          disposables: "Disposable cups / trays",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T32 — RUBBER MOULDING OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the process and the product ("Rubber
+  // Moulding Operator · {level} · {experience} · {rubber_process} · {rubber_product} · {city}").
+  // Both lead; press type and tonnage follow. Every `values` key is the STORED value; the negative
+  // claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_rubber_moulding",
+    section_title: "Rubber moulding, presses & capability",
+    tier_section_titles: { easy: "Moulding & presses" },
+    capability: [
+      {
+        from: "rubber_process",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          compression: "Compression moulding",
+          transfer: "Transfer moulding",
+          rubber_injection: "Rubber injection moulding",
+          mixing: "Mixing (mill / Banbury)",
+          rubber_extrusion: "Rubber extrusion",
+          calendering: "Calendering",
+          autoclave_hose: "Hose building / autoclave curing",
+          tyre: "Tyre building / curing",
+          finishing: "Deflashing / finishing",
+        },
+      },
+      {
+        from: "rubber_product",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Products",
+        kind: "chips",
+        values: {
+          o_ring: "O-rings",
+          oil_seal: "Oil seals",
+          gasket: "Gaskets / diaphragms",
+          bonded_part: "Bonded bushes / mounts",
+          hose: "Hoses",
+          profile: "Profiles / weather strips",
+          belting: "Belts",
+          tyre_tube: "Tyres / tubes / flaps",
+          // `unknown` ("Koi aur product") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "rubber_press_type",
+        rank: 23,
+        label: "Presses",
+        kind: "chips",
+        values: {
+          manual_press: "Manual hydraulic presses",
+          multi_daylight: "Semi-auto multi-daylight presses",
+          vacuum_press: "Vacuum compression presses",
+          injection_machine: "Rubber injection machines",
+          lsr_machine: "Silicone / LSR machines",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "rubber_press_capacity",
+        // Beside the presses, as the tonnage rows on the metal-forming maps.
+        rank: 24,
+        label: "Press tonnage",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "50": "Up to 50 T",
+          "100": "50–100 T",
+          "250": "100–250 T",
+          "400": "250–400 T",
+          "600": "Over 400 T",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "rubber_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          blank_preparation: "Blank cutting & weighing",
+          press_loading: "Mould loading & press running",
+          demoulding: "Demoulding",
+          mould_cleaning: "Mould cleaning & release spray",
+          deflashing: "Deflashing / trimming",
+          visual_packing: "Visual checking & packing",
+          adhesive_coating: "Metal-insert adhesive coating",
+          post_curing: "Post-curing ovens",
+          production_report: "Production reports",
+        },
+      },
+      {
+        from: "rubber_setting_work",
+        rank: 42,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          mould_loading: "Mould loading & clamping",
+          platen_temperature: "Platen temperature setting",
+          cure_time: "Cure-time setting",
+          bumping: "Pressure & bumping setting",
+          blank_weight: "Blank weight / preform sizing",
+          daylight_setting: "Daylight & stroke setting",
+          injection_setting: "Injection shot-volume setting",
+          first_piece: "First-piece approval",
+        },
+      },
+      {
+        from: "rubber_mixing_work",
+        rank: 43,
+        label: "Mixing",
+        kind: "ticks",
+        values: {
+          chemical_weighing: "Chemical weighing by batch card",
+          two_roll_mill: "Two-roll mill mixing",
+          internal_mixer: "Kneader / Banbury running",
+          final_batch: "Final batch (sulphur / accelerators)",
+          sheeting: "Sheeting & batch-off cooling",
+          preforming: "Strip / preform making",
+          // `unknown` ("Mixing nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          hardness_tester: "Shore hardness tester",
+          vernier: "Vernier caliper",
+          thickness_gauge: "Dial thickness gauge",
+          weighing_scale: "Weighing scale",
+          plug_gauge: "Go / No-Go gauges",
+          profile_projector: "Profile projector",
+          rheometer: "Rheometer graphs",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Compounds",
+        kind: "chips",
+        values: {
+          natural_rubber: "Natural rubber",
+          nbr: "NBR / nitrile",
+          epdm: "EPDM",
+          silicone: "Silicone",
+          fkm: "FKM / Viton",
+          sbr: "SBR",
+          neoprene: "Neoprene / CR",
+          butyl: "Butyl",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          air_trap: "Air traps / blisters",
+          short_fill: "Short fills",
+          under_cure: "Under-cure",
+          over_cure: "Over-cure",
+          flash: "Excess flash",
+          scorch: "Scorch",
+          bond_failure: "Bonding failures",
+          backrinding: "Backrinding",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "rubber_process_control",
+        // 7x — volunteered depth the guideline never names: senior process ownership.
+        rank: 73,
+        label: "Process ownership",
+        kind: "ticks",
+        values: {
+          mould_trial: "New-mould trials",
+          cure_cycle: "Cure cycle finalisation",
+          batch_release: "Rheometer-graph batch release",
+          rejection_reduction: "Rejection reduction",
+          wastage_reduction: "Flash / material-waste reduction",
+          mould_pm: "Mould cleaning & PM plans",
+          operator_training: "Operator training",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          two_wheeler: "Two-wheeler parts",
+          tyre: "Tyre industry",
+          pump_valve: "Pumps / valves / seals",
+          pharma: "Pharma / medical",
+          appliances: "Home appliances",
+          railways: "Railways",
+          footwear: "Footwear",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T34 — NDT TECHNICIAN (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the method and the Level II ticket ("NDT
+  // Technician · {level} · {experience} · {ndt_method} · {ndt_level_two_methods} · {city}"). Both
+  // lead; the job type, the scheme and the Level III claim follow. Every `values` key is the
+  // STORED value. `basic_only` (Level III row) and the negative claims (`unknown`, `none`) have
+  // no entry, so they print nothing.
+  {
+    pack_id: "qp_ndt",
+    section_title: "Methods, equipment & capability",
+    tier_section_titles: { easy: "Methods & equipment" },
+    capability: [
+      {
+        from: "ndt_method",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Methods",
+        kind: "chips",
+        values: {
+          ut: "UT",
+          rt: "RT",
+          mpt: "MPT / MPI",
+          dpt: "DPT / LPT",
+          vt: "VT",
+          ect: "ECT",
+          paut: "PAUT",
+          tofd: "TOFD",
+          thickness_gauging: "Thickness gauging",
+        },
+      },
+      {
+        from: "ndt_level_two_methods",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Level II in",
+        kind: "chips",
+        values: {
+          ut: "UT",
+          rt: "RT",
+          mpt: "MPT",
+          dpt: "DPT",
+          vt: "VT",
+          ect: "ECT",
+          paut_tofd: "PAUT / TOFD",
+          rtfi: "RTFI",
+          // `unknown` ("Kisi me Level II nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_job_type",
+        rank: 23,
+        maxValues: 4,
+        label: "Tested",
+        kind: "chips",
+        values: {
+          welds: "Weld joints",
+          castings: "Castings",
+          forgings: "Forgings",
+          pipelines: "Pipelines",
+          pressure_vessels: "Pressure vessels / exchangers",
+          storage_tanks: "Storage tanks",
+          boiler_piping: "Boiler tubes / piping",
+          raw_material: "Plates / bars / raw material",
+          machined_components: "Machined / auto components",
+        },
+      },
+      {
+        from: "ndt_certificate_scheme",
+        rank: 24,
+        label: "Certification scheme",
+        kind: "chips",
+        values: {
+          asnt_snt_tc: "ASNT SNT-TC-1A",
+          isnt: "ISNT",
+          iso_pcn: "ISO 9712 / PCN",
+          asnt_level_three: "ASNT Level III",
+          nas_aerospace: "NAS 410 (aerospace)",
+          barc_rt: "BARC RT",
+          // `unknown` ("Abhi koi certificate nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_level_three_methods",
+        rank: 25,
+        label: "Level III in",
+        kind: "chips",
+        values: {
+          ut: "UT",
+          rt: "RT",
+          mpt: "MT",
+          dpt: "PT",
+          vt: "VT",
+          ect: "ET",
+          // `basic_only` ("Abhi sirf Basic exam pass hai") is a status, not a method claim —
+          // it has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_certificate_valid",
+        rank: 26,
+        label: "Certificate status",
+        kind: "fact",
+        // `expired` and `none` have no entry ON PURPOSE — a lapsed or missing ticket is matching
+        // data, not a line on the worker's own document.
+        values: {
+          valid: "Certificate valid",
+        },
+      },
+      {
+        from: "ndt_equipment",
+        rank: 41,
+        maxValues: 4,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          ut_flaw_detector: "UT flaw detectors",
+          thickness_gauge: "UT thickness gauges",
+          xray_machine: "X-ray machines",
+          gamma_camera: "Gamma cameras",
+          mpi_yoke: "MPI yokes",
+          mpi_bench: "MPI bench machines",
+          eddy_current_set: "Eddy-current instruments",
+          paut_set: "PAUT sets",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_surface_method",
+        rank: 42,
+        label: "Surface methods",
+        kind: "ticks",
+        values: {
+          visible_dpt: "Visible (red) penetrant",
+          fluorescent_dpt: "Fluorescent penetrant",
+          yoke_dry: "Dry-powder yoke MPT",
+          yoke_wet: "Wet yoke MPT",
+          fluorescent_mpi: "Fluorescent bench MPI",
+          prod_coil: "Prod / coil method",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_ut_work",
+        rank: 43,
+        label: "UT work",
+        kind: "ticks",
+        values: {
+          normal_probe: "Normal-probe scanning",
+          angle_probe_weld: "Angle-probe weld scanning",
+          block_calibration: "V1 / V2 block calibration",
+          dac_curve: "DAC curves",
+          dgs_avg: "DGS / AVG",
+          forging_casting_ut: "Forging / casting UT",
+          thickness_survey: "Thickness surveys",
+          // `unknown` ("UT nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_rt_work",
+        rank: 44,
+        label: "RT work",
+        kind: "ticks",
+        values: {
+          xray_exposure: "X-ray exposures",
+          gamma_exposure: "Gamma exposures",
+          film_processing: "Film processing / dark room",
+          film_interpretation: "Film interpretation (RTFI)",
+          exposure_technique: "SWSI / DWSI / DWDI techniques",
+          digital_rt: "Digital radiography (CR / DR)",
+          radiation_safety: "Radiation safety & cordoning",
+          // `unknown` ("RT nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_code_standard",
+        rank: 45,
+        label: "Codes worked to",
+        kind: "chips",
+        values: {
+          asme_sec_v: "ASME Sec V",
+          asme_sec_viii: "ASME Sec VIII",
+          asme_piping: "ASME B31.1 / B31.3",
+          aws_structural: "AWS D1.1",
+          api_pipeline: "API 1104",
+          api_tank: "API 650",
+          ibr: "IBR",
+          is_astm: "IS / ASTM",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_defect_types",
+        rank: 46,
+        label: "Defects identified",
+        kind: "ticks",
+        values: {
+          porosity: "Porosity / blowholes",
+          slag_inclusion: "Slag inclusions",
+          lack_of_fusion: "Lack of fusion",
+          lack_of_penetration: "Lack of penetration",
+          crack: "Cracks",
+          undercut: "Undercut",
+          lamination: "Laminations",
+          shrinkage: "Shrinkage",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_advanced_method",
+        rank: 47,
+        label: "Advanced methods",
+        kind: "ticks",
+        values: {
+          paut_weld: "PAUT weld scanning",
+          tofd: "TOFD",
+          ect_tube: "Eddy-current tube testing",
+          iris_rfet: "IRIS / RFET",
+          mfl_tank: "MFL tank-floor scanning",
+          lrut: "LRUT / guided wave",
+          pmi: "PMI (alloy analysis)",
+          portable_hardness: "Portable hardness testing",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_responsibility",
+        rank: 48,
+        label: "Responsibilities",
+        kind: "ticks",
+        values: {
+          procedure_writing: "Procedure & technique writing",
+          report_review: "Report review & approval",
+          training_certification: "Level I / II training & exams",
+          client_tpi: "Client / TPI witness handling",
+          equipment_calibration: "Equipment calibration records",
+          team_handling: "NDT team handling",
+          rso: "RSO work (radiation safety)",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "ndt_work_place",
+        rank: 63,
+        label: "Work sites",
+        kind: "chips",
+        values: {
+          shop_floor: "Shop / factory",
+          project_site: "Project / construction sites",
+          shutdown: "Shutdowns",
+          cross_country_pipeline: "Cross-country pipelines",
+          offshore: "Offshore",
+          overseas: "Overseas / Gulf",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          oil_gas: "Oil & gas / refinery",
+          power_plant: "Power plant / boilers",
+          heavy_fabrication: "Heavy fabrication",
+          foundry_forging: "Foundry / forging plants",
+          pump_valve: "Pumps & valves",
+          railways: "Railways",
+          defence: "Defence / aerospace",
+          automotive: "Automobile parts",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T35 — CALIBRATION TECHNICIAN (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the parameter ("Calibration Technician ·
+  // {level} · {experience} · {calib_parameter} · {city}"). The parameter leads; lab type,
+  // instruments and masters follow. Every `values` key is the STORED value; the negative claims
+  // (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_calibration",
+    section_title: "Calibration, masters & capability",
+    tier_section_titles: { easy: "Calibration & masters" },
+    capability: [
+      {
+        from: "calib_parameter",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Parameters calibrated",
+        kind: "chips",
+        values: {
+          dimensional: "Dimensional",
+          pressure: "Pressure / vacuum",
+          temperature: "Temperature",
+          electrical: "Electrical",
+          torque: "Torque",
+          mass: "Mass / weighing",
+          force: "Force / hardness",
+          volume: "Volume / glassware",
+          flow: "Flow",
+        },
+      },
+      {
+        from: "calib_lab_type",
+        rank: 22,
+        label: "Lab type",
+        kind: "fact",
+        values: {
+          in_house: "In-house standards room",
+          nabl_in_house: "In-house NABL lab",
+          nabl_third_party: "NABL third-party lab",
+          non_nabl_third_party: "Non-NABL third-party lab",
+          oem_service: "OEM service & calibration",
+        },
+      },
+      {
+        from: "calib_instrument_type",
+        rank: 23,
+        maxValues: 4,
+        label: "Instruments calibrated",
+        kind: "chips",
+        values: {
+          hand_instruments: "Vernier / micrometer / height gauge",
+          dial_bore_gauge: "Dial & bore gauges",
+          plain_gauges: "Plain plug / snap gauges",
+          thread_gauges: "Thread plug / ring gauges",
+          slip_gauges: "Slip gauges",
+          surface_plate: "Surface plates",
+          pressure_gauge: "Pressure gauges / transmitters",
+          temperature_instruments: "Temperature sensors / controllers / ovens",
+          electrical_meters: "Multimeters / clamp meters / meggers",
+        },
+      },
+      {
+        from: "calib_master_equipment",
+        rank: 24,
+        maxValues: 4,
+        label: "Master equipment",
+        kind: "chips",
+        values: {
+          slip_gauge_set: "Slip gauge sets",
+          ulm: "ULM / length machines",
+          dial_tester: "Dial calibration testers",
+          floating_carriage: "Floating-carriage micrometers",
+          pressure_master: "Dead-weight testers / pressure calibrators",
+          dry_block_bath: "Dry blocks / temperature baths",
+          multifunction_calibrator: "Multifunction calibrators",
+          torque_tester: "Torque wrench testers",
+          standard_weights: "Standard weights",
+        },
+      },
+      {
+        from: "calib_master_make",
+        rank: 25,
+        maxValues: 4,
+        label: "Master makes",
+        kind: "chips",
+        values: {
+          mitutoyo: "Mitutoyo",
+          baker: "Baker",
+          mahr: "Mahr",
+          trimos: "Trimos",
+          fluke: "Fluke",
+          wika: "WIKA",
+          druck: "Druck",
+          nagman: "Nagman",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "calib_records",
+        rank: 41,
+        label: "Records",
+        kind: "ticks",
+        values: {
+          observation_sheet: "Observation sheets",
+          certificate: "Calibration certificates",
+          history_card: "History cards",
+          calibration_plan: "Calibration plans / due lists",
+          master_list: "Master lists",
+          sticker_tag: "Calibration stickers / tags",
+          out_of_calibration_report: "Out-of-calibration reports",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "calib_method_standard",
+        rank: 42,
+        label: "Standards followed",
+        kind: "chips",
+        values: {
+          is_standards: "IS standards",
+          iso_din_jis: "ISO / DIN / JIS",
+          dkd_euramet: "DKD / Euramet",
+          oiml: "OIML",
+          lab_sop: "Lab SOPs / work instructions",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "calib_uncertainty_work",
+        rank: 43,
+        label: "Uncertainty",
+        kind: "fact",
+        // `none` ("Nahi karta, senior nikalta hai") has no entry ON PURPOSE.
+        values: {
+          fills_sheet: "Fills uncertainty sheets",
+          makes_budget: "Makes uncertainty budgets",
+          cmc_scope: "CMC / scope budgets",
+        },
+      },
+      {
+        from: "calib_msa_work",
+        rank: 44,
+        label: "MSA studies",
+        kind: "ticks",
+        values: {
+          grr_variable: "Gauge R&R (variable)",
+          attribute_study: "Attribute studies",
+          bias: "Bias",
+          linearity: "Linearity",
+          stability: "Stability",
+          minitab: "Minitab analysis",
+          // `unknown` ("MSA nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "calib_onsite_work",
+        rank: 45,
+        label: "On-site work",
+        kind: "fact",
+        // `none` ("Nahi, lab me hi kaam hai") has no entry ON PURPOSE.
+        values: {
+          regular: "Regular on-site",
+          sometimes: "Occasional on-site",
+        },
+      },
+      {
+        from: "calib_nabl_work",
+        rank: 46,
+        label: "NABL / 17025 work",
+        kind: "ticks",
+        values: {
+          nabl_assessment: "NABL assessments faced",
+          quality_manual: "Quality manuals & SOPs",
+          pt_ilc: "PT / ILC participation",
+          internal_audit: "Internal audits",
+          traceability: "Master traceability & checks",
+          scope_extension: "Scope extensions",
+          authorised_signatory: "Authorised signatory",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "calib_plant_system",
+        rank: 47,
+        label: "Plant calibration system",
+        kind: "ticks",
+        values: {
+          plant_plan: "Plant-wide calibration plans",
+          outside_lab: "Outside-lab selection & dispatch",
+          new_gauge_approval: "New-gauge inspection & approval",
+          audit_handling: "IATF / customer audit handling",
+          frequency_review: "Frequency reviews",
+          software_entry: "Calibration software / ERP entries",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 48,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          out_of_tolerance: "Out-of-tolerance actions",
+          repair_adjust: "Minor repairs & zero setting",
+          repeatability: "Repeatability issues",
+          environment: "Lab temperature / humidity excursions",
+          master_issue: "Master damage / overdue actions",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          general_engg: "General engineering / machine shops",
+          pharma: "Pharma",
+          fmcg: "Food / FMCG",
+          power_plant: "Power plant",
+          oil_gas: "Oil & gas / chemical",
+          defence: "Defence / aerospace",
+          steel_plant: "Steel plant / foundry / forging",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T36 — MATERIAL LAB TECHNICIAN (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the test and the metal ("Material Lab
+  // Technician · {level} · {experience} · {matlab_test_type} · {material_worked} · {city}").
+  // Both lead; hardness, spectro and UTM makes follow. Every `values` key is the STORED value;
+  // the negative claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_material_lab",
+    section_title: "Tests, equipment & capability",
+    tier_section_titles: { easy: "Tests & equipment" },
+    capability: [
+      {
+        from: "matlab_test_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Tests done",
+        kind: "chips",
+        values: {
+          spectro: "Spectro / chemistry",
+          hardness: "Hardness",
+          tensile: "Tensile (UTM)",
+          impact: "Impact (Charpy / Izod)",
+          microstructure: "Microstructure",
+          case_depth: "Case depth",
+          salt_spray: "Salt spray",
+          sand_testing: "Sand testing",
+          wet_chemical: "Wet chemical analysis",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Materials tested",
+        kind: "chips",
+        values: {
+          mild_steel: "MS / carbon steel",
+          alloy_steel: "Alloy steel",
+          stainless: "Stainless steel",
+          cast_iron: "CI / SG iron",
+          aluminium: "Aluminium",
+          brass: "Brass / copper",
+          plastic: "Plastics",
+          rubber: "Rubber",
+          foundry_sand: "Foundry sand",
+        },
+      },
+      {
+        from: "matlab_hardness_method",
+        rank: 23,
+        label: "Hardness testers",
+        kind: "chips",
+        values: {
+          rockwell: "Rockwell",
+          brinell: "Brinell",
+          vickers: "Vickers",
+          micro_vickers: "Micro Vickers",
+          superficial: "Superficial",
+          portable: "Portable testers",
+          shore: "Shore A / D",
+          // `unknown` ("Hardness nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_spectro_make",
+        rank: 24,
+        maxValues: 4,
+        label: "Spectrometer makes",
+        kind: "chips",
+        values: {
+          spectro_ametek: "Spectro",
+          bruker: "Bruker",
+          thermo_arl: "Thermo ARL",
+          hitachi_oxford: "Hitachi / Oxford",
+          shimadzu: "Shimadzu",
+          metal_power: "Metal Power",
+          handheld_xrf: "Handheld XRF",
+          // `unknown` ("Spectro nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_machine_make",
+        rank: 25,
+        maxValues: 4,
+        label: "UTM / tester makes",
+        kind: "chips",
+        values: {
+          fie: "FIE",
+          saroj: "Saroj",
+          fine_fsa: "Fine",
+          blue_star: "Blue Star",
+          instron: "Instron",
+          zwick: "Zwick",
+          mitutoyo: "Mitutoyo",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_chemical_work",
+        rank: 41,
+        label: "Chemistry work",
+        kind: "ticks",
+        values: {
+          spectro_sparking: "Spectro sparking",
+          standardisation: "CRM standardisation",
+          carbon_sulphur: "Carbon-sulphur apparatus",
+          wet_titration: "Wet titration analysis",
+          ce_meter: "CE meter (foundry)",
+          grade_matching: "Grade matching (IS / EN / AISI)",
+          // `unknown` ("Chemistry ka kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_tensile_work",
+        rank: 42,
+        label: "Tensile work",
+        kind: "ticks",
+        values: {
+          uts: "UTS",
+          yield_proof: "Yield / proof stress",
+          elongation: "Elongation & reduction of area",
+          specimen_marking: "Specimen marking & gauge length",
+          bend_test: "Bend tests",
+          proof_load: "Proof load (fasteners)",
+          compression: "Compression tests",
+          // `unknown` ("UTM nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_metallography",
+        rank: 43,
+        label: "Metallography",
+        kind: "ticks",
+        values: {
+          cutting_mounting: "Sample cutting & mounting",
+          polishing_etching: "Polishing & etching",
+          grain_size: "Grain size",
+          inclusion_rating: "Inclusion rating",
+          nodularity: "Nodularity / graphite flakes",
+          decarb: "Decarb depth",
+          case_depth_traverse: "Case depth by micro-hardness traverse",
+          image_analysis: "Image-analysis software",
+          // `unknown` ("Microstructure nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_other_tests",
+        rank: 44,
+        label: "Other tests",
+        kind: "ticks",
+        values: {
+          mfi: "MFI (plastics)",
+          ash_content: "Ash / filler content",
+          moisture: "Moisture content",
+          rheometer: "Rheometer (rubber)",
+          density: "Density / specific gravity",
+          coating_thickness: "Coating thickness",
+          salt_spray_chamber: "Salt-spray chamber running",
+          sand_properties: "Sand permeability / GCS / moisture",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_test_standard",
+        rank: 45,
+        label: "Standards followed",
+        kind: "chips",
+        values: {
+          is_standards: "IS standards",
+          astm: "ASTM",
+          iso: "ISO",
+          jis_din: "JIS / DIN",
+          customer_standard: "Customer standards",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_records",
+        rank: 46,
+        label: "Records",
+        kind: "ticks",
+        values: {
+          test_certificate: "Test certificates / reports",
+          mill_tc_verify: "Mill-TC verification",
+          heat_register: "Heat / batch registers",
+          ht_lot_report: "Heat-treatment lot reports",
+          ppap_material_report: "PPAP material reports",
+          erp_entry: "SAP / ERP entries",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_lab_type",
+        rank: 47,
+        label: "Lab type",
+        kind: "fact",
+        values: {
+          in_house: "In-house lab",
+          nabl_in_house: "In-house NABL lab",
+          nabl_third_party: "NABL third-party lab",
+          non_nabl_third_party: "Non-NABL third-party lab",
+        },
+      },
+      {
+        from: "matlab_nabl_work",
+        rank: 48,
+        label: "NABL / 17025 work",
+        kind: "ticks",
+        values: {
+          nabl_assessment: "NABL assessments faced",
+          pt_ilc: "PT / ILC participation",
+          uncertainty: "Uncertainty of measurement",
+          sop_writing: "SOPs & work instructions",
+          equipment_calibration: "Lab-equipment calibration plans",
+          internal_audit: "Internal audits",
+          authorised_signatory: "Authorised signatory",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_failure_analysis",
+        rank: 49,
+        label: "Failure analysis",
+        kind: "ticks",
+        values: {
+          fracture_analysis: "Fracture analysis",
+          ht_defect: "Heat-treatment defects",
+          casting_defect: "Casting-defect diagnosis",
+          material_mixup: "Raw-material mix-ups",
+          customer_complaint: "Customer-complaint reports",
+          supplier_rejection: "Supplier rejections",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "matlab_qualification_branch",
+        // A credential row like the tool maker's Training institute — every answer is a real
+        // claim, so all eight print.
+        rank: 63,
+        label: "Qualification",
+        kind: "fact",
+        values: {
+          bsc_chemistry: "B.Sc Chemistry",
+          diploma_metallurgy: "Diploma Metallurgy",
+          btech_metallurgy: "B.Tech / BE Metallurgy",
+          diploma_mech: "Diploma Mechanical",
+          btech_mech: "B.Tech / BE Mechanical",
+          other_degree: "Other degree",
+          iti_promoted: "ITI, promoted to lab",
+          learnt_on_job: "Learnt on the job",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          foundry: "Foundry",
+          forging: "Forging",
+          heat_treatment: "Heat-treatment shops",
+          automotive: "Automobile parts",
+          fasteners: "Fasteners",
+          bearings: "Bearings",
+          steel_plant: "Steel plant / rolling mills",
+          plastics_rubber: "Plastic / rubber parts",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T39 — ROBOT OPERATOR / PROGRAMMER (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the brand and the application ("Robot
+  // Operator / Programmer · {level} · {experience} · {robot_brand} · {robot_application} ·
+  // {city}"). Both lead; program depth follows as the skill that moves the pay band. Every
+  // `values` key is the STORED value; the negative claims (`unknown`, `none`) have no entry.
+  {
+    pack_id: "qp_robotics",
+    section_title: "Robots, applications & capability",
+    tier_section_titles: { easy: "Robots & applications" },
+    capability: [
+      {
+        from: "robot_brand",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Robot brands",
+        kind: "chips",
+        values: {
+          fanuc: "Fanuc",
+          yaskawa: "Yaskawa / Motoman",
+          abb: "ABB",
+          kuka: "KUKA",
+          kawasaki: "Kawasaki",
+          nachi: "Nachi",
+          panasonic: "Panasonic",
+          universal_robots: "Universal Robots (cobots)",
+          // `unknown` ("Koi aur robot") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_application",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Applications",
+        kind: "chips",
+        values: {
+          arc_welding: "Arc / MIG welding",
+          spot_welding: "Spot welding",
+          material_handling: "Material handling",
+          machine_tending: "Machine tending",
+          palletising: "Palletising",
+          painting: "Painting",
+          sealing: "Sealing / glue",
+          // `unknown` ("Koi aur kaam") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_program_work",
+        rank: 23,
+        label: "Program depth",
+        kind: "fact",
+        values: {
+          run_only: "Runs programs",
+          touch_up: "Point touch-up",
+          edit_program: "Edits & copies programs",
+          teach_new: "Teaches new programs",
+          offline_program: "Offline programming",
+        },
+      },
+      {
+        from: "robot_part_type",
+        rank: 24,
+        maxValues: 4,
+        label: "Parts handled",
+        kind: "chips",
+        values: {
+          biw: "BIW / car-body panels",
+          two_wheeler_frame: "Two-wheeler frames / chassis",
+          seat_frame: "Seat frames",
+          exhaust: "Exhaust / silencers",
+          chassis_parts: "Axle / suspension parts",
+          sheet_metal_parts: "Sheet-metal brackets / child parts",
+          casting_handling: "Casting / machined-part handling",
+          carton_bag: "Carton / bag palletising",
+          // `unknown` ("Koi aur") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          load_cycle_start: "Part loading & cycle start",
+          program_select: "Program selection",
+          alarm_reset: "Alarm reset & homing",
+          torch_tip_change: "Torch cleaning / tip & nozzle change",
+          tip_dressing: "Spot-gun tip dressing / change",
+          weld_check: "Weld checking",
+          jig_clamping: "Jig / fixture clamping",
+          daily_check_sheet: "Daily check sheets",
+        },
+      },
+      {
+        from: "robot_teaching_work",
+        rank: 42,
+        label: "Teaching",
+        kind: "ticks",
+        values: {
+          motion_points: "Joint / linear / circular points",
+          tcp_setting: "TCP / tool-frame setting",
+          user_frame: "User frame / work-object setting",
+          weld_instructions: "Weld start-end & weaving",
+          cycle_time: "Cycle-time reduction",
+          program_shift: "Program shift / mirror",
+          io_signals: "I/O & interlock signals",
+        },
+      },
+      {
+        from: "robot_weld_parameters",
+        rank: 43,
+        label: "Weld parameters",
+        kind: "ticks",
+        values: {
+          current_voltage: "Current & voltage",
+          wire_feed: "Wire-feed speed",
+          travel_speed: "Travel speed",
+          weaving: "Weaving",
+          spot_schedule: "Spot schedules",
+          gas_flow: "Gas flow",
+          // `unknown` ("Welding robot par kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_cell_equipment",
+        rank: 44,
+        maxValues: 4,
+        label: "Cell equipment",
+        kind: "chips",
+        values: {
+          positioner: "Positioners / turntables",
+          track_axis: "Robot tracks (7th axis)",
+          servo_gun: "Servo spot guns",
+          torch_cleaner: "Torch cleaners / wire cutters",
+          gripper: "Pneumatic / vacuum grippers",
+          safety_devices: "Light curtains / safety doors",
+          vision_camera: "Vision cameras",
+          tool_changer: "Tool changers",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_offline_software",
+        rank: 45,
+        label: "Offline software",
+        kind: "chips",
+        values: {
+          roboguide: "Fanuc RoboGuide",
+          robotstudio: "ABB RobotStudio",
+          motosim: "Yaskawa MotoSim",
+          kuka_sim: "KUKA.Sim",
+          delmia: "Delmia",
+          process_simulate: "Process Simulate",
+          // `unknown` ("Koi nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_plc_interface",
+        rank: 46,
+        label: "PLC interface",
+        kind: "ticks",
+        values: {
+          io_check: "Robot I/O signal checks",
+          handshake_signals: "Interlock / handshake signals",
+          fieldbus_setup: "Profinet / EtherNet-IP / DeviceNet",
+          plc_programming: "PLC ladder programming",
+          safety_config: "Robot safety (DCS / SafeMove)",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "robot_maintenance",
+        rank: 47,
+        label: "Maintenance",
+        kind: "ticks",
+        values: {
+          greasing: "Reducer / axis greasing",
+          battery_change: "Encoder battery change",
+          controller_cleaning: "Controller cleaning & cable checks",
+          motor_reducer_change: "Motor / reducer change",
+          gun_torch_overhaul: "Spot-gun / torch overhaul",
+          pm_schedule: "PM schedules",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 48,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE. The pack reads weld symbols, so the
+        // basic label carries them — the welder's map does the same.
+        values: {
+          basic_drawing: "Reads 2D drawings and weld symbols",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          teardown_test: "Chisel / teardown tests",
+          cut_section: "Cut-section / penetration checks",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          collision_recovery: "Collision / servo-alarm recovery",
+          mastering: "Re-mastering",
+          position_shift: "Position-shift correction",
+          wire_feed_fault: "Wire-feed / torch faults",
+          weld_defect: "Weld defects",
+          cable_dresspack: "Cable / dress-pack faults",
+          pendant_comm_fault: "Pendant / communication faults",
+          backup_restore: "Program backup & restore",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Car plants / vendors",
+          two_wheeler: "Two-wheelers",
+          construction_equipment: "Tractors / construction equipment",
+          appliances: "Appliances",
+          fmcg: "FMCG / packaging lines",
+          foundry: "Die casting / foundry",
+          general_engg: "General engineering / fabrication",
+          system_integrator: "Robot integrator companies",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T40 — INSTRUMENTATION TECHNICIAN (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the instrument and the system
+  // ("Instrumentation Technician · {level} · {experience} · {instr_instrument_type} ·
+  // {instr_control_system} · {city}"). Both lead; makes and documents follow. Every `values` key
+  // is the STORED value; the negative claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_instrumentation",
+    section_title: "Instruments, systems & capability",
+    tier_section_titles: { easy: "Instruments & systems" },
+    capability: [
+      {
+        from: "instr_instrument_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Instruments",
+        kind: "chips",
+        values: {
+          pressure: "Pressure transmitters / gauges",
+          temperature: "RTDs / thermocouples",
+          flow: "Flow meters",
+          level: "Level transmitters",
+          control_valve: "Control valves / positioners",
+          on_off_valve: "On-off valves / solenoids",
+          analyser: "Analysers",
+          weighing: "Load cells / weighing",
+        },
+      },
+      {
+        from: "instr_control_system",
+        rank: 22,
+        inHeadline: true,
+        label: "Control systems",
+        kind: "chips",
+        values: {
+          dcs: "DCS",
+          plc: "PLC",
+          scada: "SCADA",
+          pid_controller: "PID controllers / recorders",
+          pneumatic_control: "Pneumatic controls",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_brand",
+        rank: 23,
+        maxValues: 4,
+        label: "Instrument makes",
+        kind: "chips",
+        values: {
+          emerson_rosemount: "Emerson / Rosemount",
+          yokogawa: "Yokogawa",
+          endress_hauser: "Endress+Hauser",
+          honeywell: "Honeywell",
+          abb: "ABB",
+          siemens: "Siemens",
+          fisher: "Fisher valves",
+          forbes_marshall: "Forbes Marshall",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_drawing_reading",
+        rank: 24,
+        label: "Drawings read",
+        kind: "ticks",
+        values: {
+          p_and_id: "P&IDs",
+          loop_diagram: "Loop diagrams",
+          hookup_drawing: "Hook-up drawings",
+          data_sheet: "Data sheets",
+          cable_schedule: "Cable schedules",
+          logic_diagram: "Logic / interlock diagrams",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_calibration_tools",
+        rank: 41,
+        maxValues: 4,
+        label: "Calibration tools",
+        kind: "chips",
+        values: {
+          hart_communicator: "HART communicators",
+          multimeter: "Multimeters",
+          loop_calibrator: "Loop calibrators",
+          pressure_calibrator: "Pressure calibrators / hand pumps",
+          dead_weight_tester: "Dead-weight testers",
+          temperature_bath: "Temperature baths",
+          decade_box: "Decade boxes",
+          megger: "Meggers",
+        },
+      },
+      {
+        from: "instr_valve_work",
+        rank: 42,
+        label: "Valve work",
+        kind: "ticks",
+        values: {
+          stroke_check: "Stroke checking",
+          positioner_calibration: "Positioner calibration",
+          gland_packing: "Gland-packing replacement",
+          actuator_diaphragm: "Actuator diaphragm replacement",
+          valve_overhaul: "Valve overhauling",
+          air_set: "Air-filter regulators & tubing",
+          // `unknown` ("Valve ka kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_dcs_brand",
+        rank: 43,
+        maxValues: 4,
+        label: "DCS / PLC worked on",
+        kind: "chips",
+        values: {
+          yokogawa_centum: "Yokogawa Centum",
+          honeywell_experion: "Honeywell Experion / TDC",
+          emerson_deltav: "Emerson DeltaV",
+          abb_dcs: "ABB DCS",
+          siemens_pcs: "Siemens PCS7",
+          siemens_plc: "Siemens PLC",
+          allen_bradley: "Allen-Bradley",
+          // `unknown` ("DCS ya PLC par kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_dcs_work",
+        rank: 44,
+        label: "DCS / PLC work",
+        kind: "ticks",
+        values: {
+          marshalling_termination: "Marshalling-panel termination",
+          io_card_check: "I/O card & barrier checks",
+          signal_forcing: "Signal forcing / simulation",
+          range_setpoint: "Range & alarm set-point changes",
+          interlock_testing: "Interlock & trip testing",
+          logic_change: "Logic / graphics changes",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_hazardous_area",
+        rank: 46,
+        label: "Hazardous-area work",
+        kind: "ticks",
+        values: {
+          flameproof: "Flameproof instruments & JB",
+          intrinsic_safe: "Intrinsically safe loops",
+          work_permit: "Work-permit working",
+          gas_detector: "Gas-detector calibration",
+          // `unknown` ("Hazardous area me kaam nahi kiya") has no entry.
+        },
+      },
+      {
+        from: "instr_advanced_work",
+        rank: 47,
+        label: "Advanced work",
+        kind: "ticks",
+        values: {
+          pid_tuning: "PID loop tuning",
+          cems: "CEMS / analyser-shelter maintenance",
+          vibration_monitoring: "Vibration monitoring",
+          fieldbus: "Fieldbus / Profibus instruments",
+          precommissioning: "Pre-commissioning & loop folders",
+          calibration_records: "Calibration records & audit documents",
+          spares_vendor: "Spares / AMC vendor handling",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "instr_trade_certificate",
+        // A credential row like the electrician's Licence — `unknown` ("Koi certificate nahi")
+        // has no entry, same rule.
+        rank: 63,
+        label: "Certificates",
+        kind: "fact",
+        values: {
+          iti_instrument_mechanic: "ITI Instrument Mechanic",
+          iti_imcp: "ITI IMCP",
+          iti_electronics_electrician: "ITI Electronics / Electrician",
+          diploma_instrumentation: "Diploma Instrumentation",
+          nac_apprenticeship: "NAC apprenticeship",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          reading_drift: "Wrong / drifting readings",
+          loop_open: "Open loops (no 4–20 mA)",
+          valve_hunting: "Hunting / stuck valves",
+          impulse_line_choke: "Choked / leaking impulse lines",
+          sensor_open: "Open thermocouples / RTDs",
+          signal_noise: "Earthing / noise faults",
+          io_card_fault: "I/O card / barrier faults",
+          analyser_fault: "Analyser faults",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          chemical: "Chemical / petrochemical",
+          pharma: "Pharma",
+          oil_gas: "Oil & gas / refinery",
+          power_plant: "Power plant",
+          steel_plant: "Steel plant",
+          cement: "Cement",
+          fmcg: "Food / dairy / beverage",
+          fertiliser: "Fertiliser",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T41 — HVAC / RAC TECHNICIAN (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the system and the work ("HVAC / RAC
+  // Technician · {level} · {experience} · {hvac_system_type} · {hvac_work_type} · {city}"). Both
+  // lead; brand, gas and tonnage follow. Every `values` key is the STORED value; the negative
+  // claims (`unknown`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_hvac_rac",
+    section_title: "Systems, brands & capability",
+    tier_section_titles: { easy: "Systems & brands" },
+    capability: [
+      {
+        from: "hvac_system_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Systems",
+        kind: "chips",
+        values: {
+          split_window: "Split / window / cassette AC",
+          ductable_package: "Ductable / package AC",
+          vrf_vrv: "VRF / VRV",
+          chiller: "Chiller plants",
+          ahu_fcu: "AHUs / FCUs / ducting",
+          cold_storage: "Cold storage / cold rooms",
+          ammonia_plant: "Ammonia plants",
+          process_chiller: "Process chillers",
+          precision_ac: "Precision AC",
+        },
+      },
+      {
+        from: "hvac_work_type",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Work done",
+        kind: "chips",
+        values: {
+          installation: "Installation",
+          copper_piping_brazing: "Copper piping / brazing",
+          gas_charging: "Gas charging / evacuation",
+          servicing: "Servicing",
+          breakdown_repair: "Breakdown repair",
+          plant_operation: "Plant operation",
+          preventive_maintenance: "Preventive maintenance",
+          commissioning: "Testing / commissioning",
+        },
+      },
+      {
+        from: "hvac_brand",
+        rank: 23,
+        maxValues: 4,
+        label: "Brands",
+        kind: "chips",
+        values: {
+          voltas: "Voltas",
+          blue_star: "Blue Star",
+          daikin: "Daikin",
+          carrier: "Carrier",
+          trane: "Trane",
+          york: "York",
+          hitachi: "Hitachi",
+          kirloskar: "Kirloskar",
+          // `unknown` ("Koi aur brand") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_refrigerant",
+        rank: 24,
+        label: "Refrigerants",
+        kind: "chips",
+        values: {
+          r_twenty_two: "R22",
+          r_thirty_two: "R32",
+          r_four_ten_a: "R410A",
+          r_one_three_four_a: "R134a",
+          r_four_zero_seven_c: "R407C",
+          r_four_zero_four_a: "R404A",
+          ammonia: "Ammonia",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_capacity",
+        // Beside the brands, as the tonnage rows on the metal-forming maps.
+        rank: 25,
+        label: "Biggest system",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "5": "Up to 5 TR",
+          "20": "5–20 TR",
+          "100": "20–100 TR",
+          "500": "100–500 TR",
+          "1000": "Over 500 TR",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_tools",
+        rank: 41,
+        maxValues: 4,
+        label: "Tools",
+        kind: "chips",
+        values: {
+          manifold_gauge: "Manifold gauges",
+          vacuum_pump: "Vacuum pumps",
+          brazing_set: "Brazing sets",
+          flaring_tools: "Flaring / swaging / bending tools",
+          clamp_meter: "Clamp meters / multimeters",
+          megger: "Meggers",
+          leak_test: "Leak detectors / nitrogen tests",
+          recovery_unit: "Recovery machines",
+          anemometer: "Anemometers",
+        },
+      },
+      {
+        from: "hvac_compressor_type",
+        rank: 42,
+        label: "Compressors",
+        kind: "chips",
+        values: {
+          rotary: "Rotary",
+          scroll: "Scroll",
+          reciprocating: "Reciprocating",
+          screw: "Screw",
+          centrifugal: "Centrifugal",
+          inverter: "Inverter compressors",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_electrical_controls",
+        rank: 43,
+        label: "Electrical & controls",
+        kind: "ticks",
+        values: {
+          wiring_diagram: "Wiring from diagrams",
+          starter_components: "Contactors / relays / capacitors / OLR",
+          pcb_fault: "PCB / inverter-board fault-finding",
+          sensor_switch_setting: "Thermostat / sensor / pressure-switch setting",
+          vfd: "VFDs",
+          bms: "BMS operation",
+          chiller_panel: "Chiller-panel alarms",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_plant_work",
+        rank: 44,
+        label: "Plant work",
+        kind: "ticks",
+        values: {
+          chiller_operation: "Chiller start-stop & log books",
+          condenser_descaling: "Condenser descaling",
+          cooling_tower: "Cooling-tower maintenance",
+          pump_valve: "Chilled-water pumps & valves",
+          ahu_maintenance: "AHU filters / belts / bearings",
+          oil_filter_change: "Compressor oil & filter-drier change",
+          // `unknown` ("Chiller plant par kaam nahi kiya") has no entry.
+        },
+      },
+      {
+        from: "hvac_cleanroom_work",
+        rank: 45,
+        label: "Clean-room work",
+        kind: "ticks",
+        values: {
+          hepa_change: "HEPA filter change",
+          differential_pressure: "Differential-pressure checks",
+          temp_rh_control: "Temperature / RH control",
+          air_balancing: "Air balancing",
+          validation_support: "Validation support (PAO / particle count)",
+          // `unknown` ("Clean room me kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_site_handling",
+        rank: 46,
+        label: "Site handling",
+        kind: "ticks",
+        values: {
+          layout_from_drawing: "Piping / ducting layout from drawings",
+          heat_load: "Heat-load / tonnage estimation",
+          material_measurement: "Material lists & measurements",
+          customer_report: "Customer handling & service reports",
+          amc_schedule: "AMC schedules",
+          work_allocation: "Helper / technician allocation",
+          commissioning_handover: "Testing / commissioning / handover",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_ammonia_work",
+        rank: 47,
+        label: "Ammonia work",
+        kind: "ticks",
+        values: {
+          compressor_operation: "Ammonia compressor running",
+          defrosting: "Defrosting",
+          oil_drain_purging: "Oil drain & air purging",
+          ammonia_charging: "Ammonia charging",
+          leak_safety: "Leak response & mask work",
+          ice_plant_freezer: "Ice plants / blast freezers",
+          // `unknown` ("Ammonia par kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "hvac_trade_certificate",
+        // A credential row like the electrician's Licence — `unknown` ("Koi certificate nahi")
+        // has no entry, same rule.
+        rank: 63,
+        label: "Certificates",
+        kind: "fact",
+        values: {
+          iti_mrac: "ITI RAC / MRAC",
+          iti_other_trade: "ITI Electrician / Fitter",
+          diploma: "Diploma",
+          oem_training: "OEM training",
+          skill_india: "Skill India / PMKVY",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          low_cooling: "Low cooling",
+          gas_leak: "Gas-leak detection",
+          compressor_trip: "Compressor trip / no-start",
+          hp_lp_trip: "HP / LP trips",
+          compressor_replacement: "Compressor replacement",
+          pcb_comm_error: "PCB / communication errors",
+          icing_drain: "Icing / drain chokes",
+          chiller_alarm: "Chiller alarms",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          pharma: "Pharma plants",
+          food_cold_chain: "Food / dairy / cold chain",
+          industrial_plant: "Factories / industrial plants",
+          commercial_building: "Malls / offices / commercial buildings",
+          hospital: "Hospitals",
+          hotel: "Hotels",
+          data_centre: "Data centres / IT parks",
+          residential: "Homes / shops",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T42 — UTILITY OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the plant ("Utility Operator · {level} ·
+  // {experience} · {utility_plant_type} · {city}"). The plant leads; fuel, make and capacity
+  // follow, as the hardware behind the advertised word. Every `values` key is the STORED value;
+  // the negative claims (`unknown`, `no_certificate`, `not_boiler`) have no entry.
+  {
+    pack_id: "qp_utility",
+    section_title: "Plants, boilers & capability",
+    tier_section_titles: { easy: "Plants & boilers" },
+    capability: [
+      {
+        from: "utility_plant_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Plants run",
+        kind: "chips",
+        values: {
+          steam_boiler: "Steam boilers",
+          thermic_fluid_heater: "Thermic fluid heaters",
+          air_compressor: "Air compressors / dryers",
+          dg_set: "DG sets",
+          etp_stp: "ETP / STP",
+          water_treatment: "WTP / RO / DM / softeners",
+          cooling_tower_pump: "Cooling towers / pump houses",
+          chiller_plant: "Chiller plants",
+          substation_log: "HT / LT panels",
+        },
+      },
+      {
+        from: "utility_boiler_fuel",
+        rank: 22,
+        label: "Boiler fuels",
+        kind: "chips",
+        values: {
+          coal: "Coal",
+          biomass: "Biomass / briquettes",
+          furnace_oil: "Furnace / LDO oil",
+          diesel: "Diesel / HSD",
+          natural_gas: "PNG / natural gas",
+          petcoke: "Petcoke",
+          bagasse: "Bagasse",
+          // `unknown` ("Boiler nahi chalata") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_boiler_make",
+        rank: 23,
+        maxValues: 4,
+        label: "Boiler makes",
+        kind: "chips",
+        values: {
+          thermax: "Thermax",
+          forbes_marshall: "Forbes Marshall",
+          cheema: "Cheema",
+          isgec: "ISGEC",
+          thermodyne: "Thermodyne",
+          // `unknown` ("Koi aur make ya boiler nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_boiler_capacity",
+        // Beside the makes, as the tonnage rows on the metal-forming maps.
+        rank: 24,
+        label: "Boiler size",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "1": "Up to 1 TPH",
+          "3": "1–3 TPH",
+          "10": "3–10 TPH",
+          "30": "10–30 TPH",
+          "50": "Over 30 TPH",
+          // `unknown` ("Boiler nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          start_stop: "Start-stop & changeover",
+          log_book: "Log-book readings",
+          blow_down: "Blow-down",
+          water_testing: "Water testing (pH / TDS / hardness)",
+          chemical_dosing: "Chemical dosing",
+          fuel_ash_handling: "Fuel feeding & ash removal",
+          fuel_stock: "Fuel-stock accounting",
+          safety_check: "Safety-valve & gauge-glass checks",
+        },
+      },
+      {
+        from: "utility_compressor_type",
+        rank: 42,
+        label: "Compressors & dryers",
+        kind: "chips",
+        values: {
+          screw: "Screw compressors",
+          reciprocating: "Reciprocating compressors",
+          oil_free: "Oil-free compressors",
+          centrifugal: "Centrifugal compressors",
+          refrigerant_dryer: "Refrigerant dryers",
+          desiccant_dryer: "Desiccant dryers",
+          // `unknown` ("Compressor nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_compressor_make",
+        rank: 43,
+        maxValues: 4,
+        label: "Compressor makes",
+        kind: "chips",
+        values: {
+          atlas_copco: "Atlas Copco",
+          elgi: "ELGi",
+          ingersoll_rand: "Ingersoll Rand",
+          kirloskar: "Kirloskar",
+          chicago_pneumatic: "Chicago Pneumatic",
+          kaeser: "Kaeser",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_dg_work",
+        rank: 44,
+        label: "DG work",
+        kind: "ticks",
+        values: {
+          start_changeover: "Manual start-stop & changeover",
+          amf_panel: "AMF-panel auto changeover",
+          synchronising: "DG synchronising",
+          daily_check: "Diesel / oil / coolant / battery checks",
+          b_check: "B-checks, oil & filter change",
+          fuel_report: "Unit & diesel-average reports",
+          // `unknown` ("DG nahi chalaya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_water_plant",
+        rank: 45,
+        maxValues: 4,
+        label: "Water plants",
+        kind: "chips",
+        values: {
+          etp: "ETP",
+          stp: "STP",
+          ro_plant: "RO plants",
+          dm_plant: "DM plants",
+          softener: "Softeners",
+          ultra_filtration: "UF plants",
+          mee_zld: "MEE / ZLD",
+          filter_press: "Filter presses",
+          // `unknown` ("Paani ke plant par kaam nahi kiya") has no entry.
+        },
+      },
+      {
+        from: "utility_boiler_work",
+        rank: 46,
+        label: "Boiler work",
+        kind: "ticks",
+        values: {
+          light_up: "Light-up & pressure raising",
+          burner_setting: "Burner cleaning & setting",
+          tube_cleaning: "Tube cleaning / soot blowing",
+          safety_trip_test: "Safety-valve & trip testing",
+          feed_water_control: "Feed-water treatment & TDS control",
+          steam_trap_prv: "Steam traps & PRVs",
+          annual_inspection: "Annual inspection & hydro-test prep",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_water_work",
+        rank: 47,
+        label: "Water-plant work",
+        kind: "ticks",
+        values: {
+          regeneration: "Softener / DM regeneration",
+          membrane_cip: "RO membrane cleaning (CIP)",
+          backwash: "Backwash",
+          dosing: "Alum / lime / poly dosing",
+          lab_testing: "pH / TDS / COD / BOD sample checks",
+          sludge_dewatering: "Sludge dewatering",
+          pcb_records: "Pollution-board records",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_records_planning",
+        rank: 48,
+        label: "Records & planning",
+        kind: "ticks",
+        values: {
+          fuel_report: "Steam-fuel & consumption reports",
+          ibr_register: "IBR inspection & boiler registers",
+          pm_schedule: "PM schedules & shutdown planning",
+          spares_indent: "Spares & chemical indents",
+          amc_vendor: "AMC vendor handling",
+          shift_roster: "Shift rosters",
+          energy_saving: "Energy saving & condensate recovery",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "utility_boiler_certificate",
+        // A credential row like the electrician's Licence. `no_certificate` and `not_boiler`
+        // are negative claims and have no entry — same rule as `drawing_reading: "none"`.
+        rank: 63,
+        label: "Boiler certificate",
+        kind: "fact",
+        values: {
+          second_class_attendant: "Second-class boiler attendant",
+          first_class_attendant: "First-class boiler attendant",
+          boe: "BOE (Boiler Operation Engineer)",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          low_steam_pressure: "Low steam pressure",
+          flame_failure: "Burner trips / flame failure",
+          low_water_trip: "Low-water trips",
+          compressor_trip: "Compressor trips",
+          air_pressure_drop: "Air-pressure drops / leakages",
+          dg_start_fault: "DG no-start faults",
+          pump_fault: "Pump airlock / gland / seal faults",
+          outlet_out_of_limit: "ETP outlet out of limits",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          pharma: "Pharma",
+          chemical: "Chemical",
+          textile: "Textile / dyeing",
+          fmcg: "Food / dairy / beverage",
+          paper_sugar: "Paper / sugar / distillery",
+          automotive: "Automobile / engineering plants",
+          power_plant: "Power plant",
+          facility: "Hospitals / hotels / malls",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T56 — FORKLIFT OPERATOR (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the truck and the work ("Forklift Operator
+  // · {level} · {experience} · {forklift_equipment} · {forklift_work_done} · {city}"). Both lead;
+  // power, tonnage and make follow. Every `values` key is the STORED value; the negative claims
+  // (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_forklift",
+    section_title: "Trucks, work & capability",
+    tier_section_titles: { easy: "Trucks & licences" },
+    capability: [
+      {
+        from: "forklift_equipment",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Trucks driven",
+        kind: "chips",
+        values: {
+          counterbalance: "Forklifts (counterbalance)",
+          reach_truck: "Reach trucks",
+          stacker: "Stackers",
+          bopt: "Battery pallet trucks",
+          order_picker: "Order pickers",
+          tow_truck: "Tow trucks / tuggers",
+          hydra_crane: "Hydra cranes",
+          telehandler: "Telehandlers",
+          hand_pallet: "Hand pallet trucks",
+        },
+      },
+      {
+        from: "forklift_work_done",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Work done",
+        kind: "chips",
+        values: {
+          truck_loading: "Truck loading / unloading",
+          container_stuffing: "Container stuffing",
+          rack_putaway: "Rack putaway",
+          line_feeding: "Line feeding",
+          shifting: "Dock-to-store shifting",
+          scrap_handling: "Scrap handling",
+          battery_charging: "Battery charging / swapping",
+        },
+      },
+      {
+        from: "forklift_power_type",
+        rank: 23,
+        label: "Power types",
+        kind: "chips",
+        values: {
+          diesel: "Diesel",
+          electric: "Battery / electric",
+          lpg: "LPG / CNG",
+        },
+      },
+      {
+        from: "forklift_capacity",
+        // The heaviest truck run — "Up to", never a lower bound.
+        rank: 24,
+        label: "Truck tonnage",
+        kind: "fact",
+        values: {
+          upto_three_ton: "Up to 3 T",
+          three_to_five_ton: "3–5 T",
+          five_to_ten_ton: "5–10 T",
+          above_ten_ton: "Over 10 T",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forklift_make",
+        rank: 25,
+        maxValues: 4,
+        label: "Truck makes",
+        kind: "chips",
+        values: {
+          godrej: "Godrej",
+          voltas: "Voltas",
+          toyota: "Toyota",
+          kion: "KION / OM / Linde",
+          jungheinrich: "Jungheinrich",
+          hyster: "Hyster / Yale",
+          ace: "ACE",
+          nilkamal: "Nilkamal",
+          // `unknown` ("Koi aur company") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forklift_work_area",
+        rank: 26,
+        label: "Work areas",
+        kind: "chips",
+        values: {
+          warehouse: "Warehouses / godowns",
+          shop_floor: "Shop floors",
+          yard: "Store / dispatch yards",
+          cold_storage: "Cold storages",
+          port_container_yard: "Ports / container yards",
+          project_site: "Project sites",
+        },
+      },
+      {
+        from: "forklift_licence",
+        // A credential row like the electrician's Licence — `none` ("Licence nahi hai") has no
+        // entry, same rule.
+        rank: 41,
+        label: "Licence",
+        kind: "fact",
+        values: {
+          lmv: "LMV licence",
+          hmv: "HMV licence",
+          forklift_endorsement: "Forklift-endorsed licence",
+          learner: "Learner licence",
+        },
+      },
+      {
+        from: "forklift_training_certificate",
+        rank: 42,
+        label: "Training certificate",
+        kind: "fact",
+        // `none` ("Certificate nahi hai") has no entry ON PURPOSE.
+        values: {
+          inhouse: "In-house training",
+          external_institute: "External / OEM training",
+          skill_council: "Skill India / NSDC",
+        },
+      },
+      {
+        from: "forklift_load_type",
+        rank: 43,
+        maxValues: 4,
+        label: "Loads handled",
+        kind: "chips",
+        values: {
+          pallet_load: "Pallets (cartons / bags)",
+          bins_crates: "Bins / trolleys / crates",
+          coil_sheet: "Steel coils / sheet bundles",
+          die_mould: "Dies / moulds",
+          drums: "Drums / barrels",
+          reels: "Paper reels / rolls",
+          long_load: "Long loads (pipes / bars)",
+          heavy_machinery: "Machines / heavy castings",
+        },
+      },
+      {
+        from: "forklift_daily_check",
+        rank: 44,
+        label: "Daily checks",
+        kind: "ticks",
+        values: {
+          brake_horn_light: "Brakes, horn & lights",
+          tyre: "Tyres",
+          hydraulic_chain: "Hydraulic leaks & chains",
+          fork_mast: "Forks & mast",
+          battery_level: "Battery water & charge",
+          engine_fluids: "Diesel / oil / coolant",
+          checklist_fill: "Daily checklists",
+          // `unknown` ("Checking koi aur karta hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forklift_rack_height",
+        rank: 45,
+        label: "Rack height",
+        kind: "fact",
+        values: {
+          upto_three_metre: "Up to 3 m",
+          three_to_six_metre: "3–6 m",
+          six_to_nine_metre: "6–9 m",
+          above_nine_metre: "Over 9 m",
+          // `unknown` ("Rack ka kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forklift_attachment",
+        rank: 46,
+        label: "Attachments",
+        kind: "chips",
+        values: {
+          side_shifter: "Side shifters",
+          fork_positioner: "Fork positioners",
+          roll_clamp: "Paper-roll clamps",
+          bale_clamp: "Bale / carton clamps",
+          drum_handler: "Drum handlers",
+          rotator: "Rotators",
+          coil_ram: "Coil rams / booms",
+          // `unknown` ("Sirf seedhe fork") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forklift_safety_work",
+        rank: 47,
+        label: "Safety & team work",
+        kind: "ticks",
+        values: {
+          operator_training: "New-operator training",
+          toolbox_talk: "Toolbox talks",
+          load_chart: "Load-chart checks",
+          traffic_rules: "Speed limits & pedestrian ways",
+          incident_report: "Near-miss / accident reports",
+          service_schedule: "Service schedules",
+          shift_deployment: "Shift deployment",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Faults caught",
+        kind: "ticks",
+        values: {
+          hydraulic_leak: "Hydraulic leaks",
+          mast_chain: "Loose chains / stuck masts",
+          brake_issue: "Weak brakes",
+          battery_drain: "Battery drain",
+          tyre_damage: "Tyre damage",
+          starting_problem: "No-start faults",
+          // `unknown` ("Maintenance ko bata deta hoon") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          fmcg: "FMCG / food / beverage",
+          logistics_warehouse: "Warehouses / 3PL / e-commerce",
+          steel_plant: "Steel plants / service centres",
+          pharma: "Pharma",
+          appliances: "Home appliances",
+          paper_packaging: "Paper / packaging",
+          general_engg: "General engineering",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T57 — CRANE OPERATOR / RIGGER (#3016): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: the hire is for the crane ("Crane Operator / Rigger ·
+  // {level} · {experience} · {crane_type} · {city}"). The crane leads; the role, the control and
+  // the tonnage follow. Every `values` key is the STORED value; the negative claims (`unknown`,
+  // `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_crane_rigging",
+    section_title: "Cranes, rigging & capability",
+    tier_section_titles: { easy: "Cranes & rigging" },
+    capability: [
+      {
+        from: "crane_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Cranes",
+        kind: "chips",
+        values: {
+          eot: "EOT / overhead cranes",
+          gantry_goliath: "Gantry / goliath cranes",
+          jib: "Jib cranes",
+          hoist: "Hoists / chain blocks",
+          hydra: "Hydra cranes",
+          mobile_crane: "Mobile cranes",
+          tower_crane: "Tower cranes",
+          ladle_crane: "Ladle cranes",
+          // `unknown` ("Koi aur crane") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_role",
+        rank: 22,
+        label: "Role",
+        kind: "fact",
+        values: {
+          crane_operator: "Crane operator",
+          rigger: "Rigger",
+          both: "Operator + rigger",
+          signalman: "Signalman",
+        },
+      },
+      {
+        from: "crane_control_type",
+        rank: 23,
+        label: "Controls",
+        kind: "chips",
+        values: {
+          cabin: "Cabin",
+          pendant: "Pendant",
+          radio_remote: "Radio remote",
+          // `unknown` ("Crane nahi chalata, rigging karta hoon") has no entry.
+        },
+      },
+      {
+        from: "crane_capacity",
+        // The heaviest crane worked — "Up to", never a lower bound.
+        rank: 24,
+        label: "Crane tonnage",
+        kind: "fact",
+        values: {
+          upto_five_ton: "Up to 5 T",
+          five_to_twenty_ton: "5–20 T",
+          twenty_to_fifty_ton: "20–50 T",
+          fifty_to_hundred_ton: "50–100 T",
+          above_hundred_ton: "Over 100 T",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_make",
+        rank: 25,
+        maxValues: 4,
+        label: "Crane makes",
+        kind: "chips",
+        values: {
+          electromech: "ElectroMech",
+          konecranes: "Konecranes / WMI",
+          demag: "Demag",
+          anupam: "Anupam",
+          mukand: "Mukand",
+          indef: "Indef",
+          ace: "ACE",
+          escorts: "Escorts",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_load_type",
+        rank: 26,
+        maxValues: 4,
+        label: "Loads lifted",
+        kind: "chips",
+        values: {
+          die_mould: "Dies / moulds",
+          coil: "Steel coils",
+          plate_bundle: "Plates / sheets / bundles",
+          billet_ingot: "Billets / ingots / blooms",
+          ladle_hot_metal: "Ladles / hot metal",
+          heavy_job: "Heavy castings / fabrication",
+          machine_erection: "Machine shifting / erection",
+          scrap_magnet: "Scrap (magnet / grab)",
+          construction_material: "Construction material",
+        },
+      },
+      {
+        from: "crane_lifting_tackle",
+        rank: 41,
+        maxValues: 4,
+        label: "Lifting tackle",
+        kind: "chips",
+        values: {
+          wire_rope_sling: "Wire-rope slings",
+          web_sling: "Web / belt slings",
+          chain_sling: "Chain slings",
+          shackle: "D / bow shackles",
+          eye_bolt: "Eye bolts",
+          lifting_beam: "Lifting beams / spreaders",
+          c_hook: "C-hooks / coil hooks",
+          plate_clamp: "Plate clamps",
+          magnet: "Magnets",
+        },
+      },
+      {
+        from: "crane_daily_check",
+        rank: 42,
+        label: "Daily checks",
+        kind: "ticks",
+        values: {
+          limit_switch: "Limit switches",
+          brake: "Brakes",
+          rope_hook: "Wire ropes & hook latches",
+          hooter_light: "Hooters & lights",
+          tackle_condition: "Sling / shackle condition",
+          emergency_stop: "Emergency stops",
+          log_book: "Checklists / log books",
+          // `unknown` ("Checking koi aur karta hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_rigging_work",
+        rank: 43,
+        label: "Rigging work",
+        kind: "ticks",
+        values: {
+          load_estimation: "Load estimation",
+          cg_slinging: "CG-based slinging",
+          sling_angle_swl: "Sling angle & SWL checks",
+          hand_signal: "Hand signals",
+          tag_line: "Tag-line handling",
+          chain_block_winch: "Chain blocks / winches",
+          roller_jack: "Roller / jack shifting",
+          // `unknown` ("Rigging nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_special_lift",
+        rank: 44,
+        label: "Special lifts",
+        kind: "ticks",
+        values: {
+          die_change: "Press-shop die changes",
+          mould_change: "Moulding-machine mould changes",
+          tandem_lift: "Tandem lifts",
+          load_turning: "Load turning",
+          ladle_pouring: "Ladle pouring",
+          erection_lift: "High erection lifts",
+          trailer_loading: "Trailer loading",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_tackle_certificate",
+        rank: 45,
+        label: "Tackle certification",
+        kind: "ticks",
+        values: {
+          swl_marking: "SWL markings",
+          third_party_certificate: "Third-party test certificates",
+          colour_code: "Test due-date / colour codes",
+          load_test: "Load-test records",
+          tackle_rejection: "Damaged-sling rejection",
+          // `unknown` ("Yeh supervisor dekhta hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_licence_certificate",
+        rank: 46,
+        label: "Licences & certificates",
+        kind: "chips",
+        values: {
+          inhouse_certificate: "In-house crane training",
+          external_certificate: "External crane / rigging certificate",
+          hmv: "HMV licence",
+          lmv: "LMV licence",
+          height_pass: "Height pass / medical fitness",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "crane_safety_work",
+        rank: 47,
+        label: "Safety & team work",
+        kind: "ticks",
+        values: {
+          lifting_plan: "Lifting plans",
+          work_permit: "Work permits",
+          barricading: "Barricading",
+          toolbox_talk: "Toolbox talks",
+          team_training: "Operator / rigger training",
+          tackle_register: "Tackle registers",
+          shift_deployment: "Shift deployment",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Faults caught",
+        kind: "ticks",
+        values: {
+          brake_slip: "Brake slip",
+          limit_switch_fault: "Limit-switch faults",
+          rope_damage: "Wire-rope damage",
+          load_swing: "Load swing",
+          travel_jerk: "Travel jerks / noise",
+          pendant_fault: "Pendant / remote faults",
+          // `unknown` ("Maintenance ko bata deta hoon") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          steel_plant: "Steel plant / rolling mills",
+          foundry_forging: "Foundry / forging",
+          automotive: "Press shops / auto parts",
+          general_engg: "Heavy fabrication / engineering",
+          power_plant: "Power plant",
+          construction_site: "Construction / erection sites",
+          port_shipyard: "Ports / shipyards",
+          railways: "Railways / metro",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

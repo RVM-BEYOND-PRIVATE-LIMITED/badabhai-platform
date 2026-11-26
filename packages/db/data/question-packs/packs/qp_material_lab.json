@@ -1,0 +1,1308 @@
+{
+  "_why": "Role track for Material Testing / Met Lab Technician (T36), new trade (CEO pack v2). fam_material_lab binds NCO 3117.0300, 3119.0100 and 8122.6000.",
+  "_scope": "Quality and Metrology shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 5, medium 6, advanced 12); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T36 (Material Testing / Met Lab Technician). Status: NEW",
+  "pack_id": "qp_material_lab",
+  "version": 1,
+  "family_id": "fam_material_lab",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T36): new trade.",
+  "items": [
+    {
+      "question_key": "matlab_experience",
+      "min_tier": "easy",
+      "prompt_text": "Material testing lab me kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "matlab_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Material testing lab me kaam kiya hai?"
+    },
+    {
+      "question_key": "matlab_level",
+      "min_tier": "easy",
+      "prompt_text": "Lab me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "matlab_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "Lab Technician",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "Senior Technician",
+          "value_text": "senior_technician"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Lab In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Lab me helper, technician ya senior technician hain?"
+    },
+    {
+      "question_key": "matlab_senior_technician_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Test karke result aur test certificate aap khud final karte hain?",
+      "why_text": "Result khud final karne wale senior technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_senior_technician_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior check karke final karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "matlab_level"
+        },
+        "right": {
+          "const": [
+            "senior_technician"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "matlab_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Lab me kitne log aur kaunse test aapke under hain?",
+      "why_text": "Lab sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "matlab_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "matlab_test_type",
+      "min_tier": "medium",
+      "prompt_text": "Lab me aap kaunse test karte hain?",
+      "why_text": "Test ke hisaab se sahi lab ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_test_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "spectro",
+          "label_text": "Spectro se chemical composition",
+          "value_text": "spectro"
+        },
+        {
+          "option_key": "hardness",
+          "label_text": "Hardness testing",
+          "value_text": "hardness"
+        },
+        {
+          "option_key": "tensile",
+          "label_text": "UTM par tensile test",
+          "value_text": "tensile"
+        },
+        {
+          "option_key": "impact",
+          "label_text": "Impact test (Charpy / Izod)",
+          "value_text": "impact"
+        },
+        {
+          "option_key": "microstructure",
+          "label_text": "Microstructure",
+          "value_text": "microstructure"
+        },
+        {
+          "option_key": "case_depth",
+          "label_text": "Case depth",
+          "value_text": "case_depth"
+        },
+        {
+          "option_key": "salt_spray",
+          "label_text": "Salt spray test",
+          "value_text": "salt_spray"
+        },
+        {
+          "option_key": "sand_testing",
+          "label_text": "Sand testing (foundry)",
+          "value_text": "sand_testing"
+        },
+        {
+          "option_key": "wet_chemical",
+          "label_text": "Wet chemical analysis",
+          "value_text": "wet_chemical"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis material ki testing karte hain?",
+      "why_text": "Har material ki testing ka tareeka alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, carbon steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy steel (EN8, EN24, 20MnCr5)",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel (SS304, SS316)",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron aur SG iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium (ADC12, LM6)",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass ya copper",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "plastic",
+          "label_text": "Plastic / polymer",
+          "value_text": "plastic"
+        },
+        {
+          "option_key": "rubber",
+          "label_text": "Rubber",
+          "value_text": "rubber"
+        },
+        {
+          "option_key": "foundry_sand",
+          "label_text": "Foundry sand",
+          "value_text": "foundry_sand"
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_hardness_method",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse hardness tester par aapne kaam kiya hai?",
+      "why_text": "Hardness ka method har company me alag maanga jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_hardness_method",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rockwell",
+          "label_text": "Rockwell (HRC / HRB)",
+          "value_text": "rockwell"
+        },
+        {
+          "option_key": "brinell",
+          "label_text": "Brinell (BHN)",
+          "value_text": "brinell"
+        },
+        {
+          "option_key": "vickers",
+          "label_text": "Vickers (HV)",
+          "value_text": "vickers"
+        },
+        {
+          "option_key": "micro_vickers",
+          "label_text": "Micro Vickers",
+          "value_text": "micro_vickers"
+        },
+        {
+          "option_key": "superficial",
+          "label_text": "Rockwell superficial",
+          "value_text": "superficial"
+        },
+        {
+          "option_key": "portable",
+          "label_text": "Portable hardness tester",
+          "value_text": "portable"
+        },
+        {
+          "option_key": "shore",
+          "label_text": "Shore A / D (rubber, plastic)",
+          "value_text": "shore"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Hardness nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_spectro_make",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse make ka spectrometer aapne chalaya hai?",
+      "why_text": "Spectro chalane wale ko foundry aur forging me jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_spectro_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "spectro_ametek",
+          "label_text": "Spectro (SpectroMaxx / SpectroLab)",
+          "value_text": "spectro_ametek"
+        },
+        {
+          "option_key": "bruker",
+          "label_text": "Bruker (Q4 / Q8)",
+          "value_text": "bruker"
+        },
+        {
+          "option_key": "thermo_arl",
+          "label_text": "Thermo ARL",
+          "value_text": "thermo_arl"
+        },
+        {
+          "option_key": "hitachi_oxford",
+          "label_text": "Hitachi / Oxford (Foundry-Master)",
+          "value_text": "hitachi_oxford"
+        },
+        {
+          "option_key": "shimadzu",
+          "label_text": "Shimadzu",
+          "value_text": "shimadzu"
+        },
+        {
+          "option_key": "metal_power",
+          "label_text": "Metal Power",
+          "value_text": "metal_power"
+        },
+        {
+          "option_key": "handheld_xrf",
+          "label_text": "Handheld XRF / PMI gun",
+          "value_text": "handheld_xrf"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Spectro nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis line se hai?",
+      "why_text": "Lab ke kaam me padhai ki line employer sabse pehle dekhta hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bsc_chemistry",
+          "label_text": "B.Sc Chemistry",
+          "value_text": "bsc_chemistry"
+        },
+        {
+          "option_key": "diploma_metallurgy",
+          "label_text": "Diploma Metallurgy",
+          "value_text": "diploma_metallurgy"
+        },
+        {
+          "option_key": "btech_metallurgy",
+          "label_text": "B.Tech / BE Metallurgy",
+          "value_text": "btech_metallurgy"
+        },
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad lab me aaya",
+          "value_text": "iti_promoted"
+        },
+        {
+          "option_key": "learnt_on_job",
+          "label_text": "Dasvi ya barhvi ke baad lab me seekha",
+          "value_text": "learnt_on_job"
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_machine_make",
+      "min_tier": "hard",
+      "prompt_text": "UTM aur hardness tester kis make ke chalaye hain?",
+      "why_text": "Lab usi make par kaam kiya hua aadmi dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_machine_make",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fie",
+          "label_text": "FIE",
+          "value_text": "fie"
+        },
+        {
+          "option_key": "saroj",
+          "label_text": "Saroj",
+          "value_text": "saroj"
+        },
+        {
+          "option_key": "fine_fsa",
+          "label_text": "Fine (FSA)",
+          "value_text": "fine_fsa"
+        },
+        {
+          "option_key": "blue_star",
+          "label_text": "Blue Star",
+          "value_text": "blue_star"
+        },
+        {
+          "option_key": "instron",
+          "label_text": "Instron",
+          "value_text": "instron"
+        },
+        {
+          "option_key": "zwick",
+          "label_text": "Zwick Roell",
+          "value_text": "zwick"
+        },
+        {
+          "option_key": "mitutoyo",
+          "label_text": "Mitutoyo",
+          "value_text": "mitutoyo"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_chemical_work",
+      "min_tier": "hard",
+      "prompt_text": "Chemistry nikalne ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Chemistry ka kaam jaanne wale ko melting aur incoming lab me rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_chemical_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "spectro_sparking",
+          "label_text": "Spectro sample grinding aur sparking",
+          "value_text": "spectro_sparking"
+        },
+        {
+          "option_key": "standardisation",
+          "label_text": "CRM se standardisation / type correction",
+          "value_text": "standardisation"
+        },
+        {
+          "option_key": "carbon_sulphur",
+          "label_text": "Carbon sulphur apparatus (Strohlein / LECO)",
+          "value_text": "carbon_sulphur"
+        },
+        {
+          "option_key": "wet_titration",
+          "label_text": "Titration se wet analysis",
+          "value_text": "wet_titration"
+        },
+        {
+          "option_key": "ce_meter",
+          "label_text": "CE meter se bath sample (foundry)",
+          "value_text": "ce_meter"
+        },
+        {
+          "option_key": "grade_matching",
+          "label_text": "Grade match karna (IS / EN / AISI)",
+          "value_text": "grade_matching"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Chemistry ka kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_other_tests",
+      "min_tier": "hard",
+      "prompt_text": "Inme se kaunse test aapne khud kiye hain?",
+      "why_text": "Plastic, rubber aur coating ke test alag company maangti hain.",
+      "target_kind": "attribute",
+      "target_field": "matlab_other_tests",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mfi",
+          "label_text": "MFI (plastic)",
+          "value_text": "mfi"
+        },
+        {
+          "option_key": "ash_content",
+          "label_text": "Ash content / filler content",
+          "value_text": "ash_content"
+        },
+        {
+          "option_key": "moisture",
+          "label_text": "Moisture content",
+          "value_text": "moisture"
+        },
+        {
+          "option_key": "rheometer",
+          "label_text": "Rheometer (rubber)",
+          "value_text": "rheometer"
+        },
+        {
+          "option_key": "density",
+          "label_text": "Density / specific gravity",
+          "value_text": "density"
+        },
+        {
+          "option_key": "coating_thickness",
+          "label_text": "Coating thickness (plating, paint)",
+          "value_text": "coating_thickness"
+        },
+        {
+          "option_key": "salt_spray_chamber",
+          "label_text": "Salt spray chamber chalana",
+          "value_text": "salt_spray_chamber"
+        },
+        {
+          "option_key": "sand_properties",
+          "label_text": "Sand ki permeability, GCS, moisture",
+          "value_text": "sand_properties"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_lab_type",
+      "min_tier": "hard",
+      "prompt_text": "Aapki lab kis tarah ki hai?",
+      "why_text": "NABL lab aur plant ki lab ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_lab_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "in_house",
+          "label_text": "Company ki in-house lab",
+          "value_text": "in_house"
+        },
+        {
+          "option_key": "nabl_in_house",
+          "label_text": "In-house lab, NABL accredited",
+          "value_text": "nabl_in_house"
+        },
+        {
+          "option_key": "nabl_third_party",
+          "label_text": "Third-party testing lab, NABL accredited",
+          "value_text": "nabl_third_party"
+        },
+        {
+          "option_key": "non_nabl_third_party",
+          "label_text": "Third-party lab, NABL nahi hai",
+          "value_text": "non_nabl_third_party"
+        }
+      ]
+    },
+    {
+      "question_key": "matlab_tensile_work",
+      "min_tier": "hard",
+      "prompt_text": "UTM par aap kya kya khud nikalte hain?",
+      "why_text": "UTM ka poora kaam jaanne wale technician kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "matlab_tensile_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "uts",
+          "label_text": "UTS",
+          "value_text": "uts"
+        },
+        {
+          "option_key": "yield_proof",
+          "label_text": "Yield ya proof stress, extensometer se",
+          "value_text": "yield_proof"
+        },
+        {
+          "option_key": "elongation",
+          "label_text": "Elongation aur reduction of area",
+          "value_text": "elongation"
+        },
+        {
+          "option_key": "specimen_marking",
+          "label_text": "Test piece ki marking aur gauge length",
+          "value_text": "specimen_marking"
+        },
+        {
+          "option_key": "bend_test",
+          "label_text": "Bend test",
+          "value_text": "bend_test"
+        },
+        {
+          "option_key": "proof_load",
+          "label_text": "Proof load (fastener)",
+          "value_text": "proof_load"
+        },
+        {
+          "option_key": "compression",
+          "label_text": "Compression test",
+          "value_text": "compression"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "UTM nahi chalaya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "matlab_metallography",
+      "min_tier": "hard",
+      "prompt_text": "Microstructure ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Microstructure padhne wale ko heat treatment aur foundry me maang hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_metallography",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cutting_mounting",
+          "label_text": "Sample cutting aur mounting",
+          "value_text": "cutting_mounting"
+        },
+        {
+          "option_key": "polishing_etching",
+          "label_text": "Polishing aur etching",
+          "value_text": "polishing_etching"
+        },
+        {
+          "option_key": "grain_size",
+          "label_text": "Grain size",
+          "value_text": "grain_size"
+        },
+        {
+          "option_key": "inclusion_rating",
+          "label_text": "Inclusion rating",
+          "value_text": "inclusion_rating"
+        },
+        {
+          "option_key": "nodularity",
+          "label_text": "Nodularity aur graphite flakes",
+          "value_text": "nodularity"
+        },
+        {
+          "option_key": "decarb",
+          "label_text": "Decarb depth",
+          "value_text": "decarb"
+        },
+        {
+          "option_key": "case_depth_traverse",
+          "label_text": "Case depth, micro hardness traverse se",
+          "value_text": "case_depth_traverse"
+        },
+        {
+          "option_key": "image_analysis",
+          "label_text": "Image analysis software se phase nikalna",
+          "value_text": "image_analysis"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Microstructure nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "matlab_test_standard",
+      "min_tier": "hard",
+      "prompt_text": "Test kis standard ke hisaab se karte hain?",
+      "why_text": "Standard jaanne wale ki report customer maanta hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_test_standard",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "is_standards",
+          "label_text": "IS standards (IS 1608, IS 1500, IS 1586)",
+          "value_text": "is_standards"
+        },
+        {
+          "option_key": "astm",
+          "label_text": "ASTM (E8, E10, E18, A370)",
+          "value_text": "astm"
+        },
+        {
+          "option_key": "iso",
+          "label_text": "ISO standards (ISO 6892, ISO 6508)",
+          "value_text": "iso"
+        },
+        {
+          "option_key": "jis_din",
+          "label_text": "JIS / DIN",
+          "value_text": "jis_din"
+        },
+        {
+          "option_key": "customer_standard",
+          "label_text": "Customer ka standard (Maruti, Tata, Mahindra)",
+          "value_text": "customer_standard"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "matlab_records",
+      "min_tier": "hard",
+      "prompt_text": "Lab ke kaunse record aap khud banate hain?",
+      "why_text": "Record banana jaanne wale ko audit ke samay zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_records",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "test_certificate",
+          "label_text": "Test certificate / test report",
+          "value_text": "test_certificate"
+        },
+        {
+          "option_key": "mill_tc_verify",
+          "label_text": "Supplier ka mill TC verify karna",
+          "value_text": "mill_tc_verify"
+        },
+        {
+          "option_key": "heat_register",
+          "label_text": "Heat ya batch wise register",
+          "value_text": "heat_register"
+        },
+        {
+          "option_key": "ht_lot_report",
+          "label_text": "Heat treatment lot ki hardness report",
+          "value_text": "ht_lot_report"
+        },
+        {
+          "option_key": "ppap_material_report",
+          "label_text": "PPAP ke liye material test report",
+          "value_text": "ppap_material_report"
+        },
+        {
+          "option_key": "erp_entry",
+          "label_text": "SAP ya ERP me result entry",
+          "value_text": "erp_entry"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke plant ki lab me aapne kaam kiya hai?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "foundry",
+          "label_text": "Foundry (casting)",
+          "value_text": "foundry"
+        },
+        {
+          "option_key": "forging",
+          "label_text": "Forging",
+          "value_text": "forging"
+        },
+        {
+          "option_key": "heat_treatment",
+          "label_text": "Heat treatment shop",
+          "value_text": "heat_treatment"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "bearings",
+          "label_text": "Bearing",
+          "value_text": "bearings"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant ya rolling mill",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "plastics_rubber",
+          "label_text": "Plastic ya rubber parts",
+          "value_text": "plastics_rubber"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "matlab_nabl_work",
+      "min_tier": "hard",
+      "prompt_text": "NABL ya ISO/IEC 17025 ka kaunsa kaam aapne kiya hai?",
+      "why_text": "NABL ka kaam jaanne wale ko lab in-charge banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_nabl_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "nabl_assessment",
+          "label_text": "NABL assessment face kiya",
+          "value_text": "nabl_assessment"
+        },
+        {
+          "option_key": "pt_ilc",
+          "label_text": "PT / ILC me hissa",
+          "value_text": "pt_ilc"
+        },
+        {
+          "option_key": "uncertainty",
+          "label_text": "Uncertainty of measurement nikalna",
+          "value_text": "uncertainty"
+        },
+        {
+          "option_key": "sop_writing",
+          "label_text": "SOP aur work instruction banana",
+          "value_text": "sop_writing"
+        },
+        {
+          "option_key": "equipment_calibration",
+          "label_text": "Lab equipment ka calibration plan",
+          "value_text": "equipment_calibration"
+        },
+        {
+          "option_key": "internal_audit",
+          "label_text": "Internal audit",
+          "value_text": "internal_audit"
+        },
+        {
+          "option_key": "authorised_signatory",
+          "label_text": "Authorised signatory hoon",
+          "value_text": "authorised_signatory"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "matlab_failure_analysis",
+      "min_tier": "hard",
+      "prompt_text": "Failure ya rejection ki jaanch me aap kya karte hain?",
+      "why_text": "Failure ki jaanch karne wale ki plant me bahut zaroorat hai.",
+      "target_kind": "attribute",
+      "target_field": "matlab_failure_analysis",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fracture_analysis",
+          "label_text": "Crack ya fracture ka analysis",
+          "value_text": "fracture_analysis"
+        },
+        {
+          "option_key": "ht_defect",
+          "label_text": "Heat treatment defect pehchanna (soft, decarb)",
+          "value_text": "ht_defect"
+        },
+        {
+          "option_key": "casting_defect",
+          "label_text": "Casting defect ka karan microstructure se",
+          "value_text": "casting_defect"
+        },
+        {
+          "option_key": "material_mixup",
+          "label_text": "Raw material mix-up pakadna",
+          "value_text": "material_mixup"
+        },
+        {
+          "option_key": "customer_complaint",
+          "label_text": "Customer complaint ki lab report",
+          "value_text": "customer_complaint"
+        },
+        {
+          "option_key": "supplier_rejection",
+          "label_text": "Supplier ka material reject karna",
+          "value_text": "supplier_rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "matlab_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "matlab_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training ya college lab me kaunse test aapne khud kiye hain?",
+      "why_text": "Training me kiya hua test bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hardness",
+          "label_text": "Hardness tester (Rockwell / Brinell)",
+          "value_text": "hardness"
+        },
+        {
+          "option_key": "tensile",
+          "label_text": "UTM par tensile test",
+          "value_text": "tensile"
+        },
+        {
+          "option_key": "impact",
+          "label_text": "Impact test",
+          "value_text": "impact"
+        },
+        {
+          "option_key": "microstructure",
+          "label_text": "Microscope me microstructure",
+          "value_text": "microstructure"
+        },
+        {
+          "option_key": "wet_chemical",
+          "label_text": "Titration / wet chemistry",
+          "value_text": "wet_chemical"
+        },
+        {
+          "option_key": "sand_testing",
+          "label_text": "Sand testing",
+          "value_text": "sand_testing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "matlab_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "matlab_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "matlab_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

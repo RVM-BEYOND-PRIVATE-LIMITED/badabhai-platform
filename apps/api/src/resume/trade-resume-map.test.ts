@@ -225,6 +225,24 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_npd_engineer",
       "qp_ppc",
       "qp_purchase",
+      "qp_gear_cutting",
+      "qp_boring_machine",
+      "qp_spm_finishing",
+      "qp_fabrication",
+      "qp_tube_forming",
+      "qp_surface_treatment",
+      "qp_blow_moulding",
+      "qp_plastic_extrusion",
+      "qp_rubber_moulding",
+      "qp_ndt",
+      "qp_calibration",
+      "qp_material_lab",
+      "qp_robotics",
+      "qp_instrumentation",
+      "qp_hvac_rac",
+      "qp_utility",
+      "qp_forklift",
+      "qp_crane_rigging",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`
@@ -1135,5 +1153,84 @@ describe("trade resume map — the foundry split carry-over (#3009)", () => {
     const now = buildTradeCapabilityRows("qp_foundry_casting", attrs).chipRows;
     expect(now.length).toBe(2);
     expect(now).toEqual(buildTradeCapabilityRows("qp_foundry_forging", attrs).chipRows);
+  });
+});
+
+/**
+ * WAVE 2 (#3016 step 7) — the 18 shop-floor trades' sheet direction.
+ *
+ * The `describe.each(TRADE_RESUME_MAPS)` block above already checks both dictionary directions
+ * for these maps (every `from` is a real pack question, every slug is a real option value), and
+ * the pinned list above pins their existence. What it does not check is the SHEET: that a worker
+ * who answers everything prints a headed section that fits the page, carries the headline, and
+ * never leaks a raw slug. So each wave-2 trade is driven end to end here with every printable
+ * answer selected — the same discipline the milling and CAM ratified-sample blocks apply, minus
+ * a ratified page to be verbatim against.
+ */
+describe.each([
+  "qp_gear_cutting",
+  "qp_boring_machine",
+  "qp_spm_finishing",
+  "qp_fabrication",
+  "qp_tube_forming",
+  "qp_surface_treatment",
+  "qp_blow_moulding",
+  "qp_plastic_extrusion",
+  "qp_rubber_moulding",
+  "qp_ndt",
+  "qp_calibration",
+  "qp_material_lab",
+  "qp_robotics",
+  "qp_instrumentation",
+  "qp_hvac_rac",
+  "qp_utility",
+  "qp_forklift",
+  "qp_crane_rigging",
+])("trade resume map — Wave 2 sheet (%s)", (packId) => {
+  const entry = tradeResumeMapFor(packId)!;
+  const pack = allVersionsPack(packId);
+
+  /** Every printable answer selected: all option values except the two escape spellings. */
+  function fullAnswers(): Record<string, string | string[]> {
+    const attrs: Record<string, string | string[]> = {};
+    const byKey = new Map(pack.items.map((i) => [i.question_key, i]));
+    for (const spec of entry.capability) {
+      const values = (byKey.get(spec.from)?.options ?? [])
+        .map((o) => o.value_text)
+        .filter((v): v is string => v !== undefined && v !== "unknown" && v !== "none");
+      if (values.length === 0) continue;
+      const multi = (byKey.get(spec.from)?.options ?? []).length > 1 && spec.kind !== "fact";
+      attrs[spec.from] = multi ? values : values[0]!;
+    }
+    return attrs;
+  }
+
+  it("resolves to a headed map with a headline row", () => {
+    expect(entry.section_title).toBeTruthy();
+    expect(
+      entry.capability.some((r) => r.inHeadline),
+      `${packId} has no headline row`,
+    ).toBe(true);
+  });
+
+  it("a worker who answers everything prints a headed section that fits the page", () => {
+    const rows = buildTradeCapabilityRows(packId, fullAnswers());
+    expect(rows.sectionTitle).toBe(entry.section_title);
+    const kept = [
+      ...rows.chipRows.map((r) => r.label),
+      ...rows.tickRows.map((r) => r.label),
+      ...rows.factRows.map((r) => r.label),
+    ];
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.length, `${packId} exceeds the page`).toBeLessThanOrEqual(CAPABILITY_ROW_BUDGET);
+    expect(rows.headlineTools.length, `${packId} has an empty headline`).toBeGreaterThan(0);
+    // Nothing anywhere is a raw slug.
+    const printed = [
+      ...rows.chipRows.flatMap((r) => r.values),
+      ...rows.tickRows.flatMap((r) => r.values),
+      ...rows.factRows.map((r) => r.value),
+      ...rows.headlineTools,
+    ].join(" ");
+    expect(printed).not.toMatch(/_/);
   });
 });

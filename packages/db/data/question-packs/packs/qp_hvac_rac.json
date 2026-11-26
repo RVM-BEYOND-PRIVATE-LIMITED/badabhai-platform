@@ -1,0 +1,1281 @@
+{
+  "_why": "Role track for Refrigeration and AC, HVAC Technician (T41), new trade (CEO pack v2). fam_hvac_rac binds NCO 2144.1200, 3115.1100 and 7127.0100.",
+  "_scope": "Maintenance and Automation shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T41 (Refrigeration & AC (HVAC) Technician). Status: NEW",
+  "pack_id": "qp_hvac_rac",
+  "version": 1,
+  "family_id": "fam_hvac_rac",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T41): new trade.",
+  "items": [
+    {
+      "question_key": "hvac_experience",
+      "min_tier": "easy",
+      "prompt_text": "AC aur refrigeration ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal AC aur refrigeration ka kaam kiya hai?"
+    },
+    {
+      "question_key": "hvac_level",
+      "min_tier": "easy",
+      "prompt_text": "AC ke kaam me aap kis level par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "Technician",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "Senior Technician",
+          "value_text": "senior_technician"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "AC ke kaam me helper, technician ya senior technician hain?"
+    },
+    {
+      "question_key": "hvac_senior_technician_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Compressor, PCB ya gas leak ka fault aap akele dhoondh kar theek karte ho?",
+      "why_text": "Akele fault theek karne wale senior technician ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_senior_technician_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ya company engineer ke saath",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "hvac_level"
+        },
+        "right": {
+          "const": [
+            "senior_technician"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "hvac_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne technician aur kitni site ya kitna tonnage aapke under hai?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "hvac_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "hvac_system_type",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunse AC ya refrigeration system par kaam kiya hai?",
+      "why_text": "System ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_system_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "split_window",
+          "label_text": "Split, window aur cassette AC",
+          "value_text": "split_window"
+        },
+        {
+          "option_key": "ductable_package",
+          "label_text": "Ductable aur package AC",
+          "value_text": "ductable_package"
+        },
+        {
+          "option_key": "vrf_vrv",
+          "label_text": "VRF / VRV",
+          "value_text": "vrf_vrv"
+        },
+        {
+          "option_key": "chiller",
+          "label_text": "Chiller plant",
+          "value_text": "chiller"
+        },
+        {
+          "option_key": "ahu_fcu",
+          "label_text": "AHU, FCU aur ducting",
+          "value_text": "ahu_fcu"
+        },
+        {
+          "option_key": "cold_storage",
+          "label_text": "Cold storage ya cold room",
+          "value_text": "cold_storage"
+        },
+        {
+          "option_key": "ammonia_plant",
+          "label_text": "Ammonia plant",
+          "value_text": "ammonia_plant"
+        },
+        {
+          "option_key": "process_chiller",
+          "label_text": "Process chiller, moulding ya machine ka",
+          "value_text": "process_chiller"
+        },
+        {
+          "option_key": "precision_ac",
+          "label_text": "Precision AC, data centre ya server room",
+          "value_text": "precision_ac"
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_work_type",
+      "min_tier": "medium",
+      "prompt_text": "AC me aap kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "installation",
+          "label_text": "Installation",
+          "value_text": "installation"
+        },
+        {
+          "option_key": "copper_piping_brazing",
+          "label_text": "Copper piping aur brazing",
+          "value_text": "copper_piping_brazing"
+        },
+        {
+          "option_key": "gas_charging",
+          "label_text": "Gas charging aur vacuum",
+          "value_text": "gas_charging"
+        },
+        {
+          "option_key": "servicing",
+          "label_text": "Servicing aur coil cleaning",
+          "value_text": "servicing"
+        },
+        {
+          "option_key": "breakdown_repair",
+          "label_text": "Breakdown aur fault repair",
+          "value_text": "breakdown_repair"
+        },
+        {
+          "option_key": "plant_operation",
+          "label_text": "Plant operation aur log book",
+          "value_text": "plant_operation"
+        },
+        {
+          "option_key": "preventive_maintenance",
+          "label_text": "AMC / preventive maintenance",
+          "value_text": "preventive_maintenance"
+        },
+        {
+          "option_key": "commissioning",
+          "label_text": "Testing aur commissioning",
+          "value_text": "commissioning"
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_brand",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse brand ke AC ya chiller par kaam kiya hai?",
+      "why_text": "Brand jaanne wale ko usi company ke dealer jaldi rakhte hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "voltas",
+          "label_text": "Voltas",
+          "value_text": "voltas"
+        },
+        {
+          "option_key": "blue_star",
+          "label_text": "Blue Star",
+          "value_text": "blue_star"
+        },
+        {
+          "option_key": "daikin",
+          "label_text": "Daikin",
+          "value_text": "daikin"
+        },
+        {
+          "option_key": "carrier",
+          "label_text": "Carrier",
+          "value_text": "carrier"
+        },
+        {
+          "option_key": "trane",
+          "label_text": "Trane",
+          "value_text": "trane"
+        },
+        {
+          "option_key": "york",
+          "label_text": "York",
+          "value_text": "york"
+        },
+        {
+          "option_key": "hitachi",
+          "label_text": "Hitachi",
+          "value_text": "hitachi"
+        },
+        {
+          "option_key": "kirloskar",
+          "label_text": "Kirloskar chiller",
+          "value_text": "kirloskar"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur brand",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_refrigerant",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi gas ke saath kaam kiya hai?",
+      "why_text": "Har gas ka pressure aur charging ka tareeka alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_refrigerant",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "r_twenty_two",
+          "label_text": "R22",
+          "value_text": "r_twenty_two"
+        },
+        {
+          "option_key": "r_thirty_two",
+          "label_text": "R32",
+          "value_text": "r_thirty_two"
+        },
+        {
+          "option_key": "r_four_ten_a",
+          "label_text": "R410A",
+          "value_text": "r_four_ten_a"
+        },
+        {
+          "option_key": "r_one_three_four_a",
+          "label_text": "R134a",
+          "value_text": "r_one_three_four_a"
+        },
+        {
+          "option_key": "r_four_zero_seven_c",
+          "label_text": "R407C",
+          "value_text": "r_four_zero_seven_c"
+        },
+        {
+          "option_key": "r_four_zero_four_a",
+          "label_text": "R404A",
+          "value_text": "r_four_zero_four_a"
+        },
+        {
+          "option_key": "ammonia",
+          "label_text": "Ammonia",
+          "value_text": "ammonia"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_capacity",
+      "min_tier": "hard",
+      "prompt_text": "Sabse bada system kitne TR ka sambhala hai?",
+      "why_text": "Tonnage se pata chalta hai aap kitna bada plant sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_capacity",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_five",
+          "label_text": "5 TR tak",
+          "value_text": "5"
+        },
+        {
+          "option_key": "upto_twenty",
+          "label_text": "5 se 20 TR",
+          "value_text": "20"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "20 se 100 TR",
+          "value_text": "100"
+        },
+        {
+          "option_key": "upto_five_hundred",
+          "label_text": "100 se 500 TR",
+          "value_text": "500"
+        },
+        {
+          "option_key": "upto_thousand",
+          "label_text": "500 TR se zyada",
+          "value_text": "1000"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_tools",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse tool aur instrument aap khud chalate hain?",
+      "why_text": "Tool chalane wale technician ko akele site par bheja jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "manifold_gauge",
+          "label_text": "Manifold gauge",
+          "value_text": "manifold_gauge"
+        },
+        {
+          "option_key": "vacuum_pump",
+          "label_text": "Vacuum pump",
+          "value_text": "vacuum_pump"
+        },
+        {
+          "option_key": "brazing_set",
+          "label_text": "Brazing set",
+          "value_text": "brazing_set"
+        },
+        {
+          "option_key": "flaring_tools",
+          "label_text": "Flaring, swaging aur tube bender",
+          "value_text": "flaring_tools"
+        },
+        {
+          "option_key": "clamp_meter",
+          "label_text": "Clamp meter aur multimeter",
+          "value_text": "clamp_meter"
+        },
+        {
+          "option_key": "megger",
+          "label_text": "Megger",
+          "value_text": "megger"
+        },
+        {
+          "option_key": "leak_test",
+          "label_text": "Leak detector ya nitrogen pressure test",
+          "value_text": "leak_test"
+        },
+        {
+          "option_key": "recovery_unit",
+          "label_text": "Recovery machine",
+          "value_text": "recovery_unit"
+        },
+        {
+          "option_key": "anemometer",
+          "label_text": "Anemometer",
+          "value_text": "anemometer"
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_trade_certificate",
+      "min_tier": "hard",
+      "prompt_text": "AC ke kaam ka kaunsa certificate aapke paas hai?",
+      "why_text": "Kai company aur site par trade ka certificate maanga jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_trade_certificate",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iti_mrac",
+          "label_text": "ITI RAC / MRAC",
+          "value_text": "iti_mrac"
+        },
+        {
+          "option_key": "iti_other_trade",
+          "label_text": "ITI Electrician ya Fitter",
+          "value_text": "iti_other_trade"
+        },
+        {
+          "option_key": "diploma",
+          "label_text": "Diploma",
+          "value_text": "diploma"
+        },
+        {
+          "option_key": "oem_training",
+          "label_text": "AC company ki training, Daikin, Voltas ya Blue Star",
+          "value_text": "oem_training"
+        },
+        {
+          "option_key": "skill_india",
+          "label_text": "Skill India / PMKVY certificate",
+          "value_text": "skill_india"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi certificate nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "hvac_compressor_type",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse compressor par kaam kiya hai?",
+      "why_text": "Compressor ka kaam jaanne wale ko bade plant me rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_compressor_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rotary",
+          "label_text": "Rotary",
+          "value_text": "rotary"
+        },
+        {
+          "option_key": "scroll",
+          "label_text": "Scroll",
+          "value_text": "scroll"
+        },
+        {
+          "option_key": "reciprocating",
+          "label_text": "Reciprocating",
+          "value_text": "reciprocating"
+        },
+        {
+          "option_key": "screw",
+          "label_text": "Screw",
+          "value_text": "screw"
+        },
+        {
+          "option_key": "centrifugal",
+          "label_text": "Centrifugal",
+          "value_text": "centrifugal"
+        },
+        {
+          "option_key": "inverter",
+          "label_text": "Inverter compressor",
+          "value_text": "inverter"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "hvac_electrical_controls",
+      "min_tier": "hard",
+      "prompt_text": "AC ke electrical aur control me kya kya kar lete hain?",
+      "why_text": "Electrical jaanne wale AC technician ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_electrical_controls",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wiring_diagram",
+          "label_text": "Wiring diagram padh kar wiring",
+          "value_text": "wiring_diagram"
+        },
+        {
+          "option_key": "starter_components",
+          "label_text": "Contactor, relay, capacitor aur OLR badalna",
+          "value_text": "starter_components"
+        },
+        {
+          "option_key": "pcb_fault",
+          "label_text": "PCB ya inverter board ka fault dhoondhna",
+          "value_text": "pcb_fault"
+        },
+        {
+          "option_key": "sensor_switch_setting",
+          "label_text": "Thermostat, sensor aur pressure switch set karna",
+          "value_text": "sensor_switch_setting"
+        },
+        {
+          "option_key": "vfd",
+          "label_text": "VFD",
+          "value_text": "vfd"
+        },
+        {
+          "option_key": "bms",
+          "label_text": "BMS par plant chalana",
+          "value_text": "bms"
+        },
+        {
+          "option_key": "chiller_panel",
+          "label_text": "Chiller panel ke alarm dekhna",
+          "value_text": "chiller_panel"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "hvac_plant_work",
+      "min_tier": "hard",
+      "prompt_text": "Chiller plant ya AHU me kaunsa kaam kiya hai?",
+      "why_text": "Plant ka kaam jaanne wale ko factory aur hospital me rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_plant_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "chiller_operation",
+          "label_text": "Chiller start-stop aur log book",
+          "value_text": "chiller_operation"
+        },
+        {
+          "option_key": "condenser_descaling",
+          "label_text": "Condenser tube cleaning, descaling",
+          "value_text": "condenser_descaling"
+        },
+        {
+          "option_key": "cooling_tower",
+          "label_text": "Cooling tower maintenance",
+          "value_text": "cooling_tower"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Chilled water pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "ahu_maintenance",
+          "label_text": "AHU filter, belt aur bearing",
+          "value_text": "ahu_maintenance"
+        },
+        {
+          "option_key": "oil_filter_change",
+          "label_text": "Compressor oil aur filter drier badalna",
+          "value_text": "oil_filter_change"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Chiller plant par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "hvac_cleanroom_work",
+      "min_tier": "hard",
+      "prompt_text": "Clean room HVAC ka kaunsa kaam kiya hai?",
+      "why_text": "Pharma plant clean room ka tajurba alag se dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_cleanroom_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hepa_change",
+          "label_text": "HEPA filter badalna",
+          "value_text": "hepa_change"
+        },
+        {
+          "option_key": "differential_pressure",
+          "label_text": "Differential pressure check karna",
+          "value_text": "differential_pressure"
+        },
+        {
+          "option_key": "temp_rh_control",
+          "label_text": "Temperature aur RH maintain karna",
+          "value_text": "temp_rh_control"
+        },
+        {
+          "option_key": "air_balancing",
+          "label_text": "Air balancing, ACPH aur air velocity",
+          "value_text": "air_balancing"
+        },
+        {
+          "option_key": "validation_support",
+          "label_text": "Validation me saath kaam, PAO test ya particle count",
+          "value_text": "validation_support"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Clean room me kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ki jagah par AC ka kaam kiya hai?",
+      "why_text": "Jagah ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma plant",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "food_cold_chain",
+          "label_text": "Food, dairy aur cold chain",
+          "value_text": "food_cold_chain"
+        },
+        {
+          "option_key": "industrial_plant",
+          "label_text": "Factory ya industrial plant",
+          "value_text": "industrial_plant"
+        },
+        {
+          "option_key": "commercial_building",
+          "label_text": "Mall, office ya commercial building",
+          "value_text": "commercial_building"
+        },
+        {
+          "option_key": "hospital",
+          "label_text": "Hospital",
+          "value_text": "hospital"
+        },
+        {
+          "option_key": "hotel",
+          "label_text": "Hotel",
+          "value_text": "hotel"
+        },
+        {
+          "option_key": "data_centre",
+          "label_text": "Data centre ya IT park",
+          "value_text": "data_centre"
+        },
+        {
+          "option_key": "residential",
+          "label_text": "Ghar aur dukaan",
+          "value_text": "residential"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "AC ki kaunsi dikkat aap khud dhoondh kar theek karte hain?",
+      "why_text": "Fault khud dhoondhne wale technician ki demand sabse zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "low_cooling",
+          "label_text": "Cooling kam aana",
+          "value_text": "low_cooling"
+        },
+        {
+          "option_key": "gas_leak",
+          "label_text": "Gas leak dhoondhna",
+          "value_text": "gas_leak"
+        },
+        {
+          "option_key": "compressor_trip",
+          "label_text": "Compressor trip ya start nahi hona",
+          "value_text": "compressor_trip"
+        },
+        {
+          "option_key": "hp_lp_trip",
+          "label_text": "HP / LP trip",
+          "value_text": "hp_lp_trip"
+        },
+        {
+          "option_key": "compressor_replacement",
+          "label_text": "Compressor badalna",
+          "value_text": "compressor_replacement"
+        },
+        {
+          "option_key": "pcb_comm_error",
+          "label_text": "PCB ya communication error",
+          "value_text": "pcb_comm_error"
+        },
+        {
+          "option_key": "icing_drain",
+          "label_text": "Ice jamna ya drain choke",
+          "value_text": "icing_drain"
+        },
+        {
+          "option_key": "chiller_alarm",
+          "label_text": "Chiller alarm, flow, freeze ya oil",
+          "value_text": "chiller_alarm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "hvac_site_handling",
+      "min_tier": "hard",
+      "prompt_text": "Site par kaunsa kaam aap sambhalte hain?",
+      "why_text": "Site sambhalne wale ko supervisor ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "hvac_site_handling",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "layout_from_drawing",
+          "label_text": "Drawing dekh kar piping aur ducting ka layout",
+          "value_text": "layout_from_drawing"
+        },
+        {
+          "option_key": "heat_load",
+          "label_text": "Heat load ya tonnage ka andaza",
+          "value_text": "heat_load"
+        },
+        {
+          "option_key": "material_measurement",
+          "label_text": "Material list aur measurement",
+          "value_text": "material_measurement"
+        },
+        {
+          "option_key": "customer_report",
+          "label_text": "Customer se baat aur service report",
+          "value_text": "customer_report"
+        },
+        {
+          "option_key": "amc_schedule",
+          "label_text": "AMC schedule banana",
+          "value_text": "amc_schedule"
+        },
+        {
+          "option_key": "work_allocation",
+          "label_text": "Helper aur technician ko kaam baantna",
+          "value_text": "work_allocation"
+        },
+        {
+          "option_key": "commissioning_handover",
+          "label_text": "Testing, commissioning aur handover",
+          "value_text": "commissioning_handover"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "hvac_ammonia_work",
+      "min_tier": "hard",
+      "prompt_text": "Ammonia plant ya cold storage me kaunsa kaam kiya hai?",
+      "why_text": "Ammonia plant chalane wale operator kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "hvac_ammonia_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "compressor_operation",
+          "label_text": "Ammonia compressor chalana",
+          "value_text": "compressor_operation"
+        },
+        {
+          "option_key": "defrosting",
+          "label_text": "Defrosting",
+          "value_text": "defrosting"
+        },
+        {
+          "option_key": "oil_drain_purging",
+          "label_text": "Oil drain aur air purging",
+          "value_text": "oil_drain_purging"
+        },
+        {
+          "option_key": "ammonia_charging",
+          "label_text": "Ammonia charging",
+          "value_text": "ammonia_charging"
+        },
+        {
+          "option_key": "leak_safety",
+          "label_text": "Leak aane par mask aur safety ka kaam",
+          "value_text": "leak_safety"
+        },
+        {
+          "option_key": "ice_plant_freezer",
+          "label_text": "Ice plant ya blast freezer",
+          "value_text": "ice_plant_freezer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Ammonia par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "hvac_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "hvac_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunse kaam haath se kiye hain?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "flaring_swaging",
+          "label_text": "Copper tube cutting, flaring aur swaging",
+          "value_text": "flaring_swaging"
+        },
+        {
+          "option_key": "brazing",
+          "label_text": "Brazing",
+          "value_text": "brazing"
+        },
+        {
+          "option_key": "gas_charging",
+          "label_text": "Gas charging aur vacuum",
+          "value_text": "gas_charging"
+        },
+        {
+          "option_key": "split_window_ac",
+          "label_text": "Window ya split AC kholna aur jodna",
+          "value_text": "split_window_ac"
+        },
+        {
+          "option_key": "refrigerator",
+          "label_text": "Refrigerator ya water cooler",
+          "value_text": "refrigerator"
+        },
+        {
+          "option_key": "electrical_wiring",
+          "label_text": "Compressor, relay aur capacitor ki wiring",
+          "value_text": "electrical_wiring"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "hvac_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "hvac_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "hvac_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

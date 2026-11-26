@@ -1,0 +1,1233 @@
+{
+  "_why": "Role track for EOT Crane Operator / Rigger (T57), new trade (CEO pack v2). fam_crane_rigging binds the 7215 crane and 8343 rigger codes.",
+  "_scope": "Planning and Supply Chain shop-floor trade. The interview separates at operator; higher contact price from senior.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 7 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T57 (EOT Crane Operator / Rigger). Status: NEW",
+  "pack_id": "qp_crane_rigging",
+  "version": 1,
+  "family_id": "fam_crane_rigging",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T57): new trade.",
+  "items": [
+    {
+      "question_key": "crane_experience",
+      "min_tier": "easy",
+      "prompt_text": "Crane chalane ya rigging ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "crane_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Crane chalane ya rigging ka kaam kiya hai?"
+    },
+    {
+      "question_key": "crane_level",
+      "min_tier": "easy",
+      "prompt_text": "Crane par aap kya kaam karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "crane_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator / Rigger",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Operator",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Foreman",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Crane par helper, operator ya senior operator hain?"
+    },
+    {
+      "question_key": "crane_operator_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Load aap akele uthate ho ya senior ke saath rehkar?",
+      "why_text": "Akele load uthane wale operator ko hi operator ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_operator_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Akele uthata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath rehta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "crane_level"
+        },
+        "right": {
+          "const": [
+            "operator"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "crane_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Bhaari ya tandem lift me sling kaise lagegi, aap khud tay karte ho?",
+      "why_text": "Bhaari lift khud tay karne wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud tay karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Supervisor ya engineer batate hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "crane_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "crane_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni crane aur kitne operator ya rigger aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "crane_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "crane_role",
+      "min_tier": "medium",
+      "prompt_text": "Aap crane chalate hain ya rigging karte hain?",
+      "why_text": "Operator aur rigger ka kaam alag dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_role",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "crane_operator",
+          "label_text": "Crane chalata hoon",
+          "value_text": "crane_operator"
+        },
+        {
+          "option_key": "rigger",
+          "label_text": "Rigging aur slinging karta hoon",
+          "value_text": "rigger"
+        },
+        {
+          "option_key": "both",
+          "label_text": "Dono karta hoon",
+          "value_text": "both"
+        },
+        {
+          "option_key": "signalman",
+          "label_text": "Signalman hoon",
+          "value_text": "signalman"
+        }
+      ]
+    },
+    {
+      "question_key": "crane_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi crane par kaam karte hain?",
+      "why_text": "Crane ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "eot",
+          "label_text": "EOT / overhead crane",
+          "value_text": "eot"
+        },
+        {
+          "option_key": "gantry_goliath",
+          "label_text": "Gantry / goliath crane",
+          "value_text": "gantry_goliath"
+        },
+        {
+          "option_key": "jib",
+          "label_text": "Jib crane",
+          "value_text": "jib"
+        },
+        {
+          "option_key": "hoist",
+          "label_text": "Electric hoist ya chain block",
+          "value_text": "hoist"
+        },
+        {
+          "option_key": "hydra",
+          "label_text": "Hydra / pick-and-carry crane",
+          "value_text": "hydra"
+        },
+        {
+          "option_key": "mobile_crane",
+          "label_text": "Mobile crane (truck ya crawler)",
+          "value_text": "mobile_crane"
+        },
+        {
+          "option_key": "tower_crane",
+          "label_text": "Tower crane",
+          "value_text": "tower_crane"
+        },
+        {
+          "option_key": "ladle_crane",
+          "label_text": "Ladle / hot-metal crane",
+          "value_text": "ladle_crane"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur crane",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "crane_control_type",
+      "min_tier": "medium",
+      "prompt_text": "Crane cabin se chalate hain, pendant se ya remote se?",
+      "why_text": "Cabin aur remote crane ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_control_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cabin",
+          "label_text": "Cabin se",
+          "value_text": "cabin"
+        },
+        {
+          "option_key": "pendant",
+          "label_text": "Pendant se",
+          "value_text": "pendant"
+        },
+        {
+          "option_key": "radio_remote",
+          "label_text": "Radio remote se",
+          "value_text": "radio_remote"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Crane nahi chalata, rigging karta hoon",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "crane_capacity",
+      "min_tier": "medium",
+      "prompt_text": "Sabse bhaari kitne ton ki crane par kaam kiya hai?",
+      "why_text": "Bhaari crane sambhalne wale log kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "crane_capacity",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_five_ton",
+          "label_text": "5 ton tak",
+          "value_text": "upto_five_ton"
+        },
+        {
+          "option_key": "five_to_twenty_ton",
+          "label_text": "5 se 20 ton",
+          "value_text": "five_to_twenty_ton"
+        },
+        {
+          "option_key": "twenty_to_fifty_ton",
+          "label_text": "20 se 50 ton",
+          "value_text": "twenty_to_fifty_ton"
+        },
+        {
+          "option_key": "fifty_to_hundred_ton",
+          "label_text": "50 se 100 ton",
+          "value_text": "fifty_to_hundred_ton"
+        },
+        {
+          "option_key": "above_hundred_ton",
+          "label_text": "100 ton se zyada",
+          "value_text": "above_hundred_ton"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "crane_licence_certificate",
+      "min_tier": "hard",
+      "prompt_text": "Aapke paas kaunsa licence ya certificate hai?",
+      "why_text": "Badi company licence aur certificate dekhkar hi crane deti hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_licence_certificate",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "inhouse_certificate",
+          "label_text": "Company ka crane operator training certificate",
+          "value_text": "inhouse_certificate"
+        },
+        {
+          "option_key": "external_certificate",
+          "label_text": "Bahar ke institute ka crane ya rigging certificate",
+          "value_text": "external_certificate"
+        },
+        {
+          "option_key": "hmv",
+          "label_text": "HMV licence",
+          "value_text": "hmv"
+        },
+        {
+          "option_key": "lmv",
+          "label_text": "LMV licence",
+          "value_text": "lmv"
+        },
+        {
+          "option_key": "height_pass",
+          "label_text": "Height pass ya medical fitness",
+          "value_text": "height_pass"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "crane_make",
+      "min_tier": "hard",
+      "prompt_text": "Kis company ki crane par kaam kiya hai?",
+      "why_text": "Usi company ki crane wale employer aapko pehle dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "crane_make",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "electromech",
+          "label_text": "ElectroMech",
+          "value_text": "electromech"
+        },
+        {
+          "option_key": "konecranes",
+          "label_text": "Konecranes / WMI",
+          "value_text": "konecranes"
+        },
+        {
+          "option_key": "demag",
+          "label_text": "Demag",
+          "value_text": "demag"
+        },
+        {
+          "option_key": "anupam",
+          "label_text": "Anupam",
+          "value_text": "anupam"
+        },
+        {
+          "option_key": "mukand",
+          "label_text": "Mukand",
+          "value_text": "mukand"
+        },
+        {
+          "option_key": "indef",
+          "label_text": "Indef hoist",
+          "value_text": "indef"
+        },
+        {
+          "option_key": "ace",
+          "label_text": "ACE hydra",
+          "value_text": "ace"
+        },
+        {
+          "option_key": "escorts",
+          "label_text": "Escorts hydra",
+          "value_text": "escorts"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "crane_load_type",
+      "min_tier": "hard",
+      "prompt_text": "Crane se kya kya uthate hain?",
+      "why_text": "Load ke naam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "crane_load_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_mould",
+          "label_text": "Die ya mould",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "coil",
+          "label_text": "Steel coil",
+          "value_text": "coil"
+        },
+        {
+          "option_key": "plate_bundle",
+          "label_text": "Plate, sheet ya bundle",
+          "value_text": "plate_bundle"
+        },
+        {
+          "option_key": "billet_ingot",
+          "label_text": "Billet, ingot ya bloom",
+          "value_text": "billet_ingot"
+        },
+        {
+          "option_key": "ladle_hot_metal",
+          "label_text": "Ladle, garam metal",
+          "value_text": "ladle_hot_metal"
+        },
+        {
+          "option_key": "heavy_job",
+          "label_text": "Bhaari casting ya fabrication job",
+          "value_text": "heavy_job"
+        },
+        {
+          "option_key": "machine_erection",
+          "label_text": "Machine shifting ya erection",
+          "value_text": "machine_erection"
+        },
+        {
+          "option_key": "scrap_magnet",
+          "label_text": "Scrap, magnet ya grab se",
+          "value_text": "scrap_magnet"
+        },
+        {
+          "option_key": "construction_material",
+          "label_text": "Construction ka material",
+          "value_text": "construction_material"
+        }
+      ]
+    },
+    {
+      "question_key": "crane_lifting_tackle",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse lifting tackle aap khud lagate hain?",
+      "why_text": "Sahi tackle lagana rigging ka sabse zaroori hissa hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_lifting_tackle",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wire_rope_sling",
+          "label_text": "Wire rope sling",
+          "value_text": "wire_rope_sling"
+        },
+        {
+          "option_key": "web_sling",
+          "label_text": "Web / polyester belt sling",
+          "value_text": "web_sling"
+        },
+        {
+          "option_key": "chain_sling",
+          "label_text": "Chain sling",
+          "value_text": "chain_sling"
+        },
+        {
+          "option_key": "shackle",
+          "label_text": "D-shackle ya bow shackle",
+          "value_text": "shackle"
+        },
+        {
+          "option_key": "eye_bolt",
+          "label_text": "Eye bolt",
+          "value_text": "eye_bolt"
+        },
+        {
+          "option_key": "lifting_beam",
+          "label_text": "Lifting beam / spreader",
+          "value_text": "lifting_beam"
+        },
+        {
+          "option_key": "c_hook",
+          "label_text": "C-hook ya coil hook",
+          "value_text": "c_hook"
+        },
+        {
+          "option_key": "plate_clamp",
+          "label_text": "Plate clamp",
+          "value_text": "plate_clamp"
+        },
+        {
+          "option_key": "magnet",
+          "label_text": "Magnet",
+          "value_text": "magnet"
+        }
+      ]
+    },
+    {
+      "question_key": "crane_daily_check",
+      "min_tier": "hard",
+      "prompt_text": "Shift shuru me crane ki kaunsi checking karte hain?",
+      "why_text": "Roz checking karne wala operator haadse se bachata hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_daily_check",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "limit_switch",
+          "label_text": "Limit switch",
+          "value_text": "limit_switch"
+        },
+        {
+          "option_key": "brake",
+          "label_text": "Brake",
+          "value_text": "brake"
+        },
+        {
+          "option_key": "rope_hook",
+          "label_text": "Wire rope aur hook latch",
+          "value_text": "rope_hook"
+        },
+        {
+          "option_key": "hooter_light",
+          "label_text": "Hooter aur light",
+          "value_text": "hooter_light"
+        },
+        {
+          "option_key": "tackle_condition",
+          "label_text": "Sling aur shackle ki haalat",
+          "value_text": "tackle_condition"
+        },
+        {
+          "option_key": "emergency_stop",
+          "label_text": "Emergency stop",
+          "value_text": "emergency_stop"
+        },
+        {
+          "option_key": "log_book",
+          "label_text": "Checklist ya log book bharna",
+          "value_text": "log_book"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Checking koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "crane_rigging_work",
+      "min_tier": "hard",
+      "prompt_text": "Rigging me aap kaunsa kaam khud kar lete hain?",
+      "why_text": "Rigging jaanne wale ko bhaari lifting ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_rigging_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "load_estimation",
+          "label_text": "Load ka wajan andaaze se nikalna",
+          "value_text": "load_estimation"
+        },
+        {
+          "option_key": "cg_slinging",
+          "label_text": "Centre of gravity dekhkar sling lagana",
+          "value_text": "cg_slinging"
+        },
+        {
+          "option_key": "sling_angle_swl",
+          "label_text": "Sling angle aur SWL dekhna",
+          "value_text": "sling_angle_swl"
+        },
+        {
+          "option_key": "hand_signal",
+          "label_text": "Hand signal dena",
+          "value_text": "hand_signal"
+        },
+        {
+          "option_key": "tag_line",
+          "label_text": "Tag line se load sambhalna",
+          "value_text": "tag_line"
+        },
+        {
+          "option_key": "chain_block_winch",
+          "label_text": "Chain block ya winch se shifting",
+          "value_text": "chain_block_winch"
+        },
+        {
+          "option_key": "roller_jack",
+          "label_text": "Roller aur jack se machine sarkana",
+          "value_text": "roller_jack"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Rigging nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "crane_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "crane_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "crane_special_lift",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa mushkil lifting kaam aapne kiya hai?",
+      "why_text": "Mushkil lift kar chuke operator ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_special_lift",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_change",
+          "label_text": "Press shop me die change",
+          "value_text": "die_change"
+        },
+        {
+          "option_key": "mould_change",
+          "label_text": "Moulding machine par mould change",
+          "value_text": "mould_change"
+        },
+        {
+          "option_key": "tandem_lift",
+          "label_text": "Do crane se tandem lift",
+          "value_text": "tandem_lift"
+        },
+        {
+          "option_key": "load_turning",
+          "label_text": "Job ko palatna ya ghumana",
+          "value_text": "load_turning"
+        },
+        {
+          "option_key": "ladle_pouring",
+          "label_text": "Ladle se pouring",
+          "value_text": "ladle_pouring"
+        },
+        {
+          "option_key": "erection_lift",
+          "label_text": "Oonchai par erection lift",
+          "value_text": "erection_lift"
+        },
+        {
+          "option_key": "trailer_loading",
+          "label_text": "Trailer par bhaari job loading",
+          "value_text": "trailer_loading"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "crane_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "crane_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "crane_tackle_certificate",
+      "min_tier": "hard",
+      "prompt_text": "Lifting tackle ke kaagaz aur marking me aap kya dekhte hain?",
+      "why_text": "Tackle ka certificate dekhne wala operator galat sling nahi lagata.",
+      "target_kind": "attribute",
+      "target_field": "crane_tackle_certificate",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "swl_marking",
+          "label_text": "Tackle par SWL ki marking",
+          "value_text": "swl_marking"
+        },
+        {
+          "option_key": "third_party_certificate",
+          "label_text": "Third-party test certificate",
+          "value_text": "third_party_certificate"
+        },
+        {
+          "option_key": "colour_code",
+          "label_text": "Test ki due date ya colour code",
+          "value_text": "colour_code"
+        },
+        {
+          "option_key": "load_test",
+          "label_text": "Load test ka record",
+          "value_text": "load_test"
+        },
+        {
+          "option_key": "tackle_rejection",
+          "label_text": "Kharab sling ko scrap karwana",
+          "value_text": "tackle_rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yeh supervisor dekhta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "crane_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "crane_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry me crane ya rigging ka kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant ya rolling mill",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "foundry_forging",
+          "label_text": "Foundry ya forging",
+          "value_text": "foundry_forging"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Press shop ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "Heavy fabrication ya engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "construction_site",
+          "label_text": "Construction ya erection site",
+          "value_text": "construction_site"
+        },
+        {
+          "option_key": "port_shipyard",
+          "label_text": "Port ya shipyard",
+          "value_text": "port_shipyard"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways ya metro",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "crane_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "crane_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Crane ki kaunsi dikkat aap khud pakad lete hain?",
+      "why_text": "Dikkat pehle pakadne wala operator haadsa hone se rokta hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "brake_slip",
+          "label_text": "Brake slip hona",
+          "value_text": "brake_slip"
+        },
+        {
+          "option_key": "limit_switch_fault",
+          "label_text": "Limit switch kaam na karna",
+          "value_text": "limit_switch_fault"
+        },
+        {
+          "option_key": "rope_damage",
+          "label_text": "Wire rope ke taar tootna",
+          "value_text": "rope_damage"
+        },
+        {
+          "option_key": "load_swing",
+          "label_text": "Load ka jhoolna",
+          "value_text": "load_swing"
+        },
+        {
+          "option_key": "travel_jerk",
+          "label_text": "Chalte waqt jhatka ya awaaz",
+          "value_text": "travel_jerk"
+        },
+        {
+          "option_key": "pendant_fault",
+          "label_text": "Pendant ya remote ka button atakna",
+          "value_text": "pendant_fault"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Maintenance ko bata deta hoon",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "crane_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "crane_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "crane_safety_work",
+      "min_tier": "hard",
+      "prompt_text": "Safety aur team ka kaunsa kaam aap sambhalte hain?",
+      "why_text": "Safety aur team sambhalne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "crane_safety_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "lifting_plan",
+          "label_text": "Lifting plan banana",
+          "value_text": "lifting_plan"
+        },
+        {
+          "option_key": "work_permit",
+          "label_text": "Work permit lena",
+          "value_text": "work_permit"
+        },
+        {
+          "option_key": "barricading",
+          "label_text": "Area barricade karwana",
+          "value_text": "barricading"
+        },
+        {
+          "option_key": "toolbox_talk",
+          "label_text": "Toolbox talk",
+          "value_text": "toolbox_talk"
+        },
+        {
+          "option_key": "team_training",
+          "label_text": "Naye operator ya rigger ko sikhana",
+          "value_text": "team_training"
+        },
+        {
+          "option_key": "tackle_register",
+          "label_text": "Tackle ka register rakhna",
+          "value_text": "tackle_register"
+        },
+        {
+          "option_key": "shift_deployment",
+          "label_text": "Shift me operator lagana",
+          "value_text": "shift_deployment"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "crane_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "crane_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me lifting ka kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "chain_block",
+          "label_text": "Chain block ya chain pulley",
+          "value_text": "chain_block"
+        },
+        {
+          "option_key": "pendant_crane",
+          "label_text": "Pendant wali crane ya hoist",
+          "value_text": "pendant_crane"
+        },
+        {
+          "option_key": "slinging",
+          "label_text": "Sling aur shackle lagana",
+          "value_text": "slinging"
+        },
+        {
+          "option_key": "hydra_helper",
+          "label_text": "Hydra ya mobile crane ke saath helper",
+          "value_text": "hydra_helper"
+        },
+        {
+          "option_key": "hand_signal",
+          "label_text": "Hand signal seekhe hain",
+          "value_text": "hand_signal"
+        },
+        {
+          "option_key": "observed_only",
+          "label_text": "Sirf dekha hai",
+          "value_text": "observed_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "crane_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "crane_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "crane_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

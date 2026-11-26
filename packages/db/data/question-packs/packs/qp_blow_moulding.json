@@ -1,0 +1,1223 @@
+{
+  "_why": "Role track for Blow Moulding Operator (T30), new trade (CEO pack v2). fam_blow_moulding binds NCO 8142.0700.",
+  "_scope": "Plastics and Rubber shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T30 (Blow Moulding Operator). Status: NEW",
+  "pack_id": "qp_blow_moulding",
+  "version": 1,
+  "family_id": "fam_blow_moulding",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T30): new trade.",
+  "items": [
+    {
+      "question_key": "blow_experience",
+      "min_tier": "easy",
+      "prompt_text": "Blow moulding ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "blow_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Blow moulding ka kaam kiya hai?"
+    },
+    {
+      "question_key": "blow_level",
+      "min_tier": "easy",
+      "prompt_text": "Blow moulding machine par aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "blow_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Setter / Technician",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "blow_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Mould aur die-head change karke pehla OK piece aap khud nikaalte ho?",
+      "why_text": "Mould change aur setting khud karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud nikaalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, koi aur nikaalta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "blow_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "blow_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye mould ka trial lekar parameter aap khud final karte ho?",
+      "why_text": "Naye mould ka process khud set karne wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ya engineer karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "blow_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "blow_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Shift me kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "blow_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "blow_process_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi blow moulding karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_process_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "extrusion_blow",
+          "label_text": "Extrusion blow moulding, EBM",
+          "value_text": "extrusion_blow"
+        },
+        {
+          "option_key": "stretch_blow",
+          "label_text": "PET stretch blow, preform se bottle",
+          "value_text": "stretch_blow"
+        },
+        {
+          "option_key": "single_stage_isbm",
+          "label_text": "Single-stage ISBM, ASB type",
+          "value_text": "single_stage_isbm"
+        },
+        {
+          "option_key": "injection_blow",
+          "label_text": "Injection blow moulding, IBM",
+          "value_text": "injection_blow"
+        },
+        {
+          "option_key": "accumulator_head",
+          "label_text": "Accumulator head machine, drum ya tank",
+          "value_text": "accumulator_head"
+        },
+        {
+          "option_key": "multilayer",
+          "label_text": "Multilayer / co-extrusion blow",
+          "value_text": "multilayer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "blow_machine_brand",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi company ki blow moulding machine chalayi hai?",
+      "why_text": "Machine ki company jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_machine_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "jagmohan",
+          "label_text": "Jagmohan",
+          "value_text": "jagmohan"
+        },
+        {
+          "option_key": "cmp",
+          "label_text": "CMP",
+          "value_text": "cmp"
+        },
+        {
+          "option_key": "kautex",
+          "label_text": "Kautex",
+          "value_text": "kautex"
+        },
+        {
+          "option_key": "parker",
+          "label_text": "Parker",
+          "value_text": "parker"
+        },
+        {
+          "option_key": "sipa",
+          "label_text": "SIPA",
+          "value_text": "sipa"
+        },
+        {
+          "option_key": "sidel",
+          "label_text": "Sidel",
+          "value_text": "sidel"
+        },
+        {
+          "option_key": "asb",
+          "label_text": "Nissei ASB",
+          "value_text": "asb"
+        },
+        {
+          "option_key": "khs",
+          "label_text": "KHS",
+          "value_text": "khs"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "blow_product",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsa product banaya hai?",
+      "why_text": "Product ke hisaab se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_product",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pet_bottle",
+          "label_text": "PET bottle ya jar",
+          "value_text": "pet_bottle"
+        },
+        {
+          "option_key": "preform",
+          "label_text": "PET preform",
+          "value_text": "preform"
+        },
+        {
+          "option_key": "hdpe_bottle",
+          "label_text": "HDPE bottle aur container",
+          "value_text": "hdpe_bottle"
+        },
+        {
+          "option_key": "jerry_can",
+          "label_text": "Jerry can",
+          "value_text": "jerry_can"
+        },
+        {
+          "option_key": "drum",
+          "label_text": "Drum ya barrel",
+          "value_text": "drum"
+        },
+        {
+          "option_key": "tank",
+          "label_text": "Water tank ya bada container",
+          "value_text": "tank"
+        },
+        {
+          "option_key": "water_jar",
+          "label_text": "20 litre water jar",
+          "value_text": "water_jar"
+        },
+        {
+          "option_key": "auto_part",
+          "label_text": "Auto duct ya reservoir",
+          "value_text": "auto_part"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur product",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "blow_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Machine par roz kaunsa kaam aap khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "blow_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "deflashing",
+          "label_text": "Deflashing, flash kaatna",
+          "value_text": "deflashing"
+        },
+        {
+          "option_key": "weight_check",
+          "label_text": "Bottle ka weight check karna",
+          "value_text": "weight_check"
+        },
+        {
+          "option_key": "leak_test",
+          "label_text": "Leak test karna",
+          "value_text": "leak_test"
+        },
+        {
+          "option_key": "visual_packing",
+          "label_text": "Visual checking aur packing",
+          "value_text": "visual_packing"
+        },
+        {
+          "option_key": "material_loading",
+          "label_text": "Hopper me material ya preform daalna",
+          "value_text": "material_loading"
+        },
+        {
+          "option_key": "regrind",
+          "label_text": "Scrap grinder chalana, regrind milana",
+          "value_text": "regrind"
+        },
+        {
+          "option_key": "production_report",
+          "label_text": "Production report bharna",
+          "value_text": "production_report"
+        }
+      ]
+    },
+    {
+      "question_key": "blow_capacity",
+      "min_tier": "hard",
+      "prompt_text": "Kitne litre tak ka product aapki machine par banta hai?",
+      "why_text": "Product ke size se machine ka size samajh aata hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_capacity",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_one",
+          "label_text": "1 litre tak",
+          "value_text": "1"
+        },
+        {
+          "option_key": "upto_five",
+          "label_text": "1 se 5 litre",
+          "value_text": "5"
+        },
+        {
+          "option_key": "upto_thirty",
+          "label_text": "5 se 30 litre",
+          "value_text": "30"
+        },
+        {
+          "option_key": "upto_two_fifty",
+          "label_text": "30 se 250 litre",
+          "value_text": "250"
+        },
+        {
+          "option_key": "upto_thousand",
+          "label_text": "250 litre se zyada",
+          "value_text": "1000"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse plastic material par kaam kiya hai?",
+      "why_text": "Har material ka temperature aur setting alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hdpe",
+          "label_text": "HDPE",
+          "value_text": "hdpe"
+        },
+        {
+          "option_key": "ldpe",
+          "label_text": "LDPE / LLDPE",
+          "value_text": "ldpe"
+        },
+        {
+          "option_key": "pp",
+          "label_text": "PP",
+          "value_text": "pp"
+        },
+        {
+          "option_key": "pet",
+          "label_text": "PET",
+          "value_text": "pet"
+        },
+        {
+          "option_key": "pvc",
+          "label_text": "PVC",
+          "value_text": "pvc"
+        },
+        {
+          "option_key": "pc",
+          "label_text": "PC, polycarbonate",
+          "value_text": "pc"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "blow_auxiliary",
+      "min_tier": "hard",
+      "prompt_text": "Machine ke saath kaunsa auxiliary equipment aap chalate hain?",
+      "why_text": "Auxiliary equipment sambhalne wale ko setter ka kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_auxiliary",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hp_compressor",
+          "label_text": "High pressure compressor, PET line",
+          "value_text": "hp_compressor"
+        },
+        {
+          "option_key": "chiller",
+          "label_text": "Chiller",
+          "value_text": "chiller"
+        },
+        {
+          "option_key": "loader_dryer",
+          "label_text": "Hopper loader ya dryer",
+          "value_text": "loader_dryer"
+        },
+        {
+          "option_key": "auto_deflasher",
+          "label_text": "Auto deflashing unit",
+          "value_text": "auto_deflasher"
+        },
+        {
+          "option_key": "online_leak_tester",
+          "label_text": "Online leak tester",
+          "value_text": "online_leak_tester"
+        },
+        {
+          "option_key": "preform_feeder",
+          "label_text": "Preform feeder / unscrambler",
+          "value_text": "preform_feeder"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Scrap grinder",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Product check karne ke liye kya use karte hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "weighing_scale",
+          "label_text": "Weighing scale",
+          "value_text": "weighing_scale"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "thickness_gauge",
+          "label_text": "Wall thickness gauge",
+          "value_text": "thickness_gauge"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Neck ka plug ya ring gauge",
+          "value_text": "plug_gauge"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "leak_tester",
+          "label_text": "Leak tester",
+          "value_text": "leak_tester"
+        },
+        {
+          "option_key": "top_load_tester",
+          "label_text": "Top load tester",
+          "value_text": "top_load_tester"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "blow_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Mould change aur setting me aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mould_change",
+          "label_text": "Mould change",
+          "value_text": "mould_change"
+        },
+        {
+          "option_key": "die_head_change",
+          "label_text": "Die-head, die aur pin change",
+          "value_text": "die_head_change"
+        },
+        {
+          "option_key": "parison_centring",
+          "label_text": "Parison centring",
+          "value_text": "parison_centring"
+        },
+        {
+          "option_key": "blow_pin_setting",
+          "label_text": "Blow pin aur cutting ring setting",
+          "value_text": "blow_pin_setting"
+        },
+        {
+          "option_key": "stretch_rod_setting",
+          "label_text": "Stretch rod aur preform heater setting",
+          "value_text": "stretch_rod_setting"
+        },
+        {
+          "option_key": "cooling_connection",
+          "label_text": "Water line aur chiller connection",
+          "value_text": "cooling_connection"
+        },
+        {
+          "option_key": "deflash_setting",
+          "label_text": "Deflashing punch setting",
+          "value_text": "deflash_setting"
+        },
+        {
+          "option_key": "purging",
+          "label_text": "Material ya colour change, purging",
+          "value_text": "purging"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece approve karwana",
+          "value_text": "first_piece"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "blow_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "blow_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "blow_parameter_setting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse parameter aap khud set ya badalte hain?",
+      "why_text": "Parameter samajhne wale ko process ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_parameter_setting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "barrel_temperature",
+          "label_text": "Extruder aur die temperature",
+          "value_text": "barrel_temperature"
+        },
+        {
+          "option_key": "parison_program",
+          "label_text": "Parison programming, wall thickness profile",
+          "value_text": "parison_program"
+        },
+        {
+          "option_key": "weight_setting",
+          "label_text": "Bottle weight setting",
+          "value_text": "weight_setting"
+        },
+        {
+          "option_key": "blow_pressure",
+          "label_text": "Blow pressure aur blow time",
+          "value_text": "blow_pressure"
+        },
+        {
+          "option_key": "cycle_time",
+          "label_text": "Cooling aur cycle time",
+          "value_text": "cycle_time"
+        },
+        {
+          "option_key": "lamp_profile",
+          "label_text": "Preform heating lamp profile",
+          "value_text": "lamp_profile"
+        },
+        {
+          "option_key": "pre_blow",
+          "label_text": "Pre-blow aur stretch timing",
+          "value_text": "pre_blow"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi, parameter lock rehte hain",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "blow_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "blow_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke liye bottle ya container banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG, shampoo aur cosmetic bottle",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "beverage",
+          "label_text": "Paani aur cold drink",
+          "value_text": "beverage"
+        },
+        {
+          "option_key": "food",
+          "label_text": "Edible oil aur food",
+          "value_text": "food"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma bottle",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "lubricant_chemical",
+          "label_text": "Lube oil aur chemical container",
+          "value_text": "lubricant_chemical"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Pesticide aur agro chemical bottle",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "blow_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "blow_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse defect aap khud theek kar lete hain?",
+      "why_text": "Defect theek karne wale technician ki demand zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "uneven_wall",
+          "label_text": "Wall thickness kam-zyada",
+          "value_text": "uneven_wall"
+        },
+        {
+          "option_key": "weight_variation",
+          "label_text": "Bottle weight variation",
+          "value_text": "weight_variation"
+        },
+        {
+          "option_key": "leak_pinhole",
+          "label_text": "Leak ya pinhole",
+          "value_text": "leak_pinhole"
+        },
+        {
+          "option_key": "pinch_off",
+          "label_text": "Pinch-off kharab ya flash zyada",
+          "value_text": "pinch_off"
+        },
+        {
+          "option_key": "die_line",
+          "label_text": "Die line / parison line",
+          "value_text": "die_line"
+        },
+        {
+          "option_key": "neck_defect",
+          "label_text": "Neck short ya neck damage",
+          "value_text": "neck_defect"
+        },
+        {
+          "option_key": "haze_pearl",
+          "label_text": "PET bottle me haze ya safedi",
+          "value_text": "haze_pearl"
+        },
+        {
+          "option_key": "rocker_bottom",
+          "label_text": "Bottle ka base bahar aana",
+          "value_text": "rocker_bottom"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "blow_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "blow_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "drop_test",
+          "label_text": "Drop test aur top load test",
+          "value_text": "drop_test"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "blow_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "blow_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "blow_process_control",
+      "min_tier": "hard",
+      "prompt_text": "Process sambhalne me aap kya kya karte hain?",
+      "why_text": "Process sambhalne wale ko senior technician ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "blow_process_control",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mould_trial",
+          "label_text": "Naye mould ka trial lena",
+          "value_text": "mould_trial"
+        },
+        {
+          "option_key": "process_sheet",
+          "label_text": "Process parameter sheet banana",
+          "value_text": "process_sheet"
+        },
+        {
+          "option_key": "weight_reduction",
+          "label_text": "Bottle ka weight kam karna",
+          "value_text": "weight_reduction"
+        },
+        {
+          "option_key": "cycle_time_reduction",
+          "label_text": "Cycle time kam karna",
+          "value_text": "cycle_time_reduction"
+        },
+        {
+          "option_key": "regrind_control",
+          "label_text": "Regrind ratio control",
+          "value_text": "regrind_control"
+        },
+        {
+          "option_key": "mould_pm",
+          "label_text": "Mould aur die-head ka PM",
+          "value_text": "mould_pm"
+        },
+        {
+          "option_key": "operator_training",
+          "label_text": "Operator ko training dena",
+          "value_text": "operator_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "blow_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "blow_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "blow_moulding",
+          "label_text": "Blow moulding machine",
+          "value_text": "blow_moulding"
+        },
+        {
+          "option_key": "stretch_blow",
+          "label_text": "PET stretch blow machine",
+          "value_text": "stretch_blow"
+        },
+        {
+          "option_key": "injection_moulding",
+          "label_text": "Injection moulding machine",
+          "value_text": "injection_moulding"
+        },
+        {
+          "option_key": "hand_moulding",
+          "label_text": "Hand moulding machine",
+          "value_text": "hand_moulding"
+        },
+        {
+          "option_key": "extruder",
+          "label_text": "Extruder",
+          "value_text": "extruder"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Scrap grinder",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "blow_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "blow_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "blow_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1256 @@
+{
+  "_why": "Role track for Gear Cutting Operator (T18), new trade (CEO pack v2). fam_gear_cutting binds NCO 7223.1300.",
+  "_scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T18 (Gear Cutting Operator). Status: NEW",
+  "pack_id": "qp_gear_cutting",
+  "version": 1,
+  "family_id": "fam_gear_cutting",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T18): new trade.",
+  "items": [
+    {
+      "question_key": "gear_experience",
+      "min_tier": "easy",
+      "prompt_text": "Gear cutting ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "gear_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Gear cutting ka kaam kiya hai?"
+    },
+    {
+      "question_key": "gear_level",
+      "min_tier": "easy",
+      "prompt_text": "Gear cutting machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "gear_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "setter_programmer",
+          "label_text": "Setter-cum-Programmer",
+          "value_text": "setter_programmer"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "gear_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye gear ke liye hob, change gear aur depth aap khud set karte ho?",
+      "why_text": "Machine khud set karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "gear_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "gear_setter_programmer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "CNC machine me naye gear ka data aur cutting cycle khud daalte ho?",
+      "why_text": "Khud program banane wale ko programmer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_setter_programmer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud daalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Bana-banaya program chalata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "gear_level"
+        },
+        "right": {
+          "const": [
+            "setter_programmer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "gear_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "gear_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "gear_process",
+      "min_tier": "medium",
+      "prompt_text": "Gear ka kaunsa process aap karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hobbing",
+          "label_text": "Hobbing",
+          "value_text": "hobbing"
+        },
+        {
+          "option_key": "shaping",
+          "label_text": "Gear shaping",
+          "value_text": "shaping"
+        },
+        {
+          "option_key": "shaving",
+          "label_text": "Gear shaving",
+          "value_text": "shaving"
+        },
+        {
+          "option_key": "gear_grinding",
+          "label_text": "Gear grinding",
+          "value_text": "gear_grinding"
+        },
+        {
+          "option_key": "bevel_generating",
+          "label_text": "Bevel gear cutting / generating",
+          "value_text": "bevel_generating"
+        },
+        {
+          "option_key": "broaching",
+          "label_text": "Spline broaching",
+          "value_text": "broaching"
+        },
+        {
+          "option_key": "gear_milling",
+          "label_text": "Milling machine par gear cutting (module cutter)",
+          "value_text": "gear_milling"
+        },
+        {
+          "option_key": "spline_rolling",
+          "label_text": "Spline rolling",
+          "value_text": "spline_rolling"
+        },
+        {
+          "option_key": "chamfer_deburr",
+          "label_text": "Chamfering aur deburring",
+          "value_text": "chamfer_deburr"
+        }
+      ]
+    },
+    {
+      "question_key": "gear_machine_control",
+      "min_tier": "medium",
+      "prompt_text": "Machine CNC hai ya manual?",
+      "why_text": "CNC aur manual machine ke kaam alag dikhaye jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "gear_machine_control",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "manual",
+          "label_text": "Manual, change gear wali",
+          "value_text": "manual"
+        },
+        {
+          "option_key": "cnc",
+          "label_text": "CNC",
+          "value_text": "cnc"
+        },
+        {
+          "option_key": "both_types",
+          "label_text": "CNC aur manual dono",
+          "value_text": "both_types"
+        }
+      ]
+    },
+    {
+      "question_key": "gear_machine_make",
+      "min_tier": "medium",
+      "prompt_text": "Machine kis company ki hai?",
+      "why_text": "Usi company ki machine wale employer aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "gear_machine_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hmt",
+          "label_text": "HMT",
+          "value_text": "hmt"
+        },
+        {
+          "option_key": "liebherr",
+          "label_text": "Liebherr",
+          "value_text": "liebherr"
+        },
+        {
+          "option_key": "gleason_pfauter",
+          "label_text": "Gleason / Pfauter",
+          "value_text": "gleason_pfauter"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "premier",
+          "label_text": "Premier",
+          "value_text": "premier"
+        },
+        {
+          "option_key": "cooper",
+          "label_text": "Cooper",
+          "value_text": "cooper"
+        },
+        {
+          "option_key": "wmw_modul",
+          "label_text": "WMW / Modul",
+          "value_text": "wmw_modul"
+        },
+        {
+          "option_key": "reishauer",
+          "label_text": "Reishauer",
+          "value_text": "reishauer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur company",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "gear_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunse gear banate hain?",
+      "why_text": "Gear ke type se employer samajhta hai aap kya bana sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "gear_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "spur",
+          "label_text": "Spur gear",
+          "value_text": "spur"
+        },
+        {
+          "option_key": "helical",
+          "label_text": "Helical gear",
+          "value_text": "helical"
+        },
+        {
+          "option_key": "bevel",
+          "label_text": "Bevel gear, straight ya spiral",
+          "value_text": "bevel"
+        },
+        {
+          "option_key": "worm",
+          "label_text": "Worm aur worm wheel",
+          "value_text": "worm"
+        },
+        {
+          "option_key": "sprocket",
+          "label_text": "Sprocket",
+          "value_text": "sprocket"
+        },
+        {
+          "option_key": "spline_shaft",
+          "label_text": "Spline shaft",
+          "value_text": "spline_shaft"
+        },
+        {
+          "option_key": "internal_gear",
+          "label_text": "Internal gear ya internal spline",
+          "value_text": "internal_gear"
+        },
+        {
+          "option_key": "timing_pulley",
+          "label_text": "Timing pulley",
+          "value_text": "timing_pulley"
+        },
+        {
+          "option_key": "rack",
+          "label_text": "Rack",
+          "value_text": "rack"
+        }
+      ]
+    },
+    {
+      "question_key": "gear_module_range",
+      "min_tier": "hard",
+      "prompt_text": "Kis module ke gear aapne kaate hain?",
+      "why_text": "Chhote aur bade module ka kaam alag machine par hota hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_module_range",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "below_one",
+          "label_text": "Module 1 se chhota",
+          "value_text": "below_one"
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "Module 1 se 3",
+          "value_text": "one_to_three"
+        },
+        {
+          "option_key": "three_to_six",
+          "label_text": "Module 3 se 6",
+          "value_text": "three_to_six"
+        },
+        {
+          "option_key": "six_to_ten",
+          "label_text": "Module 6 se 10",
+          "value_text": "six_to_ten"
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "Module 10 se upar",
+          "value_text": "above_ten"
+        },
+        {
+          "option_key": "dp_work",
+          "label_text": "DP me kaam hota hai",
+          "value_text": "dp_work"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ke gear banaye hain?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "case_hardening_steel",
+          "label_text": "Case hardening steel (20MnCr5, EN353, SAE 8620)",
+          "value_text": "case_hardening_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN8, EN19, EN24 alloy steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, mild steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "bronze",
+          "label_text": "Phosphor bronze ya gun metal",
+          "value_text": "bronze"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "plastic",
+          "label_text": "Nylon ya plastic",
+          "value_text": "plastic"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Gear check karne ke liye kaunse instrument use karte hain?",
+      "why_text": "Gear khud check karne wale ko zimmedari ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "flange_micrometer",
+          "label_text": "Flange micrometer (span / base tangent)",
+          "value_text": "flange_micrometer"
+        },
+        {
+          "option_key": "dop_pins",
+          "label_text": "Pin ya ball ke saath DOP",
+          "value_text": "dop_pins"
+        },
+        {
+          "option_key": "tooth_vernier",
+          "label_text": "Gear tooth vernier",
+          "value_text": "tooth_vernier"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator (PCD runout)",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "roll_tester",
+          "label_text": "Roll tester, master gear ke saath",
+          "value_text": "roll_tester"
+        },
+        {
+          "option_key": "lead_profile_tester",
+          "label_text": "Lead aur profile tester",
+          "value_text": "lead_profile_tester"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Spline plug ya ring gauge",
+          "value_text": "plug_gauge"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "gear_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Setting mein aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hob_mounting",
+          "label_text": "Hob lagana aur hob runout check karna",
+          "value_text": "hob_mounting"
+        },
+        {
+          "option_key": "hob_angle",
+          "label_text": "Hob angle / swivel set karna",
+          "value_text": "hob_angle"
+        },
+        {
+          "option_key": "change_gears",
+          "label_text": "Index aur feed change gear lagana",
+          "value_text": "change_gears"
+        },
+        {
+          "option_key": "differential_gears",
+          "label_text": "Helical ke liye differential gear lagana",
+          "value_text": "differential_gears"
+        },
+        {
+          "option_key": "job_runout",
+          "label_text": "Mandrel ya fixture par job ka runout nikalna",
+          "value_text": "job_runout"
+        },
+        {
+          "option_key": "depth_setting",
+          "label_text": "Depth of cut dekar size lana",
+          "value_text": "depth_setting"
+        },
+        {
+          "option_key": "hob_shifting",
+          "label_text": "Hob shifting",
+          "value_text": "hob_shifting"
+        },
+        {
+          "option_key": "shaper_stroke",
+          "label_text": "Shaper cutter ka stroke set karna",
+          "value_text": "shaper_stroke"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece pass karwana",
+          "value_text": "first_piece"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "gear_calculation",
+      "min_tier": "hard",
+      "prompt_text": "Gear ka kaunsa calculation aap khud karte hain?",
+      "why_text": "Calculation khud karne wale setter ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_calculation",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "blank_od",
+          "label_text": "Module aur teeth se blank OD",
+          "value_text": "blank_od"
+        },
+        {
+          "option_key": "change_gear_ratio",
+          "label_text": "Change gear ratio",
+          "value_text": "change_gear_ratio"
+        },
+        {
+          "option_key": "helix_differential",
+          "label_text": "Helix angle se differential gear",
+          "value_text": "helix_differential"
+        },
+        {
+          "option_key": "cutting_depth",
+          "label_text": "Whole depth / cutting depth",
+          "value_text": "cutting_depth"
+        },
+        {
+          "option_key": "span_dop_size",
+          "label_text": "Span ya DOP ka size",
+          "value_text": "span_dop_size"
+        },
+        {
+          "option_key": "chart_only",
+          "label_text": "Chart dekh kar hi lagata hoon",
+          "value_text": "chart_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Calculation koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "gear_quality_class",
+      "min_tier": "hard",
+      "prompt_text": "Kis accuracy class tak ke gear aapne banaye hain?",
+      "why_text": "Class se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_quality_class",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "commercial",
+          "label_text": "Commercial, DIN 10 ya usse khula",
+          "value_text": "commercial"
+        },
+        {
+          "option_key": "din_eight_nine",
+          "label_text": "DIN 8 se 9",
+          "value_text": "din_eight_nine"
+        },
+        {
+          "option_key": "din_six_seven",
+          "label_text": "DIN 6 se 7",
+          "value_text": "din_six_seven"
+        },
+        {
+          "option_key": "din_five_fine",
+          "label_text": "DIN 5 ya usse fine (ground gear)",
+          "value_text": "din_five_fine"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Class pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke gear banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive gearbox / transmission",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler gear",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agriculture",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "industrial_gearbox",
+          "label_text": "Industrial gearbox / reducer",
+          "value_text": "industrial_gearbox"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job work",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "spm_parts",
+          "label_text": "Machine tool / SPM parts",
+          "value_text": "spm_parts"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "gear_cnc_work",
+      "min_tier": "hard",
+      "prompt_text": "CNC gear machine ke program mein aap kya karte hain?",
+      "why_text": "Program sambhalne wale ko sabse zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "gear_cnc_work",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "run_only",
+          "label_text": "Sirf cycle chalata hoon",
+          "value_text": "run_only"
+        },
+        {
+          "option_key": "offset_only",
+          "label_text": "Size ka offset khud deta hoon",
+          "value_text": "offset_only"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Gear data aur cut badal leta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "write_program",
+          "label_text": "Naye gear ka poora program khud banata hoon",
+          "value_text": "write_program"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "CNC machine nahi chalayi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Gear ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pcd_runout",
+          "label_text": "PCD runout zyada aana",
+          "value_text": "pcd_runout"
+        },
+        {
+          "option_key": "lead_error",
+          "label_text": "Lead / helix error",
+          "value_text": "lead_error"
+        },
+        {
+          "option_key": "profile_error",
+          "label_text": "Profile error",
+          "value_text": "profile_error"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Span ya DOP size ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Tooth par chatter ya finish kharab",
+          "value_text": "surface_finish"
+        },
+        {
+          "option_key": "burr_nick",
+          "label_text": "Burr aur nick",
+          "value_text": "burr_nick"
+        },
+        {
+          "option_key": "tool_wear",
+          "label_text": "Hob jaldi ghisna ya tootna",
+          "value_text": "tool_wear"
+        },
+        {
+          "option_key": "noise_contact",
+          "label_text": "Gear noise ya contact galat",
+          "value_text": "noise_contact"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "gear_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "gear_level"
+            },
+            "right": {
+              "const": [
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hobbing",
+          "label_text": "Gear hobbing machine",
+          "value_text": "hobbing"
+        },
+        {
+          "option_key": "milling_dividing_head",
+          "label_text": "Milling machine par dividing head se gear",
+          "value_text": "milling_dividing_head"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "shaper",
+          "label_text": "Shaper ya slotting machine",
+          "value_text": "shaper"
+        },
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "gear_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "gear_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "gear_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -279,6 +279,12 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
       "qp_npd_engineer",
       "qp_ppc",
       "qp_purchase",
+      // #3016 Wave 2 lab / instrument trades whose capability is measurement, not equipment:
+      // a calibration technician's masters, a material lab's testers and an instrumentation
+      // technician's instruments are capability the inspector's way.
+      "qp_calibration",
+      "qp_material_lab",
+      "qp_instrumentation",
     ]);
     for (const { pack_id } of TRADE_RESUME_MAPS) {
       const hasMachineRow = listRows.some(

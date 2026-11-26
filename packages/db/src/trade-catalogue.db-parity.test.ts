@@ -192,3 +192,77 @@ describe("trade catalogue DB parity — Wave 1 forms (#3008)", () => {
     }
   });
 });
+
+/**
+ * Wave 2 — 18 shop-floor trades (#3016), checked ahead of LOADED_WAVE. Raising LOADED_WAVE to 2
+ * also turns on the posting-trade, answer-skill and résumé-map checks for these trades; until
+ * then this block holds what #3016 loads: the family, every section 13.1 binding, and the form
+ * files.
+ */
+const wave2 = TRADE_CATALOGUE.filter((e) => e.wave === 2);
+
+describe("trade catalogue DB parity — Wave 2 forms (#3016)", () => {
+  it("covers the 18 trades #3016 loads", () => {
+    expect(wave2.map((e) => e.code)).toEqual([
+      "T18",
+      "T19",
+      "T20",
+      "T22",
+      "T23",
+      "T28",
+      "T30",
+      "T31",
+      "T32",
+      "T34",
+      "T35",
+      "T36",
+      "T39",
+      "T40",
+      "T41",
+      "T42",
+      "T56",
+      "T57",
+    ]);
+  });
+
+  it("every Wave 2 family exists, with a Devanagari label_hi, and binds its section 13.1 codes", () => {
+    const { families, bindings } = indexCorpus();
+    const labels = new Map<string, string>();
+    for (const line of readFileSync(join(DATA_DIR, "_families.jsonl"), "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (t === "" || t.startsWith("#")) continue;
+      const rec = JSON.parse(t) as { kind: string; family_id: string; label_hi?: string };
+      if (rec.kind === "family") labels.set(rec.family_id, rec.label_hi ?? "");
+    }
+    for (const e of wave2) {
+      expect(families.has(e.familyId), `${e.code} family ${e.familyId}`).toBe(true);
+      expect(labels.get(e.familyId) ?? "", `${e.code} label_hi`).toMatch(/[ऀ-ॿ]/);
+      const bound = bindings.get(e.familyId) ?? new Set<string>();
+      for (const code of e.ncoCodes) {
+        const binding = `jd_nco_${code.replace(".", "_")}`;
+        expect(bound.has(binding), `${e.code} binds ${binding}`).toBe(true);
+      }
+    }
+    // T34 has no 8-digit NCO-2015 code (pack section 13.2); it binds the minted NDT entries
+    // under NCO 7543 and 3119 (#3007), like T33's minted CMM entry above.
+    expect(bindings.get("fam_ndt")?.size ?? 0, "fam_ndt binds the minted NDT entries").toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("each Wave 2 form has exactly one active version, on its own family", () => {
+    const { packFiles } = indexCorpus();
+    for (const e of wave2) {
+      const files = [...packFiles].filter(
+        (f) => f === `${e.packId}.json` || f.startsWith(`${e.packId}@`),
+      );
+      const heads = files.map(packHead);
+      const active = heads.filter((h) => h.status === "active");
+      expect(
+        active.map((h) => h.version),
+        `${e.code} active versions`,
+      ).toEqual([1]);
+      expect(active[0]?.family_id).toBe(e.familyId);
+    }
+  });
+});

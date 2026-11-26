@@ -1,0 +1,1205 @@
+{
+  "_why": "Role track for Calibration / Metrology Lab Technician (T35), new trade (CEO pack v2). fam_calibration binds NCO 2111.1000, 7311.1000 and 8212.0600.",
+  "_scope": "Quality and Metrology shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T35 (Calibration / Metrology Lab Technician). Status: NEW",
+  "pack_id": "qp_calibration",
+  "version": 1,
+  "family_id": "fam_calibration",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T35): new trade.",
+  "items": [
+    {
+      "question_key": "calib_experience",
+      "min_tier": "easy",
+      "prompt_text": "Calibration ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "calib_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Calibration ka kaam kiya hai?"
+    },
+    {
+      "question_key": "calib_level",
+      "min_tier": "easy",
+      "prompt_text": "Calibration lab me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "calib_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "Technician",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "Senior Technician",
+          "value_text": "senior_technician"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Lab In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Calibration lab me helper, technician ya senior technician hain?"
+    },
+    {
+      "question_key": "calib_senior_technician_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Calibration akele karke report aap khud banate hain?",
+      "why_text": "Akele calibration karne wale senior technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_senior_technician_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele karta hoon aur report bhi banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ke saath karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "calib_level"
+        },
+        "right": {
+          "const": [
+            "senior_technician"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "calib_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Lab me kitne log aur kaunse parameter aapke under hain?",
+      "why_text": "Lab sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "calib_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "calib_parameter",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunse parameter ka calibration karte hain?",
+      "why_text": "Parameter ke hisaab se sahi lab ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_parameter",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dimensional",
+          "label_text": "Dimensional (vernier, micrometer, gauge)",
+          "value_text": "dimensional"
+        },
+        {
+          "option_key": "pressure",
+          "label_text": "Pressure aur vacuum",
+          "value_text": "pressure"
+        },
+        {
+          "option_key": "temperature",
+          "label_text": "Temperature",
+          "value_text": "temperature"
+        },
+        {
+          "option_key": "electrical",
+          "label_text": "Electrical (multimeter, clamp meter)",
+          "value_text": "electrical"
+        },
+        {
+          "option_key": "torque",
+          "label_text": "Torque",
+          "value_text": "torque"
+        },
+        {
+          "option_key": "mass",
+          "label_text": "Mass aur weighing balance",
+          "value_text": "mass"
+        },
+        {
+          "option_key": "force",
+          "label_text": "Force aur hardness",
+          "value_text": "force"
+        },
+        {
+          "option_key": "volume",
+          "label_text": "Volume / glassware",
+          "value_text": "volume"
+        },
+        {
+          "option_key": "flow",
+          "label_text": "Flow",
+          "value_text": "flow"
+        }
+      ]
+    },
+    {
+      "question_key": "calib_lab_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis tarah ki lab me kaam karte hain?",
+      "why_text": "NABL lab aur plant ke standards room ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_lab_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "in_house",
+          "label_text": "Company ka in-house standards room",
+          "value_text": "in_house"
+        },
+        {
+          "option_key": "nabl_in_house",
+          "label_text": "In-house lab, NABL accredited",
+          "value_text": "nabl_in_house"
+        },
+        {
+          "option_key": "nabl_third_party",
+          "label_text": "Third-party lab, NABL accredited",
+          "value_text": "nabl_third_party"
+        },
+        {
+          "option_key": "non_nabl_third_party",
+          "label_text": "Third-party lab, NABL nahi hai",
+          "value_text": "non_nabl_third_party"
+        },
+        {
+          "option_key": "oem_service",
+          "label_text": "Instrument company ka service aur calibration",
+          "value_text": "oem_service"
+        }
+      ]
+    },
+    {
+      "question_key": "calib_instrument_type",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse instrument aur gauge aapne khud calibrate kiye hain?",
+      "why_text": "Instrument ke naam se employer aapka kaam samajhta hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_instrument_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hand_instruments",
+          "label_text": "Vernier, micrometer, height gauge",
+          "value_text": "hand_instruments"
+        },
+        {
+          "option_key": "dial_bore_gauge",
+          "label_text": "Dial gauge aur bore gauge",
+          "value_text": "dial_bore_gauge"
+        },
+        {
+          "option_key": "plain_gauges",
+          "label_text": "Plain plug aur snap gauge",
+          "value_text": "plain_gauges"
+        },
+        {
+          "option_key": "thread_gauges",
+          "label_text": "Thread plug aur ring gauge",
+          "value_text": "thread_gauges"
+        },
+        {
+          "option_key": "slip_gauges",
+          "label_text": "Slip gauge",
+          "value_text": "slip_gauges"
+        },
+        {
+          "option_key": "surface_plate",
+          "label_text": "Surface plate",
+          "value_text": "surface_plate"
+        },
+        {
+          "option_key": "pressure_gauge",
+          "label_text": "Pressure gauge aur transmitter",
+          "value_text": "pressure_gauge"
+        },
+        {
+          "option_key": "temperature_instruments",
+          "label_text": "Temperature sensor, controller, oven",
+          "value_text": "temperature_instruments"
+        },
+        {
+          "option_key": "electrical_meters",
+          "label_text": "Multimeter, clamp meter, megger",
+          "value_text": "electrical_meters"
+        }
+      ]
+    },
+    {
+      "question_key": "calib_master_equipment",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse master equipment par aapne kaam kiya hai?",
+      "why_text": "Master equipment chalane wale ko lab me seedha kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_master_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "slip_gauge_set",
+          "label_text": "Slip gauge set (grade 0 / 1)",
+          "value_text": "slip_gauge_set"
+        },
+        {
+          "option_key": "ulm",
+          "label_text": "ULM / length measuring machine",
+          "value_text": "ulm"
+        },
+        {
+          "option_key": "dial_tester",
+          "label_text": "Dial calibration tester",
+          "value_text": "dial_tester"
+        },
+        {
+          "option_key": "floating_carriage",
+          "label_text": "Floating carriage micrometer (thread gauge)",
+          "value_text": "floating_carriage"
+        },
+        {
+          "option_key": "pressure_master",
+          "label_text": "Dead weight tester / pressure calibrator",
+          "value_text": "pressure_master"
+        },
+        {
+          "option_key": "dry_block_bath",
+          "label_text": "Dry block ya temperature bath",
+          "value_text": "dry_block_bath"
+        },
+        {
+          "option_key": "multifunction_calibrator",
+          "label_text": "Multifunction calibrator",
+          "value_text": "multifunction_calibrator"
+        },
+        {
+          "option_key": "torque_tester",
+          "label_text": "Torque wrench tester",
+          "value_text": "torque_tester"
+        },
+        {
+          "option_key": "standard_weights",
+          "label_text": "Standard weights (E2 / F1 class)",
+          "value_text": "standard_weights"
+        }
+      ]
+    },
+    {
+      "question_key": "calib_master_make",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse make ke master ya calibrator par kaam kiya hai?",
+      "why_text": "Lab usi make par kaam kiya hua aadmi dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_master_make",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mitutoyo",
+          "label_text": "Mitutoyo",
+          "value_text": "mitutoyo"
+        },
+        {
+          "option_key": "baker",
+          "label_text": "Baker",
+          "value_text": "baker"
+        },
+        {
+          "option_key": "mahr",
+          "label_text": "Mahr",
+          "value_text": "mahr"
+        },
+        {
+          "option_key": "trimos",
+          "label_text": "Trimos",
+          "value_text": "trimos"
+        },
+        {
+          "option_key": "fluke",
+          "label_text": "Fluke",
+          "value_text": "fluke"
+        },
+        {
+          "option_key": "wika",
+          "label_text": "WIKA",
+          "value_text": "wika"
+        },
+        {
+          "option_key": "druck",
+          "label_text": "Druck",
+          "value_text": "druck"
+        },
+        {
+          "option_key": "nagman",
+          "label_text": "Nagman",
+          "value_text": "nagman"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap gauge ya part ki drawing padh lete hain?",
+      "why_text": "Gauge ki limit drawing se hi nikalti hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "calib_onsite_work",
+      "min_tier": "hard",
+      "prompt_text": "On-site calibration ke liye aap customer ke plant jaate hain?",
+      "why_text": "On-site jaane wale technician ki third-party lab me maang hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_onsite_work",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "regular",
+          "label_text": "Haan, regular jaata hoon",
+          "value_text": "regular"
+        },
+        {
+          "option_key": "sometimes",
+          "label_text": "Kabhi kabhi jaata hoon",
+          "value_text": "sometimes"
+        },
+        {
+          "option_key": "none",
+          "label_text": "Nahi, lab me hi kaam hai",
+          "value_text": "none"
+        }
+      ]
+    },
+    {
+      "question_key": "calib_records",
+      "min_tier": "hard",
+      "prompt_text": "Calibration ke kaunse record aap khud banate hain?",
+      "why_text": "Record banana jaanne wale ko audit ke samay zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_records",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "observation_sheet",
+          "label_text": "Observation sheet (raw data)",
+          "value_text": "observation_sheet"
+        },
+        {
+          "option_key": "certificate",
+          "label_text": "Calibration certificate",
+          "value_text": "certificate"
+        },
+        {
+          "option_key": "history_card",
+          "label_text": "History card",
+          "value_text": "history_card"
+        },
+        {
+          "option_key": "calibration_plan",
+          "label_text": "Calibration plan / due list",
+          "value_text": "calibration_plan"
+        },
+        {
+          "option_key": "master_list",
+          "label_text": "Master list of instruments",
+          "value_text": "master_list"
+        },
+        {
+          "option_key": "sticker_tag",
+          "label_text": "Calibration sticker ya tag",
+          "value_text": "sticker_tag"
+        },
+        {
+          "option_key": "out_of_calibration_report",
+          "label_text": "Out-of-calibration report",
+          "value_text": "out_of_calibration_report"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "calib_method_standard",
+      "min_tier": "hard",
+      "prompt_text": "Calibration kis standard ya method se karte hain?",
+      "why_text": "Standard jaanne wale ko NABL lab me pehle rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_method_standard",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "is_standards",
+          "label_text": "IS standards (IS 3651, IS 2967)",
+          "value_text": "is_standards"
+        },
+        {
+          "option_key": "iso_din_jis",
+          "label_text": "ISO / DIN / JIS standards",
+          "value_text": "iso_din_jis"
+        },
+        {
+          "option_key": "dkd_euramet",
+          "label_text": "DKD / Euramet guideline",
+          "value_text": "dkd_euramet"
+        },
+        {
+          "option_key": "oiml",
+          "label_text": "OIML (weights aur balance)",
+          "value_text": "oiml"
+        },
+        {
+          "option_key": "lab_sop",
+          "label_text": "Lab ka apna SOP / work instruction",
+          "value_text": "lab_sop"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "calib_uncertainty_work",
+      "min_tier": "hard",
+      "prompt_text": "Uncertainty ka calculation aap kitna karte hain?",
+      "why_text": "Uncertainty nikalne wale technician NABL lab me kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "calib_uncertainty_work",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi karta, senior nikalta hai",
+          "value_text": "none"
+        },
+        {
+          "option_key": "fills_sheet",
+          "label_text": "Bani hui Excel sheet me reading bharta hoon",
+          "value_text": "fills_sheet"
+        },
+        {
+          "option_key": "makes_budget",
+          "label_text": "Uncertainty budget khud banata hoon",
+          "value_text": "makes_budget"
+        },
+        {
+          "option_key": "cmc_scope",
+          "label_text": "CMC aur scope ke liye bhi nikalta hoon",
+          "value_text": "cmc_scope"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "calib_msa_work",
+      "min_tier": "hard",
+      "prompt_text": "MSA me kaunsi study aapne khud ki hai?",
+      "why_text": "Auto company me MSA jaanne wale ki maang rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_msa_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "grr_variable",
+          "label_text": "Gauge R&R (variable)",
+          "value_text": "grr_variable"
+        },
+        {
+          "option_key": "attribute_study",
+          "label_text": "Attribute study (kappa)",
+          "value_text": "attribute_study"
+        },
+        {
+          "option_key": "bias",
+          "label_text": "Bias",
+          "value_text": "bias"
+        },
+        {
+          "option_key": "linearity",
+          "label_text": "Linearity",
+          "value_text": "linearity"
+        },
+        {
+          "option_key": "stability",
+          "label_text": "Stability",
+          "value_text": "stability"
+        },
+        {
+          "option_key": "minitab",
+          "label_text": "Minitab me analysis",
+          "value_text": "minitab"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "MSA nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke instrument aapne calibrate kiye hain?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, machine shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "Food aur FMCG",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas, chemical",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant, foundry, forging",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "calib_nabl_work",
+      "min_tier": "hard",
+      "prompt_text": "NABL ya ISO/IEC 17025 ka kaunsa kaam aapne kiya hai?",
+      "why_text": "NABL ka kaam jaanne wale ko lab in-charge banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_nabl_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "nabl_assessment",
+          "label_text": "NABL assessment face kiya",
+          "value_text": "nabl_assessment"
+        },
+        {
+          "option_key": "quality_manual",
+          "label_text": "Quality manual aur SOP banana",
+          "value_text": "quality_manual"
+        },
+        {
+          "option_key": "pt_ilc",
+          "label_text": "PT / ILC me hissa",
+          "value_text": "pt_ilc"
+        },
+        {
+          "option_key": "internal_audit",
+          "label_text": "Internal audit",
+          "value_text": "internal_audit"
+        },
+        {
+          "option_key": "traceability",
+          "label_text": "Master ka traceability aur intermediate check",
+          "value_text": "traceability"
+        },
+        {
+          "option_key": "scope_extension",
+          "label_text": "Scope me naya parameter jodna",
+          "value_text": "scope_extension"
+        },
+        {
+          "option_key": "authorised_signatory",
+          "label_text": "Authorised signatory hoon",
+          "value_text": "authorised_signatory"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "calib_plant_system",
+      "min_tier": "hard",
+      "prompt_text": "Plant ke calibration system me aap kya sambhalte hain?",
+      "why_text": "Poora system sambhalne wale ko in-charge ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "calib_plant_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plant_plan",
+          "label_text": "Poore plant ka calibration plan",
+          "value_text": "plant_plan"
+        },
+        {
+          "option_key": "outside_lab",
+          "label_text": "Outside lab chunna aur instrument bhejna",
+          "value_text": "outside_lab"
+        },
+        {
+          "option_key": "new_gauge_approval",
+          "label_text": "Naye gauge ka inspection aur approval",
+          "value_text": "new_gauge_approval"
+        },
+        {
+          "option_key": "audit_handling",
+          "label_text": "IATF 16949 ya customer audit me jawab dena",
+          "value_text": "audit_handling"
+        },
+        {
+          "option_key": "frequency_review",
+          "label_text": "Calibration frequency badalna",
+          "value_text": "frequency_review"
+        },
+        {
+          "option_key": "software_entry",
+          "label_text": "Calibration software ya ERP me entry",
+          "value_text": "software_entry"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Calibration ki kaunsi dikkat aap khud sambhal lete hain?",
+      "why_text": "Dikkat khud sambhalne wale ki lab me zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "out_of_tolerance",
+          "label_text": "Instrument out of tolerance nikle to action lena",
+          "value_text": "out_of_tolerance"
+        },
+        {
+          "option_key": "repair_adjust",
+          "label_text": "Instrument ki chhoti repair aur zero setting",
+          "value_text": "repair_adjust"
+        },
+        {
+          "option_key": "repeatability",
+          "label_text": "Reading repeat na hona",
+          "value_text": "repeatability"
+        },
+        {
+          "option_key": "environment",
+          "label_text": "Lab ka temperature ya humidity bahar jaana",
+          "value_text": "environment"
+        },
+        {
+          "option_key": "master_issue",
+          "label_text": "Master kharab ya due nikal jaana",
+          "value_text": "master_issue"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "calib_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "calib_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunse instrument aapne khud chalaye hain?",
+      "why_text": "Training me chalaya hua instrument bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier_micrometer",
+          "label_text": "Vernier caliper aur micrometer",
+          "value_text": "vernier_micrometer"
+        },
+        {
+          "option_key": "dial_height_gauge",
+          "label_text": "Dial gauge aur height gauge",
+          "value_text": "dial_height_gauge"
+        },
+        {
+          "option_key": "slip_gauge",
+          "label_text": "Slip gauge",
+          "value_text": "slip_gauge"
+        },
+        {
+          "option_key": "pressure_gauge",
+          "label_text": "Pressure gauge ya dead weight tester",
+          "value_text": "pressure_gauge"
+        },
+        {
+          "option_key": "multimeter",
+          "label_text": "Multimeter",
+          "value_text": "multimeter"
+        },
+        {
+          "option_key": "temperature_sensor",
+          "label_text": "Thermocouple ya RTD",
+          "value_text": "temperature_sensor"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "calib_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "calib_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "calib_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

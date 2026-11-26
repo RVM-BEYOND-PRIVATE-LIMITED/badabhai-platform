@@ -1856,3 +1856,675 @@
 {"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "3डी स्कैनर", "lang": "hi"}
 {"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "s7 300", "lang": "en"}
 {"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "3डी डिज़ाइन", "lang": "hi"}
+# CEO pack v2, Wave 2 worker phrases (#3016 step 3).
+#
+# One line per sheet "Words that lead here" for the 18 Wave 2 trades (T18, T19, T20, T22,
+# T23, T28, T30, T31, T32, T34, T35, T36, T39, T40, T41, T42, T56, T57 in
+# docs/reference/BadaBhai_Manufacturing_Taxonomy_and_Question_Pack_v2.md). Never invented.
+# Hinglish rows carry "lang":"en", Devanagari "lang":"hi", pointing at the occupation
+# of the trade that the phrase most exactly names (spread across each trade's bound codes
+# from packages/db/data/question-packs/_families.jsonl, Wave 2 bindings).
+#
+# Digits are LOADABLE here (#2995 point 2, ruled 26 Nov 2026: the validator's contact guard
+# is @/URL/7+ digits; T34 "ndt level 2", "asnt/isnt/pcn level 2" and T35 "iso 17025" are rows).
+# All 10 shorts (hbm, ndt, mpt, mpi, dpt, lpt, rac, vrf, vrv, boe) proved 0 moves across
+# 9,924 phrases (every alias text + every phrase the reachability test asserts) and are loaded.
+#
+# NOT loaded here:
+#   - "gear grinding" + Devanagari twin: pinned to fam_cnc_grinding by the existing grinding
+#     characterization, and the sheet says bare "grinding" asks. Held for routing.
+#   - "ac ka kaam": its norm "ac" is a bare 1-token key that would move pinned "ac fitter"
+#     off fam_fitter and pinned-null "ac maintenance" onto HVAC. Held for routing.
+#   - "gear ka kaam" + Devanagari twin: their norms "gear"/"गियर" are bare 1-token keys that
+#     would move must-not "gear oil"/"gear change" (gaadi ka kaam) onto T18 and flip the held
+#     hi twin "गियर ग्राइंडिंग" off grinding. Held for routing; the gear worker still reaches
+#     the trade through "gear cutting", "gear hobbing", "garari ka kaam" and the other rows.
+#   - 4 sheet words that lose an exact-span tie to a production-visible published title
+#     (the row would be dead weight; production would ask, not pin): "plater" (handicraft),
+#     "autoclave operator" (chemical plant), "radiographer" (medical X-ray),
+#     "mobile crane operator" (mobile plant).
+#   - 23 same-family skips (sheet words already reaching the trade through a published title
+#     or an earlier row - no duplicate row): "gear cutter", "gas cutter" + Devanagari twin,
+#     "jig borer", "electroplater", "rigger" + "rigger ka kaam", "slinger",
+#     "eot crane operator", "hoist operator", "boiler attendant", "boiler fireman",
+#     "pump operator", "calibration technician", "calibration engineer", "ndt technician",
+#     "ac technician", "ac mechanic", "ac fitting", "ac installation", Devanagari twin,
+#     "kneader operator", and the 5 plating rows already on 8122.0100 ("electroplating",
+#     "zinc/nickel/chrome plating" + Devanagari twin - they ride with the code into T28).
+#   - 10 ka-kaam variants covered by their loaded stem (same norm): "hobbing", "honing",
+#     "pipe bending", "blow molding", "ndt", "calibration" (+ Devanagari twin),
+#     "fabrication", "forklift" (x2: "forklift ka kaam", "forklift wala").
+#   - "boring machine operator" and "crane operator" ARE loaded (rows below) but excluded
+#     from the reachability table: they tie an exact ISCO-unit alias, and the offline resolver
+#     the table uses lists the ISCO row first; in production the shadowed ISCO units are
+#     unsearchable, so the Wave 2 rows win.
+# No "must NOT lead here" phrase is loaded.
+#
+# Moves in this change (each with a retire line in rvm-alias-retirements.jsonl, ruled #2995
+# point 5): "fabricator" + "fabrication" off Sheet Metal (jd_nco_7213_0101);
+# "structural fitter" off Bench Fitter (jd_nco_7233_0200); the gas-cutting word
+# ("gas cutting welding") off Welder, Gas (jd_nco_7212_0100), re-authored as "gas cutting";
+# "salt spray test" off Painter Metal Sprayer (jd_nco_7132_0300) for T36; "instrument mechanic"
+# off PLC Automation Specialist (jd_nco_7412_0101) for T40. Each source code keeps its other
+# phrases; no replacement phrase is needed.
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear cutting operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear banane ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear hobbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"hobbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"hobbing machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"hobbing operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"hob machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"cnc hobbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear shaper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear shaping","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear shaving","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"shaving machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"bevel generator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gleason machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"spline hobbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"sprocket cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"worm wheel cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"garari ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"garari cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"hmt hobbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"liebherr hobbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear hobing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"gear cuting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"गियर कटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"गियर हॉबिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"हॉबिंग मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"हॉबिंग ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"गियर शेपर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"गियर शेविंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1300","text":"गरारी का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"hbm","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"hbm operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"hbm machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"cnc hbm","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"horizontal boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"horizontal boring machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"horizontal borer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"boring machine operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"boring mill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"cnc boring machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"floor boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"floor borer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"floor type boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"table type boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0400","text":"jig boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"plano miller","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"planomiller","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"plano milling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"line boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"heavy machining","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"heavy job machining","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"hmt boring machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"wmw boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"tos boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"skoda boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"horizantal boring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"boaring machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"बोरिंग मशीन ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"हॉरिजॉन्टल बोरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"एचबीएम ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"एचबीएम मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"फ्लोर बोरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0400","text":"जिग बोरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"प्लानो मिलर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1701","text":"लाइन बोरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"honing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"honing machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"honing operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"vertical honing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"horizontal honing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"liner honing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"broaching","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"broaching machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"broach machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"broaching operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"keyway broaching","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0700","text":"lapping machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0700","text":"lapping operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0701","text":"superfinishing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0701","text":"super finish machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"gun drilling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"gun drill machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"deep hole drilling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"thread rolling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"thread rolling machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"spm operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"spm machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"special purpose machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"facing centring machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"multi spindle drilling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"honning machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"broching machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"होनिंग मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0600","text":"होनिंग ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"ब्रोचिंग मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"ब्रोचिंग ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0700","text":"लैपिंग मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"एसपीएम ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"गन ड्रिलिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2600","text":"थ्रेड रोलिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0701","text":"सुपर फिनिशिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"fabricator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"fabrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"fabrication fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"fitter fabricator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0700","text":"structural fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0600","text":"structure fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0700","text":"plate fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_9900","text":"fit up","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_9900","text":"fitup ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_9900","text":"tacking ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0100","text":"marking fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0100","text":"layout marker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0400","text":"gas cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0400","text":"plate cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0500","text":"heavy fabrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0600","text":"structural fabrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0500","text":"tank fabrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0500","text":"vessel fabrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0700","text":"pressure vessel fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0600","text":"peb fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0600","text":"shed ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0600","text":"gate grill ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"loha fabrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"fabricater","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"febrication","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"fabrikator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"फैब्रिकेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7224_0102","text":"फैब्रिकेशन का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0700","text":"स्ट्रक्चर फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0700","text":"प्लेट फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_9900","text":"फिट अप","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0500","text":"टैंक फैब्रिकेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7214_0500","text":"हैवी फैब्रिकेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0100","text":"मार्किंग फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"pipe bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"pipe bending machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube bending machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"cnc tube bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"cnc pipe bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"cnc bender","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"nc bending machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"mandrel bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"pipe bender","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube bender","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"roll forming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"roll forming machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"roll forming operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube mill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube mill operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"pipe mill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"end forming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube end forming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"swaging machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"pipe cutting machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"section bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"profile bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"exhaust pipe bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"silencer pipe bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"handle bar bending","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"pipe banding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"tube banding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"पाइप बेंडिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"ट्यूब बेंडिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"पाइप बेंडिंग मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"सीएनसी पाइप बेंडिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"पाइप बेंडर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"रोल फॉर्मिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"ट्यूब मिल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2000","text":"एंड फॉर्मिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"pleting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"plating operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"plating plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"nickel chrome","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"nikal polish","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"hard chrome","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"anodising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"anodizing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"phosphating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"blackening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_3500","text":"galvanising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_3500","text":"galvanizing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_3500","text":"hot dip galvanizing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_3500","text":"jasta chadhana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"ced line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"ced coating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"electroless nickel","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"barrel plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"vat plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"passivation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"surface treatment","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"प्लेटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"प्लेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_3500","text":"जिंक प्लेटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"निकल क्रोम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"निकल पॉलिश","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"हार्ड क्रोम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"एनोडाइजिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0101","text":"फॉस्फेटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_3500","text":"गैल्वनाइजिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blow moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blow molding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blow moulding operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blow machine operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"bottle machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"bottle banane ki machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"pet blowing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"pet blow machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"pet bottle plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"stretch blow machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"isbm machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"ebm machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"extrusion blow moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"jerry can machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"drum blow moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"tank blow moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"parison","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blow moulding setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"jagmohan machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"cmp machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"sipa machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"sidel machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"asb machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"kautex","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"bottle plant operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blowing operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"blow mold","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"hdpe bottle machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"ब्लो मोल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"ब्लो मशीन ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"बोतल मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"पेट ब्लोइंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"पेट बोतल प्लांट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"जेरी कैन मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"ड्रम मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0700","text":"बोतल प्लांट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"extrusion","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"extruder operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"extrusion line operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"pipe plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"pipe plant operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"pvc pipe machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"hdpe pipe plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"cpvc pipe line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"profile extrusion","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"blown film","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"film plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"multilayer film plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"poly film machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"sheet line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"sheet extrusion","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"thermoforming machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"cable extrusion","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"wire insulation line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"tape plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"raffia tape line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"monofilament plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"compounding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"masterbatch plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"twin screw extruder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"dana machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"plastic dana plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"recycling pelletizer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"kabra machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"rajoo machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"extrution","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"एक्सट्रूज़न","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"एक्सट्रूडर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"पाइप प्लांट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"पीवीसी पाइप मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"फिल्म प्लांट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0300","text":"दाना मशीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"केबल एक्सट्रूज़न","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"शीट लाइन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0400","text":"टेप प्लांट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"rubber moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"rubber molding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"rubber press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"rubber press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"compression moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"compression press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0714","text":"transfer moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0713","text":"rubber injection machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6200","text":"mixing mill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6200","text":"rubber mill operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6000","text":"banbury","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6200","text":"calender operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6200","text":"rubber extruder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_2200","text":"hose plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0711","text":"vulcanising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0711","text":"vulcanizing press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0711","text":"curing press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1800","text":"tyre building","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0712","text":"tyre curing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"oil seal ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"o ring moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"gasket moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"rubber deflashing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"rubber trimming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6000","text":"rubber compound mixing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_9900","text":"rubber technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_9900","text":"rubber factory ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"रबर मोल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"रबर प्रेस","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"रबर प्रेस ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6200","text":"मिक्सिंग मिल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8131_6200","text":"रबर मिल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1800","text":"टायर बिल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0712","text":"टायर क्योरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"ऑयल सील","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_1201","text":"ओ-रिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0711","text":"वल्कनाइजिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ndt","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ndt inspector","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ndt level 2","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ndt level ii","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"asnt level 2","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"asnt level ii","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"isnt level 2","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"pcn level 2","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ut technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ut testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"ultrasonic testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"rt technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"radiography","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"weld ka x-ray","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"rtfi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"film interpreter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"mpt","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"mpi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"magnetic particle","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"dpt","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"dp test","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"dye penetrant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"lpt","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"pt mt","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"paut operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"eddy current testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"thickness gauging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"एनडीटी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"एनडीटी टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"एनडीटी लेवल 2","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"अल्ट्रासोनिक टेस्टिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"यूटी टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"रेडियोग्राफी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"डीपी टेस्ट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"एमपीटी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_ndt_technician","text":"वेल्ड का एक्स-रे","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1002","text":"calibration executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"calibration lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"caliberation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"calibrashan","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"instrument calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"gauge calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"gauge room","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"gauge incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"standard room","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"standards room","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2111_1000","text":"metrology lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"nabl calibration lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"dimensional calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"pressure gauge calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"torque wrench calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"on-site calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"slip gauge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"master instrument","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"gauge r&r","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"msa study","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"iso 17025","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"instrument checking lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"कैलिब्रेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"कैलिब्रेशन टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"कैलिब्रेशन लैब","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"स्टैंडर्ड रूम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1000","text":"गेज कैलिब्रेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2111_1000","text":"मेट्रोलॉजी लैब","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_1001","text":"इंस्ट्रूमेंट कैलिब्रेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"material testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"material testing lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"material lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"met lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"metallurgy lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"metallurgical lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"metallurgist","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"lab chemist foundry","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"spectro operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"spectro ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"spectro lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"spectrometer operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_6900","text":"hardness testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_6900","text":"hardness checker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"utm operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"tensile test","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"tensile testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"microstructure","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"metallography","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"physical lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"mechanical testing lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"chemical lab foundry","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"wet analysis","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"sand testing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"sand lab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"salt spray test","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1223_0102","text":"testing lab incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"lab technician metallurgy","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"मटेरियल टेस्टिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"मेट लैब","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"मेटलर्जी लैब","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"स्पेक्ट्रो ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_6900","text":"हार्डनेस टेस्टिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"टेंसाइल टेस्ट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"माइक्रोस्ट्रक्चर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3117_0300","text":"सैंड टेस्टिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3119_0100","text":"मटेरियल लैब टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot programmer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robotic welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"welding robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot teaching","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot teacher","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"teach pendant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"fanuc robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"yaskawa robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"motoman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"abb robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"kuka robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"kawasaki robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"nachi robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"panasonic robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"spot welding robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"mig robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot cell","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robot touch up","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"cobot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"palletizer robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"pick and place robot","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_9900","text":"roboguide","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_9900","text":"robotstudio","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robo operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_9900","text":"robot programer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"robotic operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"रोबोट ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"रोबोट प्रोग्रामर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"रोबोट वेल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"रोबोटिक वेल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"रोबोट टीचिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"टीच पेंडेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"फानुक रोबोट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3139_1400","text":"रोबोट सेल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrument technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrumentation technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrumentation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0100","text":"instrument mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0401","text":"instrument fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0100","text":"instrument ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0100","text":"iti instrument mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"field instrument","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"transmitter calibration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"pressure transmitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"level transmitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0100","text":"flow meter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0401","text":"control valve ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0401","text":"positioner","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"loop checking","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"hart communicator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0100","text":"rtd thermocouple","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"impulse line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrument tubing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"dcs instrument","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrument shutdown","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"e and i technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0100","text":"load cell ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instument technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrument mentenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"instrumention","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"इंस्ट्रूमेंट टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"इंस्ट्रूमेंटेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0100","text":"इंस्ट्रूमेंट मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0401","text":"इंस्ट्रूमेंट फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"ट्रांसमीटर कैलिब्रेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0401","text":"कंट्रोल वाल्व","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7311_0101","text":"लूप चेकिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0100","text":"फ्लो मीटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ac mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3115_1100","text":"hvac technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3115_1100","text":"hvac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"hvac operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"refrigeration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"fridge ac mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"rac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"mrac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"iti rac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3115_1100","text":"chiller technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"chiller operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"ahu operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"vrf","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"vrv","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ductable ac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"package ac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"split ac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"cassette ac","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"cold storage","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"cold room","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"ammonia plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"gas charging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0401","text":"ac servicing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"refrigration","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3115_1100","text":"hvac techinician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"एसी टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"एसी मिस्त्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3115_1100","text":"एचवीएसी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"रेफ्रिजरेशन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"चिलर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"कोल्ड स्टोरेज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0900","text":"गैस चार्जिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"फ्रिज एसी मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boiler operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boiler man","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boiler ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"first class boiler attendant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"second class boiler attendant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boe","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"utility operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"utility ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0700","text":"compressor operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3131_0200","text":"dg operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3131_0200","text":"dg set operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3131_0200","text":"generator operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"etp operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"stp operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"wtp operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"ro plant operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"dm plant operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"water treatment plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_1000","text":"pump house operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"thermopack operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"thermic fluid heater","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_1000","text":"cooling tower operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boilar operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"boyler operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"utillity operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"बॉयलर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0200","text":"बॉयलर अटेंडेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0300","text":"बॉयलर फायरमैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8182_0400","text":"यूटिलिटी ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0700","text":"कंप्रेसर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3131_0200","text":"डीजी ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3131_0200","text":"जनरेटर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"ईटीपी ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_0400","text":"आरओ प्लांट ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3132_1000","text":"पंप ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"forklift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"fork lift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"forklift operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"forklift driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"forklift chalata hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"forklifter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"forklit","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"folklift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"reach truck","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"reach truck operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"stacker operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"bopt","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"bopt operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"battery pallet truck","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"pallet truck","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"mhe operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"material handling operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"lifter gaadi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"tow truck operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"order picker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"telehandler","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"godrej forklift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"voltas forklift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"battery forklift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"diesel forklift","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"फोर्कलिफ्ट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"फोर्कलिफ्ट ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"फोर्कलिफ्ट ड्राइवर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"फोर्कलिफ्ट चलाना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"रीच ट्रक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"स्टैकर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0100","text":"पैलेट ट्रक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8344_0201","text":"बैटरी फोर्कलिफ्ट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"crane operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0501","text":"eot operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0501","text":"eot crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0700","text":"overhead crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"crane chalata hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"crane driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"crane ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"crain operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"cren operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7215_0100","text":"rigar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7215_0100","text":"rigging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7215_0200","text":"khalasi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7215_0200","text":"signalman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"hydra operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"hydra driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"hydra crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"farana operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0600","text":"gantry crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0600","text":"goliath crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0600","text":"tower crane operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0501","text":"pendant crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0501","text":"ladle crane","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"क्रेन ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0501","text":"ईओटी क्रेन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"क्रेन चलाना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"क्रेन ड्राइवर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7215_0100","text":"रिगर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7215_0200","text":"खलासी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"हाइड्रा ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0700","text":"ओवरहेड क्रेन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8343_0600","text":"टावर क्रेन","lang":"hi"}
