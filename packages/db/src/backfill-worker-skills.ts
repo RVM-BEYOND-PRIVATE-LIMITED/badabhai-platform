@@ -216,6 +216,9 @@ async function main(): Promise<void> {
     let skillsSkippedHumanAuthored = 0;
     let tenureRowsWritten = 0;
     let workersWithFormTenure = 0;
+    // #3052 §2 — dry-run per-skill workers before/after (counts only, no PII).
+    const beforeBySkill = new Map<string, number>();
+    const afterBySkill = new Map<string, number>();
 
     for (;;) {
       const batch: { id: string }[] = await db
@@ -430,7 +433,11 @@ async function main(): Promise<void> {
             else skillsUpserted += 1;
           }
           const derivedSet = new Set(derived.map((d) => d.skillId));
-          for (const id of existingDerived) if (!derivedSet.has(id)) skillsDeleted += 1;
+          for (const id of existingDerived) {
+            beforeBySkill.set(id, (beforeBySkill.get(id) ?? 0) + 1);
+            if (!derivedSet.has(id)) skillsDeleted += 1;
+          }
+          for (const d of derived) afterBySkill.set(d.skillId, (afterBySkill.get(d.skillId) ?? 0) + 1);
           // Approximation from `derived` alone (see comment above the apply branch for why that
           // differs from the live rebuild) — but via the SAME tenure function, not a second one.
           const previewTenure = computeIndustryTenure(
@@ -472,6 +479,17 @@ async function main(): Promise<void> {
           `reach nothing until the interview writes one. That is FAIL-CLOSED, not an error; ` +
           `it usually means the profile has no canonical_role_id and no bridgeable attribute.`,
       );
+    }
+    if (!opts.apply) {
+      // #3052 §2 — per skill workers before/after, counts only. A skill with
+      // after < before loses workers on rebuild and stops the seed (§3).
+      const skills = [...new Set([...beforeBySkill.keys(), ...afterBySkill.keys()])].sort();
+      console.log(`[${NAME}] per skill workers before/after (dry run, counts only):`);
+      for (const skill of skills) {
+        const before = beforeBySkill.get(skill) ?? 0;
+        const after = afterBySkill.get(skill) ?? 0;
+        console.log(`  ${skill}  before=${before} after=${after} delta=${after - before}`);
+      }
     }
     printFooter(NAME, opts, skillsUpserted + skillsDeleted + tenureRowsWritten);
   } finally {
