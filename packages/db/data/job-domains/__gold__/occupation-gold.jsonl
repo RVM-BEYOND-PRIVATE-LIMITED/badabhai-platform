@@ -539,3 +539,13 @@
 {"utterance":"कूड़ा उठाता हूँ","expect_unit":"9611"}
 {"utterance":"garbage collector hun","expect_unit":"9611"}
 {"utterance":"waste collection ka kaam","expect_unit":"9611"}
+
+# Wave 1 (CEO pack v2, #3051): most common phrases per trade. Verified L0 on main; remaining Wave 1 phrases land with #3010.
+{"utterance":"wire cut operator","expect_unit":"7223"}
+{"utterance":"foundry operator","expect_unit":"7211"}
+{"utterance":"die casting operator","expect_unit":"8121"}
+{"utterance":"forging operator","expect_unit":"7221"}
+{"utterance":"heat treatment operator","expect_unit":"8121"}
+{"utterance":"injection moulding operator","expect_unit":"8142"}
+{"utterance":"quality engineer","expect_unit":"2152"}
+{"utterance":"production supervisor","expect_unit":"3122"}
