@@ -205,17 +205,14 @@ const MAX_OVERLAY_ALIAS_LEN = 60;
  * Characters that must never appear in an authored alias.
  *
  * THIS IS A PII GUARD, not a style rule. The overlay's second generator mines real
- * `chat_messages`, so the corpus is one careless promotion away from carrying a phone
- * number, a handle or a link into a git-committed file that is then embedded and served.
- * An occupation name needs none of these: of the 8,695 scraped aliases only 21 contain a
- * digit and every one of those is a scrape artefact, so the rule costs nothing real.
+ * `chat_messages`, so the corpus is one careless promotion away from carrying a handle
+ * or a link into a git-committed file that is then embedded and served.
  *
- * Digits are matched as an EXPLICIT class covering Latin and Devanagari rather than `\d`,
- * because JS `\d` is ASCII-only while Python's is Unicode-aware — the divergence this
- * repo has already been bitten by and documents at `skills.dto.ts:10-13`. A Devanagari
- * phone number must not pass a check that an ASCII one fails.
+ * Ruling #2995 point 2 (26 Nov 2026, recorded on #2995): digits are ALLOWED, reversing
+ * the not-loaded default. Digit phrases are in scope everywhere (#3082 Wave 1, #3016
+ * T34/T35, #3017 T51/T60). The guard now refuses only '@' and URLs, never digits.
  */
-const OVERLAY_FORBIDDEN_RE = /[0-9०-९@]|https?:|www\./i;
+const OVERLAY_FORBIDDEN_RE = /@|https?:|www\./i;
 
 /**
  * The guard above, as a predicate, so the chat miner applies the IDENTICAL rule at mining
@@ -516,8 +513,9 @@ export function validateAliasOverlay(
     }
     if (OVERLAY_FORBIDDEN_RE.test(text)) {
       problems.push(
-        `${where}: text contains a digit, '@' or a URL. An occupation name needs none of these, ` +
-          `and this is the guard that stops a mined phone number reaching a committed file.`,
+        `${where}: text contains '@' or a URL. An occupation name needs neither, ` +
+          `and this is the guard that stops a mined handle or link reaching a committed file. ` +
+          `Digits are allowed per #2995 point 2 (26 Nov 2026).`,
       );
     }
     const norm = normalizeOccupationText(text);

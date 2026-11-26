@@ -1270,7 +1270,10 @@
 # heat treatment's were, so each chip reads as the trade).
 #
 # NOT loaded here, all listed on #2995 (points 2, 3 and 5 build on the stated defaults):
-#   - 12 phrases with a digit (the validator refuses them): T21 2, T33 3, T38 1, T58 6.
+#   - 12 phrases with a digit: held on #3010 (validator refused), now LOADED in #3082
+#     per ruling #2995 point 2 (26 Nov 2026, digits ALLOWED): T21 2, T33 3, T38 1, T58 1 hi
+#     (T58 five domain-file rows already reach, grandfathered — no overlay row).
+#     Each proved 0 moves in-memory over 9,916 phrases (same pattern as point-3 shorts).
 #   - 3 short phrases held (test proved a pinned route moves): bare "plc" and "plc ka kaam"
 #     (both normalize to "plc"; "police" null -> fam_plc_automation); bare "ppc" ("pcc panel"
 #     null -> fam_ppc). The other 9 shorts (edm, znc, pdc, gdc, cht, cmm, vmm, tpm, npd)
@@ -1839,3 +1842,17 @@
 {"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "prototype engineer", "lang": "en"}
 {"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "sourcing", "lang": "en"}
 {"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "reverse engineering", "lang": "en"}
+# Wave 1 digit phrases (ruling #2995 point 2, 26 Nov 2026; #3082).
+#
+# Digits are ALLOWED, reversing the not-loaded default. Each phrase below was tested
+# in-memory and re-routed over the full alias set plus all pinned gap phrases
+# (9916 phrases: 9792 aliases + 829 pinned, same pattern as #3010 point-3 shorts):
+# 0 moves. T58 domain-file rows (3d design, 3d designer, 3d modelling, 3d modeling,
+# fusion 360) already reach and stay grandfathered - no overlay row added.
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "3d carving", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "type3", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "3d scanner operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "3d scanning", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "3डी स्कैनर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "s7 300", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "3डी डिज़ाइन", "lang": "hi"}

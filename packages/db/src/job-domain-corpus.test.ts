@@ -95,28 +95,25 @@ describe("validateAliasOverlay", () => {
   });
 
   describe("the PII guard", () => {
-    // These are not style rules. The overlay's second generator mines real chat_messages,
+    // Not style rules. The overlay's second generator mines real chat_messages,
     // so without this the corpus is one careless promotion away from committing a worker's
-    // phone number to git and then embedding it.
+    // handle or link to git and then embedding it. Digits are ALLOWED per #2995 point 2
+    // (26 Nov 2026, #3082): digit phrases are in scope everywhere.
     it.each([
-      ["a Latin digit", "welder 9876"],
-      ["a Devanagari digit", "वेल्डर ९८७६"],
       ["an at-sign", "welder@site"],
       ["a URL", "welder https://x.io"],
       ["a bare www host", "welder www.x.io"],
     ])("rejects %s", (_label, text) => {
       const problems = validateAliasOverlay([alias({ text, lang: "en" })], [domain()]);
-      expect(problems.some((p) => p.includes("digit, '@' or a URL"))).toBe(true);
+      expect(problems.some((p) => p.includes("'@' or a URL"))).toBe(true);
     });
 
-    it("matches Devanagari digits, which a `\\d`-based check would miss in JS", () => {
-      // JS `\d` is ASCII-only while Python's is Unicode-aware — the divergence documented
-      // at skills.dto.ts:10-13. A Devanagari phone number must not pass a check an ASCII
-      // one fails, so this asserts the explicit class rather than trusting `\d`.
-      const ascii = validateAliasOverlay([alias({ text: "welder 1", lang: "en" })], [domain()]);
-      const deva = validateAliasOverlay([alias({ text: "welder १", lang: "en" })], [domain()]);
-      expect(ascii.length).toBe(deva.length);
-      expect(deva.length).toBeGreaterThan(0);
+    it.each([
+      ["a Latin digit phrase", "3d carving"],
+      ["a model code", "s7 300"],
+      ["a Devanagari digit phrase", "3डी स्कैनर"],
+    ])("allows %s (ruling #2995 point 2)", (_label, text) => {
+      expect(validateAliasOverlay([alias({ text, lang: "en" })], [domain()])).toEqual([]);
     });
   });
 
@@ -218,7 +215,7 @@ describe("validateAliasOverlay", () => {
       [
         alias({ job_domain_id: "jd_nco_9999_0000" }),
         alias({ text: "- / -", lang: "en" }),
-        alias({ text: "welder 9", lang: "en" }),
+        alias({ text: "welder@site", lang: "en" }),
       ],
       [domain()],
     );
