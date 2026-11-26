@@ -947,7 +947,7 @@ export class IdentifyService {
     envelope: ProfilingEnvelope,
     entry: RoutingEntry,
     propagatedLevel: { readonly levelKey: string; readonly rung: string } | null,
-    ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+    _ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): { readonly patch: Partial<ProfilingEnvelope>; readonly offer: NonNullable<IdentifyResult["offer"]> } {
     const chips: OfferedChip[] = entry.chips.map((chip) => {
       if (chip.kind === "trade") {

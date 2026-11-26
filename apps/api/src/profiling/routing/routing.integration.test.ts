@@ -10,11 +10,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
 import { IdentifyService } from "../identify.service";
-import { narrowProfilingEnvelope, emptyProfilingEnvelope, type ProfilingEnvelope } from "../conversation-state";
+import { emptyProfilingEnvelope, type ProfilingEnvelope } from "../conversation-state";
 
 const SESSION = "33333333-3333-4333-8333-333333333333";
 const WORKER = "11111111-1111-4111-8111-111111111111";
-const CTX = { correlationId: "cid", requestId: "req_1" } as never;
 
 function makeIdentify() {
   const occupation = {

@@ -8,6 +8,8 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   ROUTING_TABLE,
@@ -174,8 +176,6 @@ describe("routing table — pack section 6, one entry per row", () => {
     // identify.service checks routing first in production so the worker still gets the question).
     // resolveJobDomainCorpus() is NOT used here because it merges published titles in.
     // Retired rows do not count (plant/breakdown, cnc, shift, design/moulding ka kaam, etc.).
-    const { readFileSync } = require("node:fs");
-    const { join } = require("node:path");
     const dir = join(__dirname, "..", "..", "..", "..", "..", "packages", "db", "data", "job-domains");
     const overlayNorms = new Set<string>();
     for (const line of readFileSync(join(dir, "rvm-aliases.jsonl"), "utf8").split("\n")) {
@@ -184,7 +184,7 @@ describe("routing table — pack section 6, one entry per row", () => {
       try {
         const r = JSON.parse(t);
         if (r.kind === "alias") overlayNorms.add(normalizeOccupationText(r.text));
-      } catch {}
+      } catch { continue; }
     }
     const retiredNorms = new Set<string>();
     for (const line of readFileSync(join(dir, "rvm-alias-retirements.jsonl"), "utf8").split("\n")) {
@@ -193,7 +193,7 @@ describe("routing table — pack section 6, one entry per row", () => {
       try {
         const r = JSON.parse(t);
         if (r.kind === "retire") retiredNorms.add(normalizeOccupationText(r.text));
-      } catch {}
+      } catch { continue; }
     }
     for (const n of retiredNorms) overlayNorms.delete(n);
     // Pre-existing live shared words stay for direct retrieval (reachability still pins live,
