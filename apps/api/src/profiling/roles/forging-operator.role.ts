@@ -65,4 +65,18 @@ export const FORGING_OPERATOR = {
      */
     extraConflictTerms: ["bhatti ka kaam", "lohar ka kaam"],
   },
+  fresher: {
+    workshopMachines: {
+      hand_forging: "Hand forging",
+      power_hammer: "Power hammer",
+      heating_furnace: "Furnace heating",
+      press: "Press machine",
+      heat_treatment: "Hardening & tempering",
+      grinding: "Grinding machine",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

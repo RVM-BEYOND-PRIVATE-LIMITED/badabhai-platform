@@ -54,4 +54,18 @@ export const DIE_CASTING_OPERATOR = {
      */
     extraConflictTerms: ["die fitter", "die ka kaam", "moulding machine"],
   },
+  fresher: {
+    workshopMachines: {
+      pdc_machine: "Die-casting machine work",
+      gdc_pouring: "Gravity die pouring",
+      melting: "Furnace melting",
+      fitting: "Fitter shop (filing & drilling)",
+      trimming_press: "Trimming / power press",
+      fettling: "Fettling & grinding",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

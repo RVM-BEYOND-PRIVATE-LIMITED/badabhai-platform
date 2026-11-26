@@ -42,4 +42,18 @@ export const HEAT_TREATMENT = {
     ],
     levelTerms: ["trainee", "operator", "skilled", "senior"],
   },
+  fresher: {
+    workshopMachines: {
+      box_furnace: "Box / muffle furnace hardening",
+      tempering: "Tempering",
+      annealing: "Annealing / normalising",
+      quenching: "Oil / water quenching",
+      rockwell: "Rockwell hardness tester",
+      hand_forging: "Hand forging",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

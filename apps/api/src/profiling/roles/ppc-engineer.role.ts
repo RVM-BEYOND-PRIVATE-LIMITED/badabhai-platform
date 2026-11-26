@@ -66,4 +66,16 @@ export const PPC_ENGINEER = {
       "material ka kaam",
     ],
   },
+  fresher: {
+    workshopMachines: {
+      internship: "Internship",
+      apprenticeship: "Apprenticeship (NATS / NAPS)",
+      college_project: "College major project",
+      software_course: "SAP / Advanced Excel course",
+      industrial_visit: "Industrial visit",
+    },
+    // The pack asks no trade-test question, so no status ever maps here.
+    tradeTest: {},
+    trainingLabel: "Training and projects",
+  },
 } as const satisfies RoleFormDescriptor;

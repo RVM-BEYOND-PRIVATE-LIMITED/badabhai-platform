@@ -42,4 +42,19 @@ export const EDM_WIRECUT = {
     ],
     levelTerms: ["trainee", "operator", "setter", "setter cum programmer", "सेटर"],
   },
+  fresher: {
+    workshopMachines: {
+      wirecut: "Wire-cut machine",
+      znc_sinker: "Die-sinking EDM / ZNC",
+      surface_grinding: "Surface grinder",
+      milling: "Milling machine",
+      conventional_lathe: "Conventional lathe",
+      drilling: "Drilling machine",
+      bench_fitting: "Bench fitting & marking",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

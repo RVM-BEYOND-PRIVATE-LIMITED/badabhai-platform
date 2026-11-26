@@ -1529,6 +1529,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           inventor: "Inventor",
           fusion: "Fusion 360",
           solid_edge: "Solid Edge",
+          // @2 additions — new-form values appended after history.
+          autocad: "AutoCAD (2D)",
         },
       },
       {
@@ -1545,6 +1547,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           fixture_jig: "Fixture / jig",
           mould_die: "Mould / die / tooling",
           auto_parts: "Automotive parts",
+          // @2 additions — new-form values appended after history.
+          product_design: "Product / component design",
+          spm_machine: "SPM & machine design",
+          plastic_part: "Plastic part design",
+          jig_fixture: "Jig & fixture design",
+          press_tool: "Press tool / die design",
+          mould_design: "Mould design (injection / die-casting)",
+          biw_fixture: "BIW & welding fixture design",
+          reverse_engg: "Reverse engineering",
         },
       },
       {
@@ -1559,8 +1570,50 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           weldment: "Weldment",
           surfacing: "Surfacing",
           two_d_model: "2D drawing from model",
+          // @2 additions — new-form values appended after history.
+          part_modelling: "Part modelling",
+          assembly_module: "Assembly",
+          drafting: "Drafting / detailing",
+          sheet_metal: "Sheet metal",
+          surface_module: "Surfacing",
+          mould_tools: "Mould tools (core-cavity)",
+          simulation: "Simulation / motion study",
         },
       },
+      {
+        from: "design_daily_work",
+        // Rank 4x: the daily design tasks are this desk trade's setting
+        // capability. Step 5 (@2).
+        rank: 43,
+        label: "Daily design work",
+        kind: "ticks",
+        values: {
+          concept_layout: "Concept / layout",
+          modelling: "3D part and assembly modelling",
+          detailing: "2D manufacturing drawing, detailing",
+          bom: "BOM",
+          design_calculation: "Design calculation",
+          part_selection: "Material and standard part selection",
+          ecn: "ECN and drawing revision",
+          shop_followup: "Shop floor / vendor trial follow-up",
+          customer_review: "Customer design review",
+        },
+      },
+      {
+        from: "design_work_input",
+        // 6x wedge attribute: what the design starts from. Step 5 (@2).
+        rank: 62,
+        label: "Design input",
+        kind: "chips",
+        values: {
+          customer_data: "Customer 3D model / drawing",
+          own_concept: "Own concept from requirement",
+          sample_part: "Model from sample part",
+          scan_data: "3D scan data, STL / point cloud",
+          senior_concept: "Senior's concept / layout",
+        },
+      },
+
       {
         from: "design_tolerance",
         rank: 42,
@@ -1573,8 +1626,86 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           basic: "Basic ±",
           gdt: "GD&T symbols",
           stackup: "Tolerance stack-up",
+          // @2 additions — new-form values appended after history.
+          gdt_apply: "Applies GD&T symbols",
+          fits_selection: "Fit & tolerance selection (H7/g6)",
+          datum_scheme: "Datum scheme",
+          tolerance_stack: "Tolerance stack-up",
+          finish_weld_symbols: "Surface finish & weld symbols",
+          gdt_standard: "ASME Y14.5 / ISO standard",
         },
       },
+      {
+        from: "design_process_knowledge",
+        // 6x wedge attribute: DFM vocabulary. Step 5 (@2).
+        rank: 61,
+        maxValues: 4,
+        label: "Process knowledge",
+        kind: "chips",
+        values: {
+          machining: "Machining (turning / milling)",
+          sheet_metal: "Sheet metal (bending, laser, press)",
+          fabrication: "Welding and fabrication",
+          injection_moulding: "Plastic injection moulding",
+          casting: "Casting (die / sand)",
+          forging: "Forging",
+          three_d_printing: "3D printing / prototype",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "design_tool_work",
+        // Rank 4x: tool-design tasks are setting capability. Step 5 (@2).
+        rank: 45,
+        label: "Tool design work",
+        kind: "ticks",
+        values: {
+          strip_layout: "Progressive die strip layout",
+          core_cavity: "Core-cavity extraction and parting line",
+          slider_lifter: "Slider, lifter and ejection design",
+          runner_cooling: "Runner, gate and cooling layout",
+          mould_base: "Mould base and standard part selection",
+          fixture_locating: "Fixture locating and clamping (3-2-1)",
+          clamp_selection: "Pneumatic / hydraulic clamp selection",
+          tonnage_calculation: "Press tonnage and spring calculation",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "design_machine_elements",
+        // Rank 4x: selecting elements is setting capability; the values are
+        // component vocabulary, hence chips. Step 5 (@2).
+        rank: 46,
+        label: "Machine elements",
+        kind: "chips",
+        values: {
+          bearing_lm_guide: "Bearing and LM guide",
+          ball_screw_servo: "Ball screw and servo motor sizing",
+          drives: "Gearbox, belt and chain drive",
+          pneumatics: "Pneumatic cylinder and valve",
+          hydraulics: "Hydraulic cylinder and power pack",
+          shafts_couplings: "Shaft, key and coupling",
+          structure_frame: "Fabricated frame / structure",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "design_pdm_plm",
+        // 6x wedge attribute: system vocabulary. Step 5 (@2).
+        rank: 63,
+        label: "PDM / PLM",
+        kind: "chips",
+        values: {
+          teamcenter: "Teamcenter",
+          windchill: "Windchill",
+          solidworks_pdm: "SolidWorks PDM / EPDM",
+          vault: "Autodesk Vault",
+          enovia: "ENOVIA",
+          sap: "SAP (BOM / ECN entry)",
+          // `unknown` ("Koi nahi, folder me file rakhte hain") has no entry.
+        },
+      },
+
       {
         from: "design_industry",
         rank: 71,
@@ -1588,6 +1719,50 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           consumer: "Consumer products",
           aero_def: "Aerospace / defence",
           medical: "Medical",
+          // @2 additions — new-form values appended after history.
+          automotive: "Automotive / auto parts",
+          two_wheeler: "Two-wheeler",
+          spm_parts: "SPM & machine building",
+          die_mould: "Tool room, die & mould",
+          appliances: "Home appliances",
+          general_engg: "General engineering & fabrication",
+          agri: "Tractor & agri equipment",
+          defence: "Defence / aerospace",
+        },
+      },
+      {
+        from: "design_validation",
+        // 6x wedge attribute. Step 5 (@2).
+        rank: 64,
+        label: "Design validation",
+        kind: "ticks",
+        values: {
+          basic_fea: "Basic FEA (SolidWorks Simulation / ANSYS)",
+          stack_up_study: "Tolerance stack-up study",
+          dfmea: "DFMEA",
+          prototype_test: "Prototype testing",
+          clash_check: "Interference / clash check",
+          design_checklist: "Design review checklist",
+          simulation_report: "Mould flow / forming report",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "design_project_ownership",
+        // 6x wedge attribute: lead-level ownership. Step 5 (@2).
+        rank: 65,
+        label: "Project ownership",
+        kind: "chips",
+        values: {
+          customer_discussion: "Customer technical discussion",
+          cost_estimate: "Costing / weight estimate",
+          vendor_followup: "Vendor and tool room follow-up",
+          drawing_check: "Junior's drawing check",
+          change_management: "ECN and change management",
+          vave: "VAVE / cost reduction",
+          apqp_docs: "APQP and PPAP design documents",
+          design_standards: "Design standards / templates",
+          // `unknown` ("Inme se koi nahi") has no entry.
         },
       },
     ],
@@ -3719,6 +3894,27 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         },
       },
       {
+        from: "plc_software",
+        // Rank 2x: programming software is the literal job-ad vocabulary beside
+        // the PLC brand (the T38 headline names it). Step 5 (@2).
+        rank: 23,
+        maxValues: 4,
+        label: "Programming software",
+        kind: "chips",
+        values: {
+          tia_portal: "TIA Portal",
+          simatic_manager: "SIMATIC Manager / Step 7",
+          rslogix_studio: "RSLogix / Studio 5000",
+          gx_works: "GX Works / GX Developer",
+          wplsoft_ispsoft: "WPLSoft / ISPSoft",
+          cx_programmer: "CX-Programmer / Sysmac Studio",
+          somachine: "SoMachine / EcoStruxure",
+          codesys: "Codesys",
+          // `unknown` ("Pata nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+
+      {
         from: "plc_work",
         rank: 22,
         inHeadline: true,
@@ -3734,6 +3930,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           vfd_servo: "VFD / servo",
           robot_teaching: "Robot teaching",
           commissioning: "Commissioning",
+          // @2 additions — new-form values appended after history.
+          online_monitoring: "Online monitoring for faults",
+          io_checking: "I/O checking & sensor replacement",
+          program_edit: "Small program changes (timer / interlock)",
+          program_write: "New program writing",
+          hmi_design: "HMI screen design",
+          program_backup: "Program backup",
         },
       },
       {
@@ -3747,8 +3950,32 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           weintek: "Weintek",
           delta_hmi: "Delta HMI",
           mitsubishi_got: "Mitsubishi GOT",
+          // @2 additions — new-form values appended after history.
+          wonderware: "Wonderware InTouch",
+          delta_dop: "Delta DOP HMI",
         },
       },
+      {
+        from: "plc_drive_servo",
+        // Rank 2x: drive makes are hardware vocabulary, the controllers reading.
+        // Step 5 (@2).
+        rank: 24,
+        maxValues: 4,
+        label: "Drives & servo",
+        kind: "chips",
+        values: {
+          siemens_drive: "Siemens Sinamics / Micromaster",
+          abb_drive: "ABB drive",
+          danfoss: "Danfoss",
+          powerflex: "Allen-Bradley PowerFlex",
+          delta_drive: "Delta VFD / servo",
+          mitsubishi_drive: "Mitsubishi VFD / servo",
+          yaskawa: "Yaskawa",
+          altivar: "Schneider Altivar",
+          // `unknown` ("Koi nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+
       {
         from: "plc_field_devices",
         rank: 42,
@@ -3760,8 +3987,107 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           vision: "Vision system",
           safety_relays: "Safety relays / light curtains",
           encoders: "Encoders",
+          // @2 additions — new-form values appended after history.
+          proximity_sensor: "Proximity & photo sensors",
+          encoder: "Encoder",
+          analog_transmitter: "4–20 mA transmitter",
+          temperature_sensor: "RTD / thermocouple",
+          load_cell: "Load cell",
+          safety_devices: "Safety relays / light curtains",
+          vision_camera: "Vision camera / barcode scanner",
         },
       },
+      {
+        from: "plc_drawing_reading",
+        // Rank 4x, the drawings reading: single-select ladder, `none` omitted
+        // per the welder's ruling. Step 5 (@2).
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        values: {
+          // `none` ("Nahi padh pata") has no entry ON PURPOSE — matching data,
+          // not a line on the worker's own document.
+          read_drawing: "Reads electrical drawings and finds wiring faults",
+          modify_drawing: "Corrects electrical drawings",
+          make_drawing: "Makes new drawings in EPLAN / AutoCAD Electrical",
+        },
+      },
+      {
+        from: "plc_programming_scope",
+        // Rank 4x: what the worker builds in software separates the editor from
+        // the programmer. Step 5 (@2).
+        rank: 43,
+        label: "Programming scope",
+        kind: "ticks",
+        values: {
+          ladder: "Ladder logic",
+          fbd: "FBD / function block",
+          structured_text: "SCL / structured text",
+          analog_scaling: "Analog scaling",
+          pid_loop: "PID loop",
+          motion_control: "Servo positioning / motion",
+          high_speed_counter: "High speed counter",
+          recipe_logging: "Recipe and data logging",
+          // `unknown` ("Koi nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+      {
+        from: "plc_network",
+        // 6x wedge attribute: connectivity knowledge below the §5.1 list.
+        // Step 5 (@2).
+        rank: 61,
+        label: "Networks",
+        kind: "chips",
+        values: {
+          profinet: "Profinet",
+          profibus: "Profibus",
+          modbus: "Modbus RTU / TCP",
+          ethernet_ip: "EtherNet/IP",
+          ethercat: "EtherCAT",
+          cc_link: "CC-Link",
+          devicenet: "DeviceNet",
+          // `unknown` ("Pata nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+      {
+        from: "plc_machine_type",
+        // The sector row's sibling: what KIND of line the automation sits on.
+        // Multi-select, so the sector reading (fact + join). Step 5 (@2).
+        rank: 62,
+        maxValues: 3,
+        label: "Machine types",
+        kind: "fact",
+        join: ", ",
+        values: {
+          spm: "SPM, special purpose machine",
+          assembly_conveyor: "Assembly line and conveyor",
+          packaging: "Packaging / filling machine",
+          process_plant: "Process plant, batching and dosing",
+          robot_cell: "Robot cell",
+          press_weld_line: "Press / welding line",
+          plastic_machine: "Injection moulding / extrusion machine",
+          furnace_utility: "Furnace, boiler / compressor",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "plc_commissioning_work",
+        // Rank 4x: commissioning solo is setting capability. Step 5 (@2).
+        rank: 45,
+        label: "Commissioning work",
+        kind: "ticks",
+        values: {
+          io_check: "I/O checking and loop test",
+          drive_parameter: "Drive parameter setting",
+          servo_tuning: "Servo tuning and homing",
+          machine_trial: "Machine trial and cycle time setting",
+          customer_training: "Customer operator training",
+          fat_sat: "FAT / SAT documentation",
+          solo_site: "Solo commissioning at customer site",
+          // `unknown` ("Koi nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+
       {
         from: "sector_worked",
         rank: 71,
@@ -3777,6 +4103,66 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           food: "Food",
           plastics: "Plastics",
           steel: "Steel",
+          // @2 additions — new-form values appended after history.
+          automotive: "Automobile / auto parts",
+          fmcg: "FMCG / food / beverage",
+          chemical: "Chemical",
+          steel_plant: "Steel / metal plant",
+          machine_builder: "SPM / machine builder",
+          system_integrator: "System integrator / panel builder",
+        },
+      },
+      {
+        from: "troubleshooting",
+        // Rank 7x, the machining-map precedent (turner/miller 72).
+        // Step 5 (@2).
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          plc_fault: "PLC fault / CPU stop",
+          io_card: "Input / output card fault",
+          network_fault: "Communication / network fault",
+          drive_fault: "Drive trip and alarm",
+          servo_alarm: "Servo alarm",
+          hmi_fault: "HMI hang / communication failure",
+          backup_restore: "Program download and backup restore",
+          sensor_wiring: "Sensor / wiring fault",
+          // `unknown` ("Koi nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+      {
+        from: "plc_advanced_system",
+        // 7x volunteered depth the guideline never names. Step 5 (@2).
+        rank: 73,
+        label: "Advanced systems",
+        kind: "ticks",
+        values: {
+          dcs: "DCS",
+          safety_plc: "Safety PLC",
+          vision_system: "Vision system (Cognex / Keyence)",
+          robot_interface: "PLC interfacing with robot",
+          robot_programming: "Robot teaching / programming",
+          multi_axis_motion: "Multi-axis motion controller",
+          iiot_mes: "IIoT, OEE data / MES connection",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "plc_project_role",
+        // 6x wedge attribute: lead-level ownership. Step 5 (@2).
+        rank: 63,
+        label: "Project role",
+        kind: "chips",
+        values: {
+          io_list_bom: "I/O list and BOM",
+          panel_design: "Panel design and drawing",
+          vendor_handling: "Vendor / panel builder coordination",
+          customer_fat: "Customer dealing and FAT",
+          junior_training: "Training juniors",
+          spares_backup_record: "Spares and program backup record",
+          pm_schedule: "PM schedule",
+          // `unknown` ("Koi nahi") has no entry — a non-answer prints nothing.
         },
       },
     ],
@@ -3804,6 +4190,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           sinker_edm: "Sinker EDM",
           hole_drill: "Hole drill EDM",
           small_hole: "Small-hole EDM",
+          // @2 additions — new-form values appended after history.
+          wirecut: "CNC wire-cut (brass wire)",
+          moly_wirecut: "Molybdenum / reusable wire-cut",
+          znc_sinker: "ZNC die-sinking EDM",
+          cnc_sinker: "CNC die-sinking EDM",
+          edm_drill: "EDM drill / super drill",
         },
       },
       {
@@ -3820,6 +4212,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           makino: "Makino",
           agie_charmilles: "Agie / Charmilles",
           fanuc_robocut: "Fanuc Robocut",
+          // @2 additions — new-form values appended after history.
+          ratnaparkhi: "Ratnaparkhi",
+          sparkonix: "Sparkonix",
         },
       },
       {
@@ -3833,8 +4228,129 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           electrode_making: "Electrode making",
           carbide: "Carbide cutting",
           wire_threading: "Wire threading & setting",
+          // @2 additions — new-form values appended after history.
+          profile_cut: "Straight profile cutting (punch, die, insert)",
+          taper_cut: "Taper cutting",
+          skim_cut: "Skim cut / multi-pass finishing",
+          four_axis_cut: "Top-bottom different shape (4-axis)",
+          cavity_sparking: "Cavity sparking (die-sinking)",
+          rib_slot: "Rib, slot & corner sparking",
+          start_hole: "Start hole / small-hole drilling",
+          tap_removal: "Broken tap / drill removal",
         },
       },
+      {
+        from: "edm_job_type",
+        rank: 43,
+        maxValues: 4,
+        label: "Job types",
+        kind: "chips",
+        values: {
+          press_tool_parts: "Press-tool punches & dies",
+          mould_inserts: "Plastic mould cores, cavities & inserts",
+          extrusion_die: "Extrusion dies",
+          carbide_die: "Carbide dies & punches",
+          casting_forging_die: "Die-casting / forging dies",
+          gear_keyway: "Gear, spline & keyway cutting",
+          jig_gauge: "Jigs, fixtures & gauges",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          die_steel: "Hardened die steel (D2, HCHCr, OHNS)",
+          hot_die_steel: "Hot die steel (H13, H11)",
+          mould_steel: "Mould steel (P20)",
+          carbide: "Carbide",
+          mild_steel: "MS / mild steel",
+          alloy_steel: "EN-series alloy steel",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          brass: "Copper / brass",
+        },
+      },
+      {
+        from: "edm_wire_electrode",
+        rank: 63,
+        maxValues: 4,
+        label: "Wire & electrodes",
+        kind: "chips",
+        values: {
+          brass_wire: "Brass wire 0.25 mm",
+          coated_wire: "Zinc-coated wire",
+          fine_wire: "Fine wire (0.20 mm or thinner)",
+          moly_wire: "Molybdenum wire",
+          copper_electrode: "Copper electrodes",
+          graphite_electrode: "Graphite electrodes",
+          copper_tungsten: "Copper-tungsten electrodes",
+          tube_electrode: "Brass / copper tube (EDM drill)",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Micrometer",
+          dial_indicator: "Dial indicator",
+          height_gauge: "Height gauge",
+          pin_gauge: "Pin gauge",
+          slip_gauge: "Slip gauge",
+          profile_projector: "Profile projector",
+          bore_gauge: "Bore dial gauge",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every
+        // other map: not reading drawings belongs in matching data, not on the sheet.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "edm_setting_work",
+        rank: 45,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          clamping_dialling: "Job clamping & dialling",
+          wire_alignment: "Wire vertical alignment",
+          edge_centre_find: "Edge & centre find",
+          wire_threading: "Wire threading (auto / manual)",
+          electrode_setting: "Electrode centring & depth setting",
+          flushing_setting: "Flushing nozzle & pressure setting",
+          guide_contact_change: "Wire guide & power contact change",
+          first_piece: "First-piece setup",
+        },
+      },
+      {
+        from: "edm_parameter_work",
+        rank: 46,
+        label: "Cutting parameters",
+        kind: "ticks",
+        // `unknown` ("Parameter koi aur set karta hai") has no entry, same rule.
+        values: {
+          tech_table: "Technology-table condition selection",
+          pulse_on_off: "Pulse on / off time",
+          peak_current: "Peak current (IP)",
+          servo_voltage: "Servo / gap voltage",
+          wire_tension_feed: "Wire tension & feed",
+          wire_offset: "Wire offset (skim cut)",
+          spark_gap: "Electrode undersize / spark-gap calculation",
+        },
+      },
+
       {
         from: "edm_program_source",
         rank: 42,
@@ -3844,6 +4360,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           on_machine: "Programs on the machine",
           from_cam: "Programs from CAM",
           from_drawing: "Runs programs made from drawings",
+          // @2 additions — new-form values appended after history.
+          load_run: "Loads & runs programs",
+          edit_program: "Edits offsets, taper & conditions",
+          machine_cam: "Programs profiles on the machine",
+          cam: "Programs from CAM software",
         },
       },
       {
@@ -3856,6 +4377,58 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.01": "±0.01 mm",
           "0.005": "±0.005 mm",
           "0.002": "±0.002 mm (micron) or finer",
+          // @2 additions — new-form values appended after history.
+          "0.10": "±0.10 mm",
+          "0.05": "±0.05 mm",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          die_mould: "Tool room, die & mould",
+          automotive: "Automotive / auto parts",
+          general_engg: "General engineering, job shop",
+          defence: "Defence / aerospace",
+          electronics: "Electronics / connectors",
+          medical: "Medical / surgical parts",
+          fasteners: "Fastener dies",
+        },
+      },
+      {
+        from: "edm_cam_software",
+        rank: 47,
+        maxValues: 3,
+        label: "CAM software",
+        kind: "chips",
+        // `unknown` ("Koi aur software") has no entry, same rule.
+        values: {
+          elcam: "ELCAM",
+          heart_nc: "Heart NC (Sodick)",
+          onboard_cam: "On-board CAM",
+          autocad_dxf: "AutoCAD (DXF)",
+          mastercam_wire: "Mastercam Wire",
+          autocut: "AutoCut (reusable-wire machine)",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          wire_break: "Frequent wire breakage",
+          size_variation: "Size / taper variation",
+          surface_finish: "Lines & marks on surface",
+          short_circuit: "Short circuit / arcing",
+          electrode_wear: "Rapid electrode wear",
+          poor_flushing: "Poor flushing, slow cutting",
+          filter_resin: "Filter, resin & dielectric change",
         },
       },
     ],
@@ -3888,6 +4461,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           engel: "Engel",
           arburg: "Arburg",
           larsen_toubro: "L&T",
+          // @2 additions — new-form values appended after history.
+          milacron: "Ferromatik Milacron",
+          shibaura: "Toshiba / Shibaura (formerly L&T)",
+          electronica: "Electronica",
         },
       },
       {
@@ -3903,8 +4480,46 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           hundred_to_threehundred: "100–300 T machines",
           threehundred_to_eighthundred: "300–800 T machines",
           over_eighthundred: "Over 800 T machines",
+          // @2 additions — new-form values appended after history.
+          "100": "Up to 100 T machines",
+          "250": "100–250 T machines",
+          "450": "250–450 T machines",
+          "850": "450–850 T machines",
+          "1300": "850–1300 T machines",
+          "2000": "Over 1300 T machines",
         },
       },
+      {
+        from: "imm_machine_type",
+        rank: 24,
+        maxValues: 4,
+        label: "Machine types",
+        kind: "chips",
+        // `unknown` ("Pata nahi") has no entry, same rule.
+        values: {
+          hydraulic: "Hydraulic",
+          servo_hybrid: "Servo / hybrid",
+          all_electric: "All-electric",
+          vertical: "Vertical moulding",
+          two_shot: "Two-shot / two-colour",
+        },
+      },
+      {
+        from: "imm_daily_work",
+        rank: 43,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          part_removal: "Part removal & runner / gate cutting",
+          trimming: "Flash trimming & finishing",
+          visual_packing: "Visual checking & packing",
+          material_loading: "Hopper material loading",
+          mould_cleaning: "Mould spray & cleaning",
+          regrind: "Scrap grinding & regrind mixing",
+          production_report: "Production reports",
+        },
+      },
+
       {
         from: "moulding_material",
         rank: 23,
@@ -3920,8 +4535,56 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           pvc: "PVC",
           pom: "POM / Acetal",
           glass_filled: "Glass-filled grades",
+          // @2 additions — new-form values appended after history.
+          hdpe: "HDPE",
+          tpe: "TPE / TPU",
         },
       },
+      {
+        from: "imm_auxiliary",
+        rank: 46,
+        maxValues: 4,
+        label: "Auxiliary equipment",
+        kind: "chips",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          dryer: "Hopper dryer / dehumidifier",
+          mtc: "MTC (mould temperature controller)",
+          chiller: "Chiller",
+          hot_runner_controller: "Hot runner controller",
+          robot: "Robot / sprue picker",
+          auto_loader: "Auto loader",
+          grinder: "Scrap grinder",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Micrometer",
+          height_gauge: "Height gauge",
+          plug_gauge: "Pin / plug gauge",
+          checking_fixture: "Checking fixture / Go-No-Go gauge",
+          weighing_scale: "Weighing scale (part weight)",
+          limit_sample: "Limit-sample visual check",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE, same rule as every map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+
       {
         from: "moulding_process_work",
         rank: 41,
@@ -3934,8 +4597,71 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           robot_pick_place: "Robot / pick-and-place",
           mtc_dryer: "MTC & dryer",
           two_shot: "Two-shot moulding",
+          // @2 additions — new-form values appended after history.
+          mould_loading: "Mould loading / unloading (crane)",
+          clamping: "Mould clamping & height setting",
+          cooling_connection: "Water line & MTC connection",
+          hot_runner_connection: "Hot-runner connection",
+          ejector_core: "Ejector stroke & core-pull setting",
+          nozzle_centring: "Nozzle centring",
+          purging: "Material / colour change & purging",
+          robot_setting: "Robot / sprue-picker setting",
+          first_piece: "First-piece approval",
         },
       },
+      {
+        from: "imm_parameter_setting",
+        rank: 45,
+        label: "Parameters",
+        kind: "ticks",
+        // `unknown` ("Koi nahi, parameter lock rehte hain") has no entry, same rule.
+        values: {
+          barrel_temperature: "Barrel temperature",
+          injection_speed_pressure: "Injection speed & pressure",
+          holding: "Holding pressure & time",
+          cooling_time: "Cooling time",
+          back_pressure: "Back pressure & screw RPM",
+          shot_size: "Shot size & cushion",
+          clamp_force: "Clamping tonnage",
+          mould_temperature: "Mould temperature",
+        },
+      },
+      {
+        from: "imm_special_process",
+        rank: 47,
+        maxValues: 4,
+        label: "Special processes",
+        kind: "chips",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          insert_moulding: "Insert moulding",
+          two_shot: "Two-shot / two-colour",
+          gas_assist: "Gas-assist moulding",
+          hot_runner_mould: "Hot runner / valve-gate moulds",
+          multi_cavity: "Multi-cavity (16+ cavities)",
+          thin_wall: "Thin-wall packaging",
+          iml: "IML (in-mould labelling)",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          automotive: "Automobile parts",
+          two_wheeler: "Two-wheeler parts",
+          appliances: "Home appliances",
+          electrical_fittings: "Electrical switches & fittings",
+          electronics: "Electronics",
+          packaging: "Packaging, caps & closures",
+          pharma: "Medical / pharma",
+          household: "Household & furniture",
+        },
+      },
+
       {
         from: "moulding_defects",
         rank: 42,
@@ -3947,8 +4673,42 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           sink_mark: "Sink mark",
           warpage: "Warpage",
           silver_streak: "Silver streaks",
+          // @2 additions — new-form values appended after history.
+          weld_line: "Weld line",
+          burn_mark: "Burn mark",
+          black_spot: "Black spot",
         },
       },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        // `unknown` ("Koi nahi") has no entry, same rule.
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+        },
+      },
+      {
+        from: "imm_process_control",
+        rank: 72,
+        label: "Process control",
+        kind: "ticks",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          mould_trial: "New-mould trials",
+          process_sheet: "Process parameter sheets",
+          cycle_time_reduction: "Cycle-time reduction",
+          changeover_loss: "Material / colour-change loss control",
+          regrind_control: "Regrind ratio control",
+          mould_pm: "Mould PM plans",
+          operator_training: "Operator training",
+        },
+      },
+
       {
         from: "moulding_training_institute",
         rank: 63,
@@ -3989,8 +4749,62 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           induction_machine: "Induction",
           vacuum_furnace: "Vacuum furnace",
           box_furnace: "Box furnace",
+          // @2 additions — new-form values appended after history.
+          mesh_belt: "Continuous mesh-belt furnace",
+          rotary_furnace: "Rotary furnace",
+          salt_bath: "Salt bath",
         },
       },
+      {
+        from: "ht_furnace_make",
+        rank: 23,
+        maxValues: 4,
+        label: "Furnace makes",
+        kind: "chips",
+        // `unknown` ("Local make ya pata nahi") has no entry, same rule.
+        values: {
+          aichelin: "Aichelin Unitherm",
+          hightemp: "Hightemp",
+          fluidtherm: "Fluidtherm",
+          ipsen: "Ipsen",
+          therelek: "Therelek",
+          wesman: "Wesman",
+          seco_warwick: "Seco/Warwick",
+        },
+      },
+      {
+        from: "ht_daily_work",
+        rank: 43,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          charge_loading: "Charge loading (fixtures / baskets)",
+          cycle_running: "Furnace cycle running",
+          quenching: "Quenching",
+          tempering: "Tempering",
+          shot_blasting: "Shot blasting",
+          straightening: "Straightening",
+          hardness_check: "Hardness checking",
+          log_sheet: "Log sheets & charts",
+        },
+      },
+      {
+        from: "ht_quench_media",
+        rank: 63,
+        maxValues: 4,
+        label: "Quenching media",
+        kind: "chips",
+        // `unknown` ("Pata nahi") has no entry, same rule.
+        values: {
+          oil: "Oil",
+          water: "Water / brine",
+          polymer: "Polymer",
+          salt: "Salt bath",
+          gas_quench: "Gas / nitrogen quench (vacuum)",
+          press_quench: "Press quench",
+        },
+      },
+
       {
         from: "heat_process",
         rank: 22,
@@ -4006,6 +4820,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           annealing_normalising: "Annealing & normalising",
           vacuum_heat_treatment: "Vacuum heat treatment",
           salt_bath: "Salt bath",
+          // @2 additions — new-form values appended after history.
+          carburising: "Case carburising",
+          carbonitriding: "Carbonitriding",
+          annealing: "Annealing",
+          normalising: "Normalising",
+          stress_relieving: "Stress relieving",
+          austempering: "Austempering",
         },
       },
       {
@@ -4019,6 +4840,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           vickers: "Vickers",
           micro_structure: "Micro-structure",
           case_depth: "Case depth",
+          // @2 additions — new-form values appended after history.
+          microstructure: "Microstructure check",
+          file_test: "File hardness check",
+          mpi: "MPI crack check",
         },
       },
       {
@@ -4031,6 +4856,121 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           alloy_steel: "Alloy steel",
           tool_steel: "Tool steel",
           stainless_steel: "Stainless steel",
+          // @2 additions — new-form values appended after history.
+          case_hardening_steel: "20MnCr5 / SAE 8620 / EN353",
+          bearing_steel: "EN31 bearing steel",
+          spring_steel: "Spring steel (EN47)",
+          stainless: "Stainless steel",
+          cast_iron: "SG / cast iron",
+          aluminium: "Aluminium (T6)",
+        },
+      },
+      {
+        from: "ht_part",
+        rank: 44,
+        maxValues: 4,
+        label: "Parts",
+        kind: "chips",
+        // `unknown` ("Koi aur part") has no entry, same rule.
+        values: {
+          gears_shafts: "Gears & shafts",
+          bearing_parts: "Bearing races & rollers",
+          fasteners: "Bolts, nuts & fasteners",
+          dies_tools: "Dies, moulds & tools",
+          springs: "Springs & leaf springs",
+          forgings: "Forgings, crankshafts & connecting rods",
+          small_parts: "Pins, bushes, sprockets & small parts",
+        },
+      },
+      {
+        from: "ht_cycle_setting",
+        rank: 45,
+        label: "Cycle setting",
+        kind: "ticks",
+        // `unknown` ("Sirf set cycle chalata hoon") has no entry, same rule.
+        values: {
+          temp_soak: "Temperature & soaking time",
+          carbon_potential_set: "Carbon potential setting",
+          quench_setting: "Quench oil temperature & agitation",
+          tempering_setting: "Tempering temperature",
+          recipe_plc: "PLC / SCADA recipes",
+          induction_setting: "Induction power, coil & scan speed",
+        },
+      },
+      {
+        from: "ht_atmosphere",
+        rank: 46,
+        label: "Furnace atmosphere",
+        kind: "ticks",
+        // `unknown` ("Atmosphere ka kaam nahi") has no entry, same rule.
+        values: {
+          endo_gas: "Endo gas generators",
+          enrichment: "LPG / propane enrichment",
+          methanol_nitrogen: "Methanol & nitrogen",
+          ammonia: "Ammonia",
+          carbon_potential: "Oxygen probe / carbon potential",
+          dew_point: "Dew-point check",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          automotive: "Automobile",
+          two_wheeler: "Two-wheeler",
+          bearings: "Bearings",
+          fasteners: "Fasteners",
+          die_mould: "Tool room, die & mould",
+          agri: "Tractors & agriculture",
+          defence: "Defence / aerospace",
+          general_engg: "General engineering, job work",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        // `unknown` ("Koi nahi") has no entry, same rule.
+        values: {
+          hardness_variation: "Hardness variation",
+          case_depth_variation: "Case-depth variation",
+          distortion: "Distortion / bend",
+          quench_crack: "Quench cracks",
+          soft_spot: "Soft spots",
+          decarb: "Decarb / scaling",
+        },
+      },
+      {
+        from: "ht_quality_system",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        // `unknown` ("Inme se koi nahi") has no entry, same rule.
+        values: {
+          cqi_nine: "CQI-9 audits",
+          tus: "TUS (temperature uniformity survey)",
+          sat: "SAT (thermocouple checks)",
+          traceability: "Furnace charts & batch traceability",
+          customer_audit: "Customer audits",
+        },
+      },
+      {
+        from: "ht_furnace_upkeep",
+        rank: 47,
+        label: "Furnace upkeep",
+        kind: "ticks",
+        // `unknown` ("Maintenance wale karte hain") has no entry, same rule.
+        values: {
+          burn_out: "Furnace burn-out",
+          probe_change: "Thermocouple / oxygen probe change",
+          quench_oil_check: "Quench oil level & testing",
+          burner_check: "Burner / heater / radiant-tube check",
+          fixture_check: "Fixture & tray crack check",
         },
       },
     ],
@@ -4063,6 +5003,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           moulding: "Moulding",
           paint_shop: "Paint shop",
           packaging: "Packaging",
+          // @2 additions — new-form values appended after history.
+          press_shop: "Press shop",
+          weld_shop: "Weld shop",
+          casting_forging: "Casting / forging shop",
+          packing: "Packing & dispatch",
         },
       },
       {
@@ -4076,6 +5021,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           five_to_fifteen: "5–15 people",
           fifteen_to_fifty: "15–50 people",
           above_fifty: "50+ people",
+          // @2 additions — new-form values appended after history.
+          "10": "Up to 10 people",
+          "25": "11–25 people",
+          "50": "26–50 people",
+          "100": "51–100 people",
+          "150": "Over 100 people",
         },
       },
       {
@@ -4120,8 +5071,106 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           press_sheet_metal: "Press / sheet metal",
           moulding: "Moulding",
           quality: "QC / quality",
+          // @2 additions — new-form values appended after history.
+          cnc_machining: "CNC / VMC operator or setter",
+          welding_fab: "Welding / fabrication",
+          fitter_assembly: "Fitter / assembly",
+          moulding_casting: "Moulding / die casting",
+          quality_inspection: "Quality inspector",
+          direct_engineer: "Direct supervisor (diploma / B.Tech)",
         },
       },
+      {
+        from: "prodsup_daily_work",
+        // Rank 4x: the daily responsibility list. Step 5 (@2).
+        rank: 43,
+        label: "Daily work",
+        kind: "chips",
+        values: {
+          manpower_deployment: "Manpower deployment on machines",
+          hourly_monitoring: "Hourly output check",
+          shift_report: "Shift report",
+          tool_consumable_issue: "Tool and consumable issue",
+          changeover: "Changeover",
+          rejection_rework: "Rejection and rework segregation",
+          attendance_overtime: "Attendance and overtime",
+          shift_handover: "Shift handover",
+        },
+      },
+      {
+        from: "prodsup_production_entry",
+        // 6x wedge attribute: the systems the entries land in. Step 5 (@2).
+        rank: 61,
+        label: "Production entry",
+        kind: "chips",
+        values: {
+          sap: "SAP",
+          other_erp: "Company ERP",
+          excel: "MS Excel",
+          paper_format: "Register / printed format",
+          hourly_board: "Hourly production board",
+          // `unknown` ("Entry main nahi karta") has no entry — a non-answer
+          // prints nothing.
+        },
+      },
+      {
+        from: "prodsup_labour_type",
+        // 6x wedge attribute, single-select fact. Step 5 (@2).
+        rank: 62,
+        label: "Labour type",
+        kind: "fact",
+        values: {
+          company_roll: "Company-roll workers",
+          contract_labour: "Contract labour",
+          mixed: "Company-roll and contract (mixed)",
+        },
+      },
+      {
+        from: "drawing_reading",
+        // Rank 44; `none` omitted per the welder's ruling. Step 5 (@2).
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        values: {
+          // `none` ("Nahi padh pata") has no entry ON PURPOSE — matching data,
+          // not a line on the worker's own document.
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "prodsup_safety_five_s",
+        // §5.1 names no safety row; rank 5x band. Step 5 (@2).
+        rank: 51,
+        label: "5S & safety",
+        kind: "ticks",
+        values: {
+          five_s_audit: "5S audit and red tag",
+          toolbox_talk: "Toolbox talk",
+          ppe_check: "PPE check",
+          incident_report: "Near-miss / accident report",
+          machine_guard_check: "Machine guard and safety sensor check",
+          mock_drill: "Mock drill",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prodsup_changeover_work",
+        // Rank 4x: changeover ownership is setting capability. Single-select
+        // fact. Step 5 (@2).
+        rank: 45,
+        label: "Changeover role",
+        kind: "fact",
+        values: {
+          // `calls_setter` ("Setter ko bulata hoon, khud nahi karta") has no
+          // entry ON PURPOSE — a negative claim about the worker's own sheet.
+          assists_setter: "Assists setter in changeover",
+          does_setting: "Does setting, takes first piece",
+          // `no_changeover` ("Meri line me changeover nahi hota") has no entry —
+          // a no-* non-answer prints nothing.
+        },
+      },
+
       {
         from: "sector_worked",
         rank: 81,
@@ -4135,6 +5184,108 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           white_goods: "White goods",
           plastics: "Plastics",
           packaging: "Packaging",
+          // @2 additions — new-form values appended after history.
+          two_wheeler: "Two-wheeler parts",
+          appliances: "Home appliances",
+          electronics: "Electronics / EMS",
+          agri: "Tractor & agri equipment",
+          construction_equipment: "Construction equipment",
+          fmcg: "FMCG products",
+        },
+      },
+      {
+        from: "quality_work",
+        // Rank 71, the machining-map precedent. Step 5 (@2).
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece approval",
+          in_process: "Patrol / in-process checking",
+          spc: "SPC charts",
+          rejection: "Red bin and rejection analysis",
+          // `unknown` ("Koi nahi") has no entry — a non-answer prints nothing.
+        },
+      },
+      {
+        from: "prodsup_line_data",
+        // 6x wedge attribute: the numbers the line is run on. Step 5 (@2).
+        rank: 63,
+        label: "Line data",
+        kind: "ticks",
+        values: {
+          oee: "OEE",
+          output_vs_target: "Target vs actual output",
+          rejection_ppm: "Rejection PPM / percentage",
+          downtime: "Downtime and breakdown hours",
+          productivity: "Per-man output (productivity)",
+          rework_count: "Rework count",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prodsup_improvement_work",
+        // 6x wedge attribute. Step 5 (@2).
+        rank: 64,
+        label: "Improvement work",
+        kind: "ticks",
+        values: {
+          kaizen: "Kaizen",
+          qc_circle: "QC circle",
+          jishu_hozen: "TPM Jishu Hozen (JH)",
+          poka_yoke: "Poka-yoke",
+          why_why: "Why-why analysis",
+          smed: "Changeover time reduction (SMED)",
+          one_point_lesson: "One point lesson (OPL)",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prodsup_people_work",
+        // 6x wedge attribute. Step 5 (@2).
+        rank: 65,
+        label: "People work",
+        kind: "ticks",
+        values: {
+          skill_matrix: "Skill matrix",
+          ojt_training: "OJT for new operators",
+          shift_roster: "Shift roster and weekly off",
+          leave_overtime_approval: "Leave and overtime approval",
+          discipline: "Discipline / warning letter case",
+          union_handling: "Union / works committee dealing",
+          contractor_attendance: "Contractor attendance verification",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        // Rank 72, the machining-map precedent. Step 5 (@2).
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          material_shortage: "Re-plans on material shortage",
+          absenteeism: "Adjusts for absenteeism",
+          breakdown_reroute: "Re-routes load on breakdown",
+          quality_hold: "Sorting and rework on quality hold",
+          tool_die_failure: "Handles tool / die failure",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prodsup_audit_exposure",
+        // 7x volunteered depth the guideline never names. Step 5 (@2).
+        rank: 73,
+        label: "Audits faced",
+        kind: "ticks",
+        values: {
+          iatf: "IATF 16949 audit",
+          iso_qms: "ISO 9001 audit",
+          customer_audit: "Customer audit (Maruti, Hero, Honda)",
+          layered_audit: "Layered process audit (LPA)",
+          five_s_tpm_audit: "5S / TPM audit",
+          // `unknown` ("Koi audit nahi") has no entry — a non-answer prints
+          // nothing.
         },
       },
     ],
@@ -4212,29 +5363,54 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
-  // ══ CEO PACK V2, T24 — FOUNDRY / CASTING OPERATOR (#3009): HISTORY ROWS ONLY ══
+  // ══ CEO PACK V2, T24 — FOUNDRY / CASTING OPERATOR (#3012): FULL MAP ══
   //
-  // `qp_foundry_casting` replaces `qp_foundry_forging` for the casting codes and reuses five of its
-  // keys, so a foundry worker's stored answers carry over. Of the five, `foundry_process` and
-  // `foundry_testing` are the two whose stored values differ between the forms. This entry keeps
-  // EVERY value the old form stored under them, with the English the old map already printed, so a
-  // worker profiled on the old form still prints the same chips after the new form takes over.
+  // Sheet T24's headline ("Foundry / Casting Operator · {level} · {experience} · {foundry_section} ·
+  // {foundry_process} · {material_worked} · {city}") is the parity reference. Section, process and
+  // metal lead (the hire is for the line and the metal), then the equipment, the work and the
+  // defects the worker corrects. Every `values` key is the STORED value.
   //
-  // NOT HERE (#3012): the new form's own chips (green_sand, no_bake, co_two_sand, investment,
-  // centrifugal; ce_meter, wedge_test, sand_moisture, sand_strength, mould_hardness), its headline,
-  // `section_title`/`tier_section_titles` wording and the rest of its rows. Until then a value with
-  // no entry is dropped, as for every map.
+  // HISTORY ROWS. `foundry_process` (rank 21, label "Processes") and `foundry_testing` (rank 42,
+  // label "Testing") keep EVERY value the old `qp_foundry_forging` form stored under them, with the
+  // English the old map already printed, so a worker profiled on the old form still prints the
+  // same chips after the new form takes over (see the #3009 carry-over test). The old form's
+  // forging values (hammer_forging, press_forging, upset_forging, die_casting, melting, fettling,
+  // core_making) never occur on the new form but MUST stay: dropping one sheds a stored answer
+  // silently. The new form's own chips (green_sand, no_bake, co_two_sand, centrifugal; ce_meter,
+  // wedge_test, sand_moisture, sand_strength, mould_hardness) are appended after them.
   {
     pack_id: "qp_foundry_casting",
     section_title: "Foundry, processes & capability",
+    tier_section_titles: { easy: "Foundry & processes" },
     capability: [
+      {
+        from: "foundry_section",
+        rank: 22,
+        inHeadline: true,
+        label: "Sections",
+        kind: "chips",
+        values: {
+          moulding: "Moulding",
+          core_making: "Core shop",
+          melting: "Melting / furnace",
+          pouring: "Pouring",
+          sand_plant: "Sand plant",
+          knock_out: "Knock-out",
+          fettling: "Fettling & grinding",
+          shot_blasting: "Shot blasting",
+          wax_shell_room: "Wax / shell room",
+        },
+      },
       {
         from: "foundry_process",
         rank: 21,
+        inHeadline: true,
         maxValues: 3,
         label: "Processes",
         kind: "chips",
         values: {
+          // History values first, in the old form's order with the old English, so a stored
+          // answer prints identically after the split.
           sand_moulding: "Sand moulding",
           shell_moulding: "Shell moulding",
           die_casting: "Die casting (HPDC/GDC)",
@@ -4245,6 +5421,133 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           melting: "Melting",
           fettling: "Fettling",
           core_making: "Core making",
+          // The new form's own processes (#3012).
+          green_sand: "Green sand",
+          no_bake: "No-bake / furan sand",
+          co_two_sand: "CO2 sand",
+          centrifugal: "Centrifugal casting",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "foundry_moulding_method",
+        rank: 41,
+        label: "Moulding",
+        kind: "chips",
+        values: {
+          hand_moulding: "Hand moulding (floor / bench)",
+          jolt_squeeze: "Jolt-squeeze machine",
+          arpa: "ARPA machine",
+          disa: "DISA flaskless line",
+          high_pressure_line: "High-pressure moulding line",
+          shell_machine: "Shell moulding machine",
+          continuous_mixer: "Continuous sand mixer",
+          // `unknown` ("Mould nahi banata") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "foundry_furnace",
+        rank: 43,
+        label: "Furnaces",
+        kind: "chips",
+        values: {
+          induction: "Induction furnace",
+          cupola: "Cupola",
+          arc_furnace: "Arc furnace",
+          crucible_furnace: "Oil / gas-fired crucible furnace",
+          rotary_furnace: "Rotary furnace",
+          // `unknown` ("Furnace par kaam nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "foundry_core_process",
+        rank: 45,
+        label: "Core processes",
+        kind: "chips",
+        values: {
+          cold_box: "Cold box",
+          shell_core: "Shell core",
+          co_two_core: "CO2 core",
+          oil_sand_core: "Oil-sand core",
+          no_bake_core: "No-bake core",
+          // `unknown` ("Core nahi banata") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 23,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Metals",
+        kind: "chips",
+        values: {
+          cast_iron: "Grey cast iron (CI)",
+          sg_iron: "SG / ductile iron",
+          carbon_steel: "Carbon steel (WCB)",
+          alloy_steel: "Alloy / manganese steel",
+          stainless: "Stainless steel (CF8)",
+          aluminium: "Aluminium (LM6 / LM25)",
+          brass: "Brass / bronze / gunmetal",
+        },
+      },
+      {
+        from: "foundry_casting_product",
+        rank: 63,
+        label: "Castings",
+        kind: "chips",
+        values: {
+          brake_flywheel: "Brake drums / discs / flywheels",
+          engine_block: "Engine blocks / cylinder heads",
+          housing: "Gearbox / axle / tractor housings",
+          pump_valve_body: "Pump & valve bodies",
+          motor_body: "Motor bodies & end covers",
+          municipal_casting: "Manhole covers & pipe fittings",
+          heavy_casting: "Machine beds & heavy castings",
+          investment_parts: "Small precision parts (investment)",
+          // `unknown` ("Koi aur casting") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "foundry_casting_weight",
+        rank: 62,
+        label: "Casting weight",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the numeric
+        // string. Keying this by `upto_five` would render nothing at all, silently.
+        values: {
+          "5": "Up to 5 kg",
+          "50": "5–50 kg",
+          "500": "50–500 kg",
+          "2000": "500 kg–2 T",
+          "5000": "Over 2 T",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "foundry_melt_work",
+        rank: 46,
+        label: "Melting & pouring",
+        kind: "ticks",
+        values: {
+          charge_mix: "Charge-mix preparation",
+          tapping: "Deslagging & tapping",
+          temperature_check: "Temperature check (pyrometer)",
+          inoculation: "Inoculation",
+          mg_treatment: "Mg treatment (SG iron)",
+          ladle_pouring: "Ladle pouring",
+          lining: "Furnace lining / patching",
+          // `unknown` ("Melting pouring nahi karta") has no entry, so it prints nothing.
         },
       },
       {
@@ -4253,9 +5556,2734 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Testing",
         kind: "chips",
         values: {
+          // History values first, with the old English.
           spectro: "Spectro (chemistry)",
           hardness: "Hardness testing",
           dimensional: "Dimensional check",
+          // The new form's own tests (#3012).
+          ce_meter: "CE meter",
+          wedge_test: "Wedge / chill test",
+          sand_moisture: "Sand moisture & compactability",
+          sand_strength: "Permeability & GCS",
+          mould_hardness: "Mould hardness",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile",
+          two_wheeler: "Two-wheeler",
+          agri: "Tractor & agriculture",
+          pump_valve: "Pumps & valves",
+          railways: "Railways",
+          construction_equipment: "Construction equipment",
+          oil_gas: "Oil & gas",
+          general_engg: "General engineering",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          blow_hole: "Blowholes / gas porosity",
+          shrinkage: "Shrinkage",
+          cold_shut: "Cold shut / misrun",
+          sand_inclusion: "Sand inclusion",
+          mismatch: "Mismatch / shift",
+          slag_inclusion: "Slag inclusion",
+          chill: "Hard spots / chill",
+          crack: "Crack / hot tear",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          heat_record: "Heat-wise records",
+          rejection: "Rejection analysis",
+          gating_change: "Gating & riser correction",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T25 — DIE CASTING OPERATOR (PDC / GDC) (#3012): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet T25's headline ("Die Casting Operator (PDC / GDC) ·
+  // {level} · {experience} · {diecast_process} · {diecast_machine_brand} · {diecast_tonnage} ·
+  // {city}") is the parity reference. Process, machine brand and tonnage lead (the hire is for
+  // the machine), then the daily work, the alloys and the parts; setting, parameters and die care
+  // sit with quality and troubleshooting at the back. Every `values` key is the STORED value; the
+  // negative claims (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_die_casting",
+    section_title: "Die casting, machines & capability",
+    tier_section_titles: { easy: "Die casting & machines" },
+    capability: [
+      {
+        from: "diecast_process",
+        rank: 21,
+        inHeadline: true,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          hpdc_cold: "HPDC cold chamber",
+          hpdc_hot: "HPDC hot chamber",
+          lpdc: "LPDC / low pressure",
+          gdc: "GDC / gravity die casting",
+          // `unknown` ("Koi aur process") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "diecast_machine_brand",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          toshiba: "Toshiba",
+          buhler: "Buhler",
+          zitai: "Zitai",
+          lk: "LK",
+          hmt: "HMT",
+          ube: "Ube",
+          frech: "Frech",
+          // `unknown` ("Koi aur ya pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "diecast_tonnage",
+        // Beside the machines, as the press shop's tonnage: what the MACHINE can do. The pack
+        // asks the largest machine run, so the row reads "Up to", never a lower bound — same
+        // ruling as the injection-moulding tonnage row.
+        rank: 23,
+        inHeadline: true,
+        label: "Tonnage worked",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string.
+        values: {
+          "150": "Up to 150 T machines",
+          "400": "150–400 T machines",
+          "800": "400–800 T machines",
+          "1600": "800–1600 T machines",
+          "2500": "Over 1600 T machines",
+          // `unknown` ("Pata nahi ya GDC hai") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "diecast_daily_work",
+        rank: 41,
+        label: "Work",
+        kind: "ticks",
+        values: {
+          manual_ladle: "Manual ladling",
+          auto_cell: "Auto-ladle / robot cell",
+          die_spray: "Die spraying",
+          extraction: "Casting extraction",
+          degating: "Degating",
+          trimming: "Trimming press operation",
+          fettling: "Fettling & deburring",
+          visual_check: "Visual check",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Alloys",
+        kind: "chips",
+        values: {
+          adc_twelve: "ADC12",
+          lm_six: "LM6",
+          lm_twentyfour: "LM24",
+          lm_twentyfive: "LM25 / A356",
+          zinc: "Zinc (Zamak)",
+          magnesium: "Magnesium",
+          aluminium: "Aluminium",
+        },
+      },
+      {
+        from: "diecast_part",
+        rank: 63,
+        label: "Parts",
+        kind: "chips",
+        values: {
+          engine_covers: "Crankcase / clutch / magneto covers",
+          gearbox_housing: "Gearbox / transmission housings",
+          cylinder_head: "Cylinder heads / blocks",
+          alloy_wheel: "Alloy wheels",
+          motor_housing: "Motor bodies & end covers",
+          led_housing: "LED housings & heat sinks",
+          fan_parts: "Fan parts",
+          zinc_hardware: "Zinc small parts / locks / hardware",
+          // `unknown` ("Koi aur part") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "diecast_melting_work",
+        rank: 42,
+        label: "Melting & metal",
+        kind: "ticks",
+        values: {
+          furnace_charging: "Furnace charging (melting / holding)",
+          degassing: "Degassing",
+          fluxing: "Fluxing & dross removal",
+          metal_temperature: "Metal temperature check",
+          density_index: "Density index test",
+          spectro_sample: "Spectro sample",
+          // `unknown` ("Furnace ka kaam nahi karta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Micrometer",
+          height_gauge: "Height gauge",
+          plug_gauge: "Plug / thread gauge",
+          checking_fixture: "Checking fixture",
+          leak_tester: "Leak test machine",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "diecast_setting_work",
+        rank: 43,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          die_loading: "Die loading & clamping",
+          die_height: "Die height & tie-bar setting",
+          ejector_core: "Ejector & core-pull setting",
+          plunger_tip: "Shot sleeve & plunger tip replacement",
+          cooling_line: "Die cooling lines",
+          die_preheat: "Die preheating",
+          trim_die: "Trim die fitting",
+        },
+      },
+      {
+        from: "diecast_parameter",
+        rank: 45,
+        label: "Parameters set",
+        kind: "ticks",
+        values: {
+          shot_speed: "Slow & fast shot speeds",
+          changeover: "Fast-shot changeover position",
+          intensification: "Intensification pressure",
+          biscuit: "Biscuit thickness",
+          die_temperature: "Die temperature",
+          cooling_time: "Cooling / solidification time",
+          spray_setting: "Spray time & dilution",
+          vacuum: "Vacuum",
+          // `unknown` ("Parameter nahi badalta") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          two_wheeler: "Two-wheeler",
+          automotive: "Cars & commercial vehicles",
+          appliances: "Fans & home appliances",
+          electronics: "LED lighting & electronics",
+          hardware: "Hardware / locks / fittings",
+          general_engg: "General engineering",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          porosity: "Porosity",
+          cold_shut: "Cold shut / flow marks",
+          flash: "Flash",
+          soldering: "Die soldering",
+          blister: "Blisters",
+          crack: "Cracks",
+          non_fill: "Non-filling",
+          leakage: "Leak-test leakage",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "diecast_die_care",
+        rank: 73,
+        label: "Die care",
+        kind: "ticks",
+        values: {
+          die_polish: "Die polishing & soldering removal",
+          pin_change: "Ejector / core pin replacement",
+          die_coat: "Die coating (GDC)",
+          die_life_record: "Shot count & die life records",
+          die_pm: "Die PM checklist",
+          // `unknown` ("Tool room wale karte hain") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+          xray_check: "X-ray / cut-section inspection",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T26 — FORGING OPERATOR (#3012): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet T26's headline ("Forging Operator · {level} ·
+  // {experience} · {forging_machine} · {forging_type} · {forging_part} · {city}") is the parity
+  // reference. Machine and forging type lead (the hire is for the hammer or press), then the
+  // parts; heating, daily work and capacity sit in the middle, setting and die care with quality
+  // at the back. Every `values` key is the STORED value; the negative claims (`unknown`, `none`,
+  // `no_heating`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_forging",
+    section_title: "Forging, machines & capability",
+    tier_section_titles: { easy: "Forging & machines" },
+    capability: [
+      {
+        from: "forging_machine",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          drop_hammer: "Drop hammer",
+          power_hammer: "Pneumatic / power hammer",
+          screw_press: "Friction screw press",
+          forging_press: "Mechanical forging press",
+          hydraulic_press: "Hydraulic press",
+          upsetter: "Upsetter",
+          ring_rolling_mill: "Ring rolling machine",
+          bolt_former: "Bolt former / header",
+          // `unknown` ("Koi aur machine") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forging_type",
+        rank: 22,
+        inHeadline: true,
+        label: "Forging types",
+        kind: "chips",
+        values: {
+          hot_closed_die: "Hot forging, closed die",
+          open_die: "Open-die forging",
+          upset_forging: "Upset forging",
+          ring_rolling: "Ring rolling",
+          warm_forging: "Warm forging",
+          cold_forging: "Cold forging / heading",
+        },
+      },
+      {
+        from: "forging_heating",
+        rank: 41,
+        label: "Heating",
+        kind: "chips",
+        values: {
+          induction_heater: "Induction billet heater",
+          oil_fired: "Oil-fired furnace",
+          gas_fired: "Gas-fired furnace",
+          // `no_heating` ("Cold forging hai, heating nahi") is a negative claim and has no
+          // entry; `unknown` ("Pata nahi") has none either. Both print nothing.
+        },
+      },
+      {
+        from: "forging_daily_work",
+        rank: 42,
+        label: "Work",
+        kind: "ticks",
+        values: {
+          billet_cutting: "Billet cutting",
+          billet_heating: "Furnace / heater charging",
+          forger: "Manual forging with tongs",
+          machine_driving: "Hammer / press operation",
+          trimming: "Trimming & piercing",
+          coining: "Coining / sizing",
+          die_lubrication: "Die lubricant spray",
+          shot_blasting: "Shot blasting & grinding",
+        },
+      },
+      {
+        from: "forging_capacity",
+        rank: 62,
+        label: "Capacity worked",
+        kind: "fact",
+        values: {
+          hammer_small: "Hammers up to 1 T",
+          hammer_medium: "Hammers 1–3 T",
+          hammer_heavy: "Hammers over 3 T",
+          press_small: "Presses up to 1000 T",
+          press_medium: "Presses 1000–2500 T",
+          press_heavy: "Presses over 2500 T",
+          // `unknown` ("Pata nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          mild_steel: "MS / low-carbon steel",
+          alloy_steel: "EN8 / EN19 / EN24",
+          case_hardening_steel: "20MnCr5 / SAE 8620",
+          micro_alloy: "Micro-alloy steel",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          brass: "Brass",
+        },
+      },
+      {
+        from: "forging_part",
+        rank: 63,
+        inHeadline: true,
+        label: "Parts",
+        kind: "chips",
+        values: {
+          crankshaft: "Crankshafts",
+          connecting_rod: "Connecting rods",
+          gear_blank: "Gear blanks / bearing races / rings",
+          flange: "Flanges & pipe fittings",
+          axle_shaft: "Axles / spindles / shafts",
+          hub_knuckle: "Hubs / knuckles / yokes",
+          fasteners: "Bolts / nuts / fasteners",
+          hand_tools: "Hand tools (spanners, pliers)",
+          // `unknown` ("Koi aur part") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forging_cold_heading",
+        rank: 43,
+        label: "Cold heading",
+        kind: "chips",
+        values: {
+          header: "Header (1-die-2-blow)",
+          multi_station: "Multi-station bolt former",
+          nut_former: "Nut former",
+          thread_rolling: "Thread rolling machine",
+          cold_press: "Cold forging press",
+          // `unknown` ("Cold forging nahi kiya") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          steel_rule: "Steel rule",
+          snap_gauge: "Snap gauge",
+          template_gauge: "Template / profile gauges",
+          height_gauge: "Height gauge",
+          pyrometer: "Temperature check (pyrometer)",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — same rule as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "forging_setting_work",
+        rank: 45,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          die_clamping: "Die fitting & clamping",
+          die_matching: "Top-bottom die matching",
+          die_preheat: "Die preheating",
+          shut_height: "Press shut-height setting",
+          trim_die: "Trimming die fitting",
+          ejector: "Ejector / knock-out setting",
+          heater_setting: "Billet heater temperature setting",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile",
+          two_wheeler: "Two-wheeler",
+          agri: "Tractor & agriculture",
+          bearings: "Bearings",
+          fasteners: "Fasteners",
+          oil_gas: "Oil & gas / flanges",
+          railways: "Railways",
+          defence: "Defence",
+          // `unknown` ("Inme se koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          lap: "Lap / fold",
+          underfill: "Underfill",
+          mismatch: "Mismatch",
+          scale_pit: "Scale pits",
+          crack: "Cracks",
+          overheating: "Overheating / burning",
+          bend: "Bend / warpage",
+          sticking: "Sticking in die",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "forging_die_care",
+        rank: 73,
+        label: "Die care",
+        kind: "ticks",
+        values: {
+          preheat_control: "Die preheat control",
+          lubrication_control: "Lubrication & cooling control",
+          die_polish: "Die polishing",
+          wear_check: "Die wear & crack inspection",
+          die_life_record: "Die life records",
+          resink: "Die re-sinking / weld repair",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          rejection: "Rejection analysis",
+          crack_detection: "MPI crack inspection",
+          // `unknown` ("Koi nahi") has no entry, so it prints nothing.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T21 — CNC ROUTER / ENGRAVING OPERATOR (#3012): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet T21's headline ("CNC Router / Engraving Operator ·
+  // {level} · {experience} · {router_machine_type} · {router_software} · {city}") is the parity
+  // reference. Machines and router software lead (the hire is for the machine and the seat),
+  // then the controller, the work, the bed size, materials, products, tooling, measuring,
+  // drawings, setting, design work, design source, troubleshooting, and the display-only sector
+  // tag last. Every `values` key is the STORED value_text; `unknown` escape chips and the `none`
+  // drawing answer carry no entry, so non-answers print nothing. `router_design_source` maps ALL
+  // its values: a single fact whose every option is a positive claim.
+  //
+  // No rows read `iti_workshop_machines` or `trade_test_status`: the fresher block owns those
+  // keys (`buildFresherRows`), and mapping them here would print a fresher's training twice.
+  {
+    pack_id: "qp_cnc_router",
+    section_title: "Machines, software & capability",
+    tier_section_titles: { easy: "Machines & software" },
+    capability: [
+      {
+        from: "router_machine_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          wood_router: "Wood CNC router · 3-axis",
+          atc_router: "ATC router / nesting machine",
+          multi_head: "Multi-head router",
+          rotary_axis: "4-axis / rotary router",
+          stone_router: "Stone / marble CNC router",
+          metal_engraver: "Metal / die engraving machine",
+          jewellery_cnc: "Jewellery CNC",
+          laser_engraver: "Laser engraver / cutter",
+          // `unknown` ("Koi aur machine") has no entry: a non-answer prints nothing.
+        },
+      },
+      {
+        from: "router_software",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Software",
+        kind: "chips",
+        values: {
+          artcam: "ArtCAM",
+          aspire_vcarve: "Aspire / VCarve",
+          type_three: "Type3",
+          jdpaint: "JDPaint",
+          alphacam: "Alphacam",
+          coreldraw: "CorelDRAW",
+          autocad: "AutoCAD",
+          rdworks: "RDWorks (laser)",
+          // `unknown` ("Software nahi chalata, sirf machine") has no entry.
+        },
+      },
+      {
+        from: "controller_brand",
+        rank: 23,
+        maxValues: 3,
+        label: "Controllers",
+        kind: "chips",
+        values: {
+          dsp_handle: "DSP handle (RichAuto)",
+          ncstudio: "NCStudio",
+          mach_three: "Mach3",
+          syntec: "Syntec",
+          ruida: "Ruida (laser)",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "router_work_type",
+        rank: 41,
+        label: "Work done",
+        kind: "ticks",
+        values: {
+          two_d_cutting: "2D cutting and profiles",
+          jali_cutting: "Jali cutting (MDF, ACP, acrylic)",
+          v_grooving: "V-groove / ACP grooving",
+          relief_carving: "2.5D relief carving",
+          three_d_carving: "3D carving (idols, pillars, panels)",
+          letter_engraving: "Letter and logo engraving",
+          nesting_panels: "Nesting — panel cutting and drilling",
+          die_engraving: "Die / mould engraving",
+          laser_engraving: "Laser engraving / marking",
+        },
+      },
+      {
+        from: "router_bed_size",
+        rank: 45,
+        label: "Bed size",
+        kind: "fact",
+        values: {
+          "6090": "Small bed (6090)",
+          "1325": "4 × 8 ft bed (1325)",
+          "1530": "5 × 10 ft bed (1530)",
+          "2030": "2030 bed or larger",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          mdf_board: "MDF / HDF / particle board",
+          wood: "Plywood and solid wood",
+          acrylic: "Acrylic",
+          acp: "ACP sheet",
+          pvc_wpc: "PVC / WPC board",
+          stone: "Marble, granite and stone",
+          aluminium: "Aluminium",
+          brass: "Brass / copper",
+          alloy_steel: "Die / mould steel",
+        },
+      },
+      {
+        from: "router_product",
+        rank: 63,
+        label: "Products",
+        kind: "ticks",
+        values: {
+          doors: "Doors and door-skin designs",
+          modular_furniture: "Modular furniture / kitchen panels",
+          mandir_jali: "Temples, jali and wall panels",
+          signage: "Signage, letters and nameplates",
+          acp_cladding: "ACP cladding / elevation",
+          stone_carving: "Idols, pillars and stone carving",
+          footwear_mould: "Footwear / sole moulds",
+          embossing_die: "Embossing, coin and jewellery dies",
+        },
+      },
+      {
+        from: "router_tooling",
+        rank: 46,
+        label: "Tooling",
+        kind: "ticks",
+        values: {
+          straight_bit: "Straight / flat end bits",
+          ball_nose: "Ball-nose bits",
+          v_bit: "V-bits / engraving bits",
+          spiral_bit: "Spiral / compression bits",
+          tapered_ball_nose: "Tapered ball-nose (3D carving)",
+          diamond_tool: "Diamond tools (stone)",
+          boring_head: "Drill / boring head (nesting)",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          steel_rule: "Measuring tape and steel rule",
+          vernier: "Vernier caliper",
+          try_square: "Try square / right angle",
+          tool_setter: "Z setter / tool sensor",
+          micrometer: "Micrometer",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry: a negative claim does not belong on the
+        // worker's own marketing document (the turning/milling/grinding precedent).
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "router_setting_work",
+        rank: 42,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          job_clamping: "Sheet clamping (vacuum bed, clamps, screws)",
+          bit_change: "Bit fitting and collet change",
+          origin_zero: "X-Y origin and Z-zero setting",
+          feed_rpm: "Feed and spindle RPM setting",
+          file_loading: "File loading (pen drive, DSP, NCStudio)",
+          breakpoint_resume: "Breakpoint resume after interruption",
+          tool_length: "ATC tool-length setting",
+          sheet_layout: "Sheet layout",
+        },
+      },
+      {
+        from: "router_design_work",
+        rank: 43,
+        label: "Design work",
+        kind: "ticks",
+        values: {
+          toolpath_from_file: "Toolpath from ready files",
+          vector_tracing: "Photo-to-vector tracing",
+          two_d_toolpath: "2D toolpath (profile, pocket, V-carve)",
+          relief_modelling: "3D relief modelling",
+          three_d_toolpath: "3D roughing and finishing toolpath",
+          nesting: "Nesting",
+          import_scale: "STL / relief import and resizing",
+          rotary_toolpath: "Rotary (4-axis) toolpath",
+          // `unknown` ("Software nahi chalata") has no entry.
+        },
+      },
+      {
+        from: "router_design_source",
+        rank: 64,
+        label: "Design source",
+        kind: "fact",
+        // All four values mapped: a single fact whose every option is a positive claim.
+        values: {
+          customer_file: "Works from customer files",
+          library_edit: "Edits library designs",
+          from_photo: "Designs from photos / samples",
+          own_design: "Designs from scratch",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          furniture: "Furniture and modular kitchens",
+          doors_plywood: "Door / plywood factories",
+          signage: "Signage and advertising",
+          interior_acp: "Interior / ACP fabrication",
+          stone_temple: "Temple, marble and stone carving",
+          die_mould: "Dies and moulds (footwear, embossing)",
+          jewellery: "Jewellery",
+          handicraft: "Handicraft / gift items",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 71,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          tool_breakage: "Frequent bit breakage",
+          edge_burn_chipping: "Edge burning / chipping",
+          size_variation: "Size / depth variation",
+          step_loss: "Step loss / design shift",
+          surface_finish: "Carving lines / poor finish",
+          sheet_shifting: "Weak vacuum / sheet shifting",
+          alarm: "Limit / driver alarms",
+          spindle_heating: "Spindle heating / noise",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T33 — CMM OPERATOR / PROGRAMMER (#3012): NEW MAP ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet T33's headline ("CMM Operator / Programmer ·
+  // {level} · {experience} · {cmm_make} · {cmm_software} · {city}") is the parity reference.
+  // The make and the software lead (the hire is for the seat: a Zeiss/Calypso room), then the
+  // machine types, the daily work, drawings, parts, probes, programming level, alignments, GD&T,
+  // tolerance, reports, quality-system work, troubleshooting, and the display-only sector tag last.
+  // Every `values` key is the STORED value_text; `unknown` escapes and the `none` drawing answer
+  // carry no entry. `cmm_programming_level` maps ALL its values, including `run_only`: running
+  // supplied programs is a positive claim about what the worker does.
+  //
+  // No rows read `iti_workshop_machines` or `trade_test_status`: the fresher block owns those
+  // keys (`buildFresherRows`), and mapping them here would print a fresher's training twice.
+  {
+    pack_id: "qp_cmm",
+    section_title: "Machines, software & capability",
+    tier_section_titles: { easy: "Machines & software" },
+    capability: [
+      {
+        from: "cmm_machine_type",
+        rank: 21,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          bridge_cmm: "Bridge CMM",
+          gantry_cmm: "Gantry CMM (large parts)",
+          horizontal_arm: "Horizontal-arm CMM",
+          portable_arm: "Portable arm (Faro / Romer)",
+          vmm: "VMM / vision measuring machine",
+          three_d_scanner: "3D scanner",
+          profile_projector: "Profile projector",
+          contour_tester: "Contour / roughness tester",
+          // `unknown` ("Koi aur machine") has no entry.
+        },
+      },
+      {
+        from: "cmm_software",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "CMM software",
+        kind: "chips",
+        values: {
+          calypso: "Calypso (Zeiss)",
+          pc_dmis: "PC-DMIS (Hexagon)",
+          mcosmos: "MCOSMOS / GEOPAK (Mitutoyo)",
+          arco_cad: "ARCO CAD (Accurate)",
+          quartis: "Metrosoft / Quartis (Wenzel)",
+          polyworks: "PolyWorks",
+          faro_cam: "Faro CAM2",
+          gom_inspect: "GOM Inspect",
+          // `unknown` ("Koi aur software") has no entry.
+        },
+      },
+      {
+        from: "cmm_make",
+        rank: 23,
+        inHeadline: true,
+        maxValues: 3,
+        label: "CMM makes",
+        kind: "chips",
+        values: {
+          zeiss: "Zeiss",
+          hexagon: "Hexagon (DEA / Brown & Sharpe)",
+          mitutoyo: "Mitutoyo",
+          accurate: "Accurate",
+          wenzel: "Wenzel",
+          faro: "Faro",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "cmm_daily_work",
+        rank: 41,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          run_program: "Runs programs and checks parts",
+          part_clamping: "Part clamping on fixtures",
+          probe_calibration: "Probe calibration (qualification)",
+          alignment: "Alignment setup",
+          manual_measurement: "Joystick manual measurement",
+          report_output: "Report generation",
+          new_program: "New program creation",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry, same precedent as every machining map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "cmm_part_type",
+        rank: 63,
+        label: "Part types",
+        kind: "ticks",
+        values: {
+          machined_parts: "Machined parts (shafts, housings)",
+          castings: "Castings and die-casting parts",
+          forgings: "Forgings",
+          sheet_metal: "Sheet metal / BIW panels",
+          plastic_parts: "Plastic moulded parts",
+          die_mould: "Dies, moulds and electrodes",
+          fixtures_gauges: "Jigs, fixtures and gauges",
+        },
+      },
+      {
+        from: "cmm_probe_system",
+        rank: 42,
+        label: "Probes & sensors",
+        kind: "ticks",
+        values: {
+          touch_trigger: "Touch-trigger probe (TP20 / TP200)",
+          scanning_probe: "Scanning probe (SP25 / VAST)",
+          motorised_head: "Motorised head (PH10)",
+          star_probe: "Star probe and extensions",
+          laser_sensor: "Laser / optical sensor",
+          vision_sensor: "Vision / camera sensor",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "cmm_alignment_method",
+        rank: 45,
+        label: "Alignment methods",
+        kind: "ticks",
+        values: {
+          three_two_one: "3-2-1 (plane, line, point)",
+          datum_alignment: "Datum A, B, C alignment",
+          best_fit: "Best fit",
+          rps: "RPS alignment",
+          cad_alignment: "CAD-model alignment",
+          iterative: "Iterative alignment",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "cmm_gdt_evaluation",
+        rank: 46,
+        label: "GD&T evaluated",
+        kind: "ticks",
+        values: {
+          flatness: "Flatness and straightness",
+          roundness: "Circularity and cylindricity",
+          position: "True position",
+          orientation: "Perpendicularity, parallelism, angularity",
+          runout: "Concentricity and runout",
+          profile: "Profile of surface / line",
+          symmetry: "Symmetry",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance checked",
+        kind: "fact",
+        values: {
+          "0.10": "±0.10 mm",
+          "0.05": "±0.05 mm",
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm",
+          "0.005": "±0.005 mm or finer",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "cmm_programming_level",
+        rank: 43,
+        label: "Programming",
+        kind: "fact",
+        // All four values mapped: even `run_only` is a positive claim about the work done.
+        values: {
+          run_only: "Runs supplied programs",
+          edit_program: "Edits programs",
+          program_from_drawing: "Programs from drawings",
+          program_from_cad: "Programs from CAD models",
+        },
+      },
+      {
+        from: "cmm_report_type",
+        rank: 71,
+        label: "Reports prepared",
+        kind: "ticks",
+        values: {
+          layout_inspection: "Layout inspection reports",
+          ppap_dimensional: "PPAP dimensional reports",
+          first_article: "First-article / sample inspection reports",
+          colour_map: "Colour-map (CAD comparison) reports",
+          cpk_data: "Cp / Cpk study data",
+          fixture_gauge_report: "Fixture and gauge inspection reports",
+          reverse_engineering: "Scan data for reverse engineering",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          two_wheeler: "Two-wheeler parts",
+          die_mould: "Dies, moulds and tool rooms",
+          defence: "Defence / aerospace",
+          general_engg: "General engineering / job shops",
+          pump_valve: "Pumps and valves",
+          bearings: "Bearings",
+          electronics: "Electronics / EMS",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "cmm_quality_system",
+        rank: 72,
+        label: "Quality system work",
+        kind: "ticks",
+        values: {
+          msa_grr: "MSA / gauge R&R studies",
+          machine_calibration: "CMM calibration and verification",
+          customer_audit: "Customer audits in CMM room",
+          iatf_records: "IATF 16949 records",
+          operator_training: "Operator training",
+          fixture_planning: "Fixture planning for new parts",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 73,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          probe_calibration_fail: "Probe calibration failure",
+          repeatability: "Non-repeat readings",
+          collision: "Probe collision",
+          temperature_effect: "Temperature-related variation",
+          alignment_error: "Wrong alignment",
+          air_alarm: "Air-pressure / air-bearing alarms",
+          correlation_issue: "CMM vs gauge correlation",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T37 — QUALITY ENGINEER (QA / QC / SQA) (#3012): DESK-TRADE MAP ══
+  //
+  // A NEW DESK TRADE WITH NO RATIFIED PAGE: sheet T37's headline ("Quality Engineer · {level} ·
+  // {experience} · {qe_function} · {qe_core_tools} · {city}") is the parity reference. For a desk
+  // trade the function and the core tools are the advertised vocabulary (the CAM map's software
+  // precedent), so `inHeadline` sits on those two rows.
+  //
+  // Two questions are captured and printed nowhere: `qe_training_exposure` is fresher-owned
+  // matching data (the fresher block's heading comes from the role descriptor's `trainingLabel`,
+  // not from a printed row — the CAD map's `cad_training_source` precedent), and
+  // `qe_qualification_branch` is education (Zone 5 owns it — no shipped map prints it).
+  {
+    pack_id: "qp_quality_engineer",
+    section_title: "Tools, standards & responsibility",
+    tier_section_titles: { easy: "Functions & tools" },
+    capability: [
+      {
+        from: "qe_function",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Quality functions",
+        kind: "chips",
+        values: {
+          in_process: "In-process / line quality",
+          final_pdi: "Final inspection / PDI",
+          incoming: "Incoming / receiving quality",
+          supplier_quality: "Supplier quality (SQA)",
+          customer_quality: "Customer quality",
+          qms: "QMS / MR",
+          npd_quality: "NPD quality",
+          standards_room: "Standards room / lab",
+          warranty: "Warranty / field quality",
+        },
+      },
+      {
+        from: "qe_core_tools",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Core tools",
+        kind: "chips",
+        values: {
+          ppap: "PPAP",
+          apqp: "APQP",
+          pfmea: "PFMEA",
+          control_plan: "Control plan",
+          msa: "MSA",
+          spc: "SPC",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_problem_solving",
+        rank: 23,
+        maxValues: 4,
+        label: "Problem-solving tools",
+        kind: "chips",
+        values: {
+          eight_d: "8D reports",
+          why_why: "Why-why analysis",
+          fishbone: "Fishbone diagrams",
+          seven_qc_tools: "7 QC tools",
+          capa: "CAPA",
+          qc_story: "QC story",
+          poka_yoke: "Poka-yoke",
+          six_sigma: "Six Sigma (DMAIC)",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_software",
+        rank: 24,
+        maxValues: 4,
+        label: "Software & systems",
+        kind: "chips",
+        values: {
+          excel: "MS Excel (pivot, charts)",
+          powerpoint: "PowerPoint",
+          sap_qm: "SAP QM",
+          other_erp: "Other ERP",
+          minitab: "Minitab",
+          customer_portal: "Customer supplier portals",
+          cad_viewer: "AutoCAD / drawing viewer",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry, same precedent as every shop map.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier caliper",
+          micrometer: "Micrometer",
+          bore_gauge: "Bore dial gauge",
+          height_gauge: "Height gauge",
+          plug_gauge: "Plug / ring gauges",
+          dial_indicator: "Dial indicator",
+          profile_projector: "Profile projector",
+          roughness_tester: "Roughness tester",
+          hardness_tester: "Hardness tester",
+        },
+      },
+      {
+        from: "qe_process_area",
+        rank: 63,
+        label: "Process areas",
+        kind: "ticks",
+        values: {
+          machining: "Machining",
+          press_shop: "Sheet metal / press shop",
+          welding: "Welding and fabrication",
+          casting: "Casting / die casting",
+          forging: "Forging",
+          plastic_moulding: "Plastic moulding",
+          assembly: "Assembly lines",
+          special_process: "Paint, plating / heat treatment",
+          electronics: "Electrical / electronics",
+        },
+      },
+      {
+        from: "qe_documents",
+        rank: 41,
+        label: "Documents prepared",
+        kind: "ticks",
+        values: {
+          inspection_standard: "Inspection standards / check sheets",
+          work_instruction: "Work instructions / SOPs",
+          rejection_report: "Daily rejection and PPM reports",
+          ppap_file: "PPAP files (with PSW)",
+          quality_alert: "Quality alerts / one-point lessons",
+          deviation_note: "Deviation / concession notes",
+          four_m_change: "4M change records",
+          quality_mis: "Monthly quality MIS",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_standards",
+        rank: 42,
+        maxValues: 4,
+        label: "Standards",
+        kind: "chips",
+        values: {
+          iatf: "IATF 16949",
+          iso_qms: "ISO 9001",
+          ems_ohsms: "ISO 14001 / ISO 45001",
+          vda: "VDA 6.3",
+          cqi: "CQI special processes (CQI-9, CQI-11, CQI-12)",
+          as_aerospace: "AS 9100 (aerospace)",
+          bis: "BIS / ISI marking",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_audit_work",
+        rank: 43,
+        label: "Audit work",
+        kind: "ticks",
+        values: {
+          internal_auditor: "Certified internal auditor",
+          process_audit: "Process audits",
+          product_audit: "Product audits",
+          layered_audit: "Layered process audits (LPA)",
+          supplier_audit: "Supplier audits",
+          customer_audit: "Customer audit handling",
+          certification_audit: "Certification-body audit handling",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_customer_handled",
+        rank: 81,
+        label: "Customers handled",
+        kind: "fact",
+        join: ", ",
+        values: {
+          maruti: "Maruti Suzuki",
+          hero: "Hero MotoCorp",
+          honda: "Honda (HMSI / Honda Cars)",
+          tata: "Tata Motors",
+          mahindra: "Mahindra",
+          bajaj_tvs: "Bajaj / TVS",
+          hyundai_kia: "Hyundai / Kia",
+          jcb: "JCB",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_supplier_work",
+        rank: 71,
+        label: "Supplier quality work",
+        kind: "ticks",
+        values: {
+          supplier_ppap: "Supplier PPAP approval",
+          supplier_plant_audit: "Supplier plant audits",
+          supplier_capa: "8D on incoming rejection",
+          supplier_rating: "Supplier rating / scorecards",
+          vendor_assessment: "New vendor assessment",
+          supplier_improvement: "Improvement at supplier end",
+          // `unknown` ("Supplier ka kaam nahi kiya") has no entry.
+        },
+      },
+      {
+        from: "qe_targets_owned",
+        rank: 72,
+        label: "Targets owned",
+        kind: "ticks",
+        values: {
+          customer_ppm: "Customer PPM",
+          inhouse_rejection: "In-house rejection and rework",
+          copq: "COPQ",
+          customer_complaints: "Customer complaints",
+          supplier_ppm: "Supplier PPM",
+          warranty_return: "Warranty returns",
+          first_time_right: "First-time-right (FTR)",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "qe_improvement_work",
+        rank: 73,
+        label: "Improvement work",
+        kind: "ticks",
+        values: {
+          kaizen: "Kaizen",
+          poka_yoke: "Poka-yoke implementation",
+          quality_circle: "Quality circles",
+          six_sigma: "Six Sigma projects (Green / Black Belt)",
+          five_s: "5S",
+          rejection_reduction: "Rejection-reduction projects",
+          tpm_qm: "TPM (QM pillar)",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T43 — MAINTENANCE ENGINEER (#3012): DESK-TRADE MAP ══
+  //
+  // NO RATIFIED PAGE: sheet T43's headline
+  // (`Maintenance Engineer · {level} · {experience} · {me_function} · {me_machine_type} ·
+  // {me_record_system} · {city}`) is the parity reference. Function, machine family and record
+  // system lead (the hire is for the plant he can hold), then the daily work, the technical areas
+  // and the senior rows. Every `values` key is the STORED value; `unknown` escape chips and the
+  // `none`-class negatives have no entry, so they print nothing.
+  {
+    pack_id: "qp_maintenance_engineer",
+    section_title: "Functions, machines & responsibility",
+    tier_section_titles: { easy: "Functions & machines" },
+    capability: [
+      {
+        from: "me_function",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Functions",
+        kind: "chips",
+        values: {
+          mechanical: "Mechanical maintenance",
+          electrical: "Electrical maintenance",
+          electronics_automation: "Electronics, PLC & automation",
+          utility: "Utility (boiler, compressor, DG, HVAC)",
+          tooling_maintenance: "Tool room, die & mould maintenance",
+          planning: "PM planning & spares",
+          projects: "Projects & new installation",
+          facility: "Building & facility maintenance",
+        },
+      },
+      {
+        from: "me_machine_type",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines maintained",
+        kind: "chips",
+        values: {
+          cnc_machines: "CNC / VMC, machine shop",
+          presses: "Mechanical / hydraulic press",
+          moulding_diecasting: "Injection moulding / die casting",
+          furnace_forging: "Furnace, heat treatment / forging",
+          conveyor_assembly: "Conveyor, assembly line & SPM",
+          robot_weld_line: "Robot & welding line",
+          paint_plating: "Paint shop / plating line",
+          process_equipment: "Process equipment (reactor, pump, centrifuge)",
+          packaging_line: "Packaging / filling line",
+        },
+      },
+      {
+        from: "me_daily_work",
+        rank: 31,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          breakdown_attend: "Breakdown attendance",
+          pm_schedule: "PM scheduling & follow-up",
+          spares_indent: "Spares indent / PR",
+          daily_mis: "Shift report / daily MIS",
+          work_allocation: "Work allocation to technicians",
+          vendor_coordination: "Contractor / AMC vendor coordination",
+          history_card: "Machine history cards",
+          work_permit_loto: "Work permit & LOTO",
+        },
+      },
+      {
+        from: "me_record_system",
+        rank: 71,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Records on",
+        kind: "chips",
+        values: {
+          sap_pm: "SAP PM",
+          maximo: "IBM Maximo",
+          other_erp_cmms: "In-house ERP / CMMS",
+          excel: "MS Excel",
+          manual_register: "Registers & history cards",
+          // `unknown` ("Koi record nahi rakhta") has no entry ON PURPOSE — a non-answer
+          // must not print as an answer.
+        },
+      },
+      {
+        from: "me_technical_area",
+        rank: 32,
+        label: "Systems handled",
+        kind: "ticks",
+        values: {
+          hydraulics: "Hydraulics",
+          pneumatics: "Pneumatics",
+          mechanical_drives: "Gearbox, bearing & alignment",
+          motors_mcc: "Motors, starters & MCC panels",
+          drives: "VFD & servo drives",
+          plc_fault_finding: "PLC fault finding",
+          cnc_machine_elements: "CNC spindle, ball screw & axes",
+          utilities: "Boilers, compressors & chillers",
+          power_distribution: "HT / LT, transformers & DG",
+        },
+      },
+      {
+        from: "me_drawing_reading",
+        rank: 33,
+        label: "Drawings read",
+        kind: "ticks",
+        values: {
+          mechanical_drawing: "Machine assembly / part drawings",
+          hydraulic_circuit: "Hydraulic circuits",
+          pneumatic_circuit: "Pneumatic circuits",
+          electrical_drawing: "Electrical wiring & control drawings",
+          plc_ladder: "PLC ladder",
+          p_and_id: "P&ID / utility layouts",
+          // `unknown` ("Koi nahi") has no entry — the drawing_reading: "none" precedent.
+        },
+      },
+      {
+        from: "me_breakdown_analysis",
+        rank: 41,
+        label: "Breakdown analysis",
+        kind: "ticks",
+        values: {
+          breakdown_report: "Breakdown reports",
+          why_why: "Why-why analysis",
+          rca_fishbone: "RCA / fishbone",
+          mtbf_mttr: "MTBF / MTTR trending",
+          pareto: "Breakdown Pareto",
+          capa_horizontal: "CAPA & horizontal deployment",
+          opl: "One-point lessons (OPL)",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "me_machines_handled",
+        rank: 42,
+        label: "Machines under charge",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the
+        // numeric string. Same construction as the machining tolerance-band rows.
+        values: {
+          "25": "Up to 25 machines",
+          "100": "25–100 machines",
+          "300": "100–300 machines",
+          "500": "Over 300 machines",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "me_spares_vendor",
+        rank: 43,
+        label: "Spares & vendors",
+        kind: "ticks",
+        values: {
+          critical_spares: "Critical spares & min-max levels",
+          quotation_comparison: "Vendor quotations & technical comparison",
+          amc_contracts: "AMCs (compressor, DG, chiller, CNC)",
+          repair_reconditioning: "Spare repair / reconditioning",
+          spare_localisation: "Import spare localisation",
+          bill_certification: "Contractor bill certification",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "me_statutory_audit",
+        rank: 44,
+        label: "Statutory & audits",
+        kind: "ticks",
+        values: {
+          ibr_boiler: "Boiler IBR inspection",
+          pressure_vessel: "Pressure vessel & air receiver testing",
+          lifting_tackle: "Crane, hoist & lifting-tackle testing",
+          electrical_inspection: "Electrical inspector & earth-pit testing",
+          pollution_board: "Pollution board, ETP, stack & DG",
+          fire_system: "Fire hydrants & extinguishers",
+          iatf_iso_audit: "IATF / ISO audit documentation",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 72,
+        label: "Plants worked in",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automotive",
+          general_engg: "General engineering / fabrication",
+          casting_forging: "Forging, casting / foundry",
+          plastics: "Plastics / rubber moulding",
+          fmcg: "FMCG / food",
+          pharma: "Pharma",
+          chemical: "Chemical / process plant",
+          steel_plant: "Steel / metal plant",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "me_tpm_improvement",
+        rank: 34,
+        label: "TPM & improvement",
+        kind: "ticks",
+        values: {
+          jishu_hozen: "Jishu Hozen (JH)",
+          planned_maintenance: "Planned maintenance pillar",
+          kobetsu_kaizen: "Kobetsu Kaizen",
+          kaizen_poka_yoke: "Kaizen / poka-yoke",
+          five_s: "5S",
+          oee_improvement: "OEE improvement",
+          energy_saving: "Energy saving projects",
+          predictive_maintenance: "Predictive maintenance (vibration, thermography, oil analysis)",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "me_shutdown_projects",
+        rank: 35,
+        label: "Shutdowns & projects",
+        kind: "ticks",
+        values: {
+          annual_shutdown: "Annual shutdowns",
+          overhaul_retrofit: "Machine overhauling / retrofitting",
+          installation_commissioning: "New machine installation & commissioning",
+          machine_shifting: "Machine shifting / layout changes",
+          utility_expansion: "Utility expansion (compressor, DG, transformer)",
+          capex_proposal: "Capex proposals",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+      {
+        from: "me_department_targets",
+        rank: 36,
+        label: "Targets owned",
+        kind: "ticks",
+        values: {
+          downtime: "Breakdown & downtime",
+          mtbf_mttr: "MTBF / MTTR",
+          maintenance_budget: "Maintenance cost & budget",
+          spares_inventory: "Spares inventory",
+          energy_consumption: "Power & energy cost",
+          pm_adherence: "PM adherence",
+          safety: "Safety (zero accident)",
+          // `unknown` ("Koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T46 — PRODUCTION ENGINEER (#3012): DESK-TRADE MAP ══
+  //
+  // NO RATIFIED PAGE: sheet T46's headline
+  // (`Production Engineer · {level} · {experience} · {prod_shop_type} · {prod_erp_system} · {city}`)
+  // is the parity reference. Shop and system lead (the hire is for the line he can run), then
+  // the daily work, the documents and the senior rows. Every `values` key is the STORED value;
+  // `unknown` escape chips and the `none` negative have no entry, so they print nothing.
+  {
+    pack_id: "qp_production_engineer",
+    section_title: "Shops, systems & responsibility",
+    tier_section_titles: { easy: "Shops & systems" },
+    capability: [
+      {
+        from: "prod_shop_type",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Shops",
+        kind: "chips",
+        values: {
+          machine_shop: "Machine shop (CNC / VMC)",
+          press_shop: "Press shop",
+          weld_shop: "Weld shop",
+          assembly: "Assembly line",
+          moulding: "Injection moulding",
+          casting: "Casting / die casting",
+          forging: "Forging",
+          paint_shop: "Paint shop / surface treatment",
+          // `unknown` ("Koi aur shop") has no entry ON PURPOSE.
+        },
+      },
+      {
+        from: "prod_daily_work",
+        rank: 31,
+        label: "Daily work",
+        kind: "ticks",
+        values: {
+          plan_vs_actual: "Daily plan vs actual",
+          manpower_planning: "Manpower & shift planning",
+          rejection_control: "Rejection & rework control",
+          downtime_followup: "Downtime / breakdown follow-up",
+          cross_dept_coordination: "Coordination with PPC, quality & maintenance",
+          production_mis: "Production MIS / daily reports",
+          line_balancing: "Line balancing",
+          changeover_planning: "Changeover planning",
+        },
+      },
+      {
+        from: "prod_erp_system",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Systems",
+        kind: "chips",
+        values: {
+          sap_pp: "SAP PP",
+          sap_business_one: "SAP Business One",
+          oracle: "Oracle ERP",
+          ms_dynamics: "Microsoft Dynamics / Navision",
+          infor_baan: "Infor LN / BaaN",
+          other_erp: "In-house ERP",
+          excel: "MS Excel (pivot, VLOOKUP)",
+          // `unknown` ("Koi system nahi") has no entry ON PURPOSE.
+        },
+      },
+      {
+        from: "prod_manpower_handled",
+        rank: 41,
+        label: "Workmen handled",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string ("25",
+        // "50", "100", "250", "500"), never the option key.
+        values: {
+          "25": "Up to 25 workmen",
+          "50": "26–50 workmen",
+          "100": "51–100 workmen",
+          "250": "101–250 workmen",
+          "500": "Over 250 workmen",
+        },
+      },
+      {
+        from: "prod_documents_owned",
+        rank: 32,
+        label: "Documents owned",
+        kind: "ticks",
+        values: {
+          dpr: "Daily production report (DPR)",
+          hourly_sheet: "Hourly monitoring sheets",
+          oee_sheet: "OEE sheets",
+          rejection_report: "Rejection & rework reports",
+          skill_matrix: "Skill matrix",
+          work_instruction: "Work instructions, SOPs & OPLs",
+          four_m_change: "4M change records",
+          handover_register: "Shift handover registers",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 43,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — the turner-map precedent: a true
+        // negative belongs in matching data, not on the worker's own marketing document.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automotive",
+          two_wheeler: "Two-wheeler",
+          general_engg: "General engineering",
+          appliances: "Home appliances",
+          electronics: "Electronics / EMS",
+          agri: "Tractors & agri equipment",
+          construction_equipment: "Construction equipment",
+          defence: "Defence / aerospace",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prod_customer_served",
+        rank: 72,
+        maxValues: 4,
+        label: "Customers served",
+        kind: "chips",
+        values: {
+          maruti: "Maruti Suzuki",
+          hero: "Hero MotoCorp",
+          honda: "Honda (HMSI / Honda Cars)",
+          tata: "Tata Motors",
+          mahindra: "Mahindra",
+          bajaj_tvs: "Bajaj / TVS",
+          jcb: "JCB",
+          export: "Export customers",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prod_metrics_tracked",
+        rank: 33,
+        label: "Metrics tracked",
+        kind: "ticks",
+        values: {
+          oee: "OEE",
+          schedule_adherence: "Schedule adherence (plan vs actual)",
+          rejection_ppm: "Rejection PPM / percentage",
+          downtime: "Downtime hours",
+          productivity: "Per-man output (productivity)",
+          rework: "Rework percentage",
+          scrap_yield: "Scrap & yield",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prod_improvement_work",
+        rank: 34,
+        label: "Improvement work",
+        kind: "ticks",
+        values: {
+          kaizen: "Kaizen",
+          five_s: "5S",
+          tpm: "TPM (JH / Kobetsu Kaizen)",
+          smed: "SMED / changeover reduction",
+          cycle_time_reduction: "Cycle-time reduction",
+          poka_yoke: "Poka-yoke",
+          qc_circle: "QC circles",
+          lean_six_sigma: "Lean / Six Sigma projects",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prod_quality_system",
+        rank: 35,
+        label: "Quality system",
+        kind: "ticks",
+        values: {
+          iatf_audit: "IATF 16949 audits (own area)",
+          customer_audit: "Customer audits (Maruti, Hero, Honda...)",
+          eight_d_capa: "8D / CAPA",
+          why_why: "Why-why analysis",
+          control_plan: "Control-plan-based line running",
+          layered_audit: "Layered process audits",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 36,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          material_shortage: "Material shortage replanning",
+          breakdown_reroute: "Breakdown load re-routing",
+          absenteeism: "Rebalancing for absenteeism",
+          quality_hold: "Quality-hold sorting & rework",
+          tool_die_failure: "Tool / die failure handling",
+          schedule_change: "Sudden customer schedule changes",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prod_cost_work",
+        rank: 37,
+        label: "Cost work",
+        kind: "ticks",
+        values: {
+          cost_per_piece: "Cost per piece",
+          consumable_budget: "Tool & consumable budgets",
+          overtime_control: "Overtime control",
+          copq: "Scrap & rejection cost (COPQ)",
+          energy_cost: "Power / energy per piece",
+          contract_manpower_cost: "Contract manpower bills",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "prod_people_work",
+        rank: 38,
+        label: "People work",
+        kind: "ticks",
+        values: {
+          skill_matrix: "Skill matrix & training plans",
+          shift_roster: "Shift rosters",
+          supervisor_review: "Supervisor & line-leader reviews",
+          leave_overtime_approval: "Leave & overtime approvals",
+          discipline_ir: "Discipline / IR cases",
+          union_handling: "Union / works-committee dealings",
+          contractor_handling: "Contractor manpower handling",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T47 — PROCESS / MANUFACTURING ENGINEER (#3012): DESK-TRADE MAP ══
+  //
+  // NO RATIFIED PAGE: sheet T47's headline
+  // (`Process / Manufacturing Engineer · {level} · {experience} · {proc_function} ·
+  // {proc_process_type} · {city}`) is the parity reference. Function and process lead (the hire
+  // is for the method he owns), then the documents he writes, the software he runs and the senior
+  // rows. Every `values` key is the STORED value; `unknown` escape chips and the `none` negative
+  // have no entry.
+  {
+    pack_id: "qp_process_engineer",
+    section_title: "Processes, systems & responsibility",
+    tier_section_titles: { easy: "Processes & systems" },
+    capability: [
+      {
+        from: "proc_function",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Functions",
+        kind: "chips",
+        values: {
+          process_planning: "Process planning & routing",
+          industrial_engg: "Industrial engineering (time study, manpower)",
+          tooling_fixture: "Tooling & jigs-fixtures",
+          new_line_setup: "New line / machine setup",
+          tool_optimisation: "Cutting-tool & parameter optimisation",
+          layout_capacity: "Layout & capacity planning",
+          lca_poka_yoke: "Low-cost automation & poka-yoke",
+          cost_reduction_vave: "Cost reduction / VAVE",
+        },
+      },
+      {
+        from: "proc_process_type",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          machining: "Machining (CNC / VMC / HMC)",
+          press_sheet_metal: "Press & sheet metal",
+          welding: "Welding (MIG, spot, robot)",
+          assembly: "Assembly",
+          moulding: "Injection moulding",
+          casting: "Casting / die casting",
+          forging: "Forging",
+          surface_heat_treatment: "Painting, plating / heat treatment",
+          // `unknown` ("Koi aur process") has no entry ON PURPOSE.
+        },
+      },
+      {
+        from: "proc_documents_owned",
+        rank: 31,
+        label: "Documents owned",
+        kind: "ticks",
+        values: {
+          pfd: "Process flow diagrams (PFD)",
+          pfmea: "PFMEA",
+          control_plan: "Control plans",
+          process_sheet: "Process / operation sheets",
+          sop_work_instruction: "SOPs / work instructions",
+          tooling_list: "Tooling lists / tool layouts",
+          layout_drawing: "Plant layout drawings",
+          capacity_sheet: "Capacity sheets",
+        },
+      },
+      {
+        from: "proc_software",
+        rank: 41,
+        maxValues: 4,
+        label: "Software",
+        kind: "chips",
+        values: {
+          autocad: "AutoCAD",
+          solidworks: "SolidWorks",
+          catia_nx: "CATIA / NX",
+          creo: "Creo",
+          sap_pp: "SAP PP (routing, BOM)",
+          excel: "MS Excel (pivot, VLOOKUP)",
+          minitab: "Minitab",
+          ms_project: "MS Project",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 43,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — the turner-map precedent.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "proc_six_sigma_belt",
+        rank: 44,
+        label: "Six Sigma",
+        kind: "fact",
+        values: {
+          black_belt: "Six Sigma Black Belt",
+          green_belt: "Six Sigma Green Belt",
+          yellow_belt: "Six Sigma Yellow Belt",
+          project_only: "Six Sigma project (no certificate)",
+          // `none` ("Koi belt nahi") has no entry — same rule as `drawing_reading: "none"`.
+        },
+      },
+      {
+        from: "proc_time_study",
+        rank: 32,
+        label: "Time study & capacity",
+        kind: "ticks",
+        values: {
+          stopwatch_study: "Stopwatch cycle-time study",
+          takt_time: "Takt time",
+          line_balancing: "Line balancing (Yamazumi)",
+          manpower_calc: "Manpower calculation",
+          most_mtm: "MOST / MTM standard time",
+          capacity_calc: "Machine capacity calculation",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "proc_tooling_work",
+        rank: 33,
+        label: "Tooling & fixtures",
+        kind: "ticks",
+        values: {
+          fixture_concept: "Jig-fixture concept design",
+          fixture_development: "Fixture development via tool room / vendors",
+          tool_selection: "Insert, drill & tap grade selection",
+          tool_life_trial: "Tool-life trials",
+          parameter_optimisation: "Speed & feed optimisation",
+          gauge_planning: "Gauge & checking-fixture planning",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          two_wheeler: "Two-wheeler",
+          general_engg: "General engineering",
+          appliances: "Home appliances",
+          electronics: "Electronics / EMS",
+          agri: "Tractors & agri equipment",
+          construction_equipment: "Construction equipment",
+          defence: "Defence / aerospace",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "proc_new_line_work",
+        rank: 34,
+        label: "New line work",
+        kind: "ticks",
+        values: {
+          machine_spec: "Machine specifications",
+          machine_buyoff: "Vendor machine buy-offs",
+          installation: "Installation & commissioning",
+          capability_trial: "Machine capability (Cm, Cmk) trials",
+          layout_design: "Layouts",
+          capex_proposal: "Capex proposals & ROI",
+          line_shifting: "Line shifting",
+          // `unknown` ("Abhi tak nahi kiya") has no entry.
+        },
+      },
+      {
+        from: "proc_improvement_work",
+        rank: 35,
+        label: "Improvement work",
+        kind: "ticks",
+        values: {
+          kaizen: "Kaizen",
+          poka_yoke: "Poka-yoke",
+          low_cost_automation: "Low-cost automation",
+          vave: "VAVE / cost reduction",
+          smed: "SMED",
+          cycle_time_reduction: "Cycle-time reduction",
+          lean_vsm: "Lean (VSM)",
+          six_sigma_project: "Six Sigma (DMAIC) projects",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "proc_quality_system",
+        rank: 36,
+        label: "Quality system",
+        kind: "ticks",
+        values: {
+          apqp_ppap: "APQP & PPAP documentation",
+          process_capability: "Process capability (Cp, Cpk) studies",
+          msa: "MSA / gauge R&R",
+          four_m_change: "4M change management",
+          iatf_audit: "IATF 16949 audits",
+          customer_audit: "Customer audits (Maruti, Hero, Honda...)",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 37,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          cycle_time_high: "High cycle time",
+          tool_life_low: "Premature tool wear / breakage",
+          low_cpk: "Low Cpk / size variation",
+          fixture_issue: "Fixture seating issues",
+          bottleneck: "Bottleneck stations",
+          high_rejection: "Rising rejection",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T48 — NPD / DEVELOPMENT ENGINEER (#3012): DESK-TRADE MAP ══
+  //
+  // NO RATIFIED PAGE: sheet T48's headline
+  // (`NPD / Development Engineer · {level} · {experience} · {npd_part_process} ·
+  // {npd_customer_served} · {city}`) is the parity reference. NOTE THE HEADLINE OMITS
+  // `npd_function` — the part family and the customer lead, not the work list — so `inHeadline`
+  // sits on the part-process chips and the customer fact, and `npd_function` ranks 21 WITHOUT it.
+  // Every `values` key is the STORED value; `unknown` escape chips and the `none` negatives have
+  // no entry.
+  {
+    pack_id: "qp_npd_engineer",
+    section_title: "Parts, development & responsibility",
+    tier_section_titles: { easy: "Parts & development" },
+    capability: [
+      {
+        from: "npd_function",
+        rank: 21,
+        maxValues: 4,
+        label: "Development work",
+        kind: "chips",
+        values: {
+          rfq_costing: "RFQ feasibility & costing",
+          apqp_timing: "APQP timing-plan follow-up",
+          tooling_development: "Tooling, die / mould development",
+          gauge_fixture_development: "Gauge & fixture development",
+          sample_prototype: "Sample / prototype development",
+          ppap_submission: "PPAP documentation & submission",
+          customer_communication: "Customer technical coordination",
+          testing_validation: "Testing & validation",
+          vendor_part_development: "BOP / vendor part development",
+        },
+      },
+      {
+        from: "npd_part_process",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Parts developed",
+        kind: "chips",
+        values: {
+          machined: "Machined parts",
+          sheet_metal: "Sheet-metal / press parts",
+          plastic: "Plastic moulded parts",
+          casting: "Casting / die-casting parts",
+          forging: "Forged parts",
+          rubber: "Rubber parts",
+          weld_assembly: "Welded / fabricated assemblies",
+          electrical: "Electrical parts / wiring harness",
+          // `unknown` ("Koi aur part") has no entry ON PURPOSE.
+        },
+      },
+      {
+        from: "npd_documents_owned",
+        rank: 31,
+        label: "Documents owned",
+        kind: "ticks",
+        values: {
+          apqp_plan: "APQP timing plans",
+          feasibility_report: "Feasibility reports (TFC)",
+          fmea: "DFMEA / PFMEA",
+          control_plan: "Control plans",
+          psw: "PSWs (part submission warrants)",
+          ecn: "ECNs / drawing-change records",
+          bom: "BOMs",
+          cost_sheet: "Cost sheets / quotations",
+        },
+      },
+      {
+        from: "npd_software",
+        rank: 41,
+        maxValues: 4,
+        label: "Software",
+        kind: "chips",
+        values: {
+          autocad: "AutoCAD",
+          solidworks: "SolidWorks",
+          catia: "CATIA",
+          nx: "NX / Unigraphics",
+          creo: "Creo",
+          sap: "SAP (BOM, material master)",
+          excel: "MS Excel",
+          ms_project: "MS Project",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 43,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — the turner-map precedent.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "npd_customer_served",
+        rank: 71,
+        inHeadline: true,
+        label: "Customers served",
+        kind: "fact",
+        join: ", ",
+        values: {
+          maruti: "Maruti Suzuki",
+          hero: "Hero MotoCorp",
+          honda: "Honda (HMSI / Honda Cars)",
+          tata: "Tata Motors",
+          mahindra: "Mahindra",
+          bajaj_tvs: "Bajaj / TVS",
+          jcb: "JCB",
+          export: "Export customers",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 72,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobiles (cars, commercial vehicles)",
+          two_wheeler: "Two-wheeler",
+          general_engg: "General engineering",
+          appliances: "Home appliances",
+          electronics: "Electronics / EMS",
+          agri: "Tractors & agri equipment",
+          construction_equipment: "Construction equipment",
+          defence: "Defence / aerospace",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "npd_projects_handled",
+        rank: 42,
+        label: "New parts a year",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE — the pack's `value_text` is the numeric string ("5",
+        // "15", "30", "50"), never the option key.
+        values: {
+          "5": "Up to 5 new parts a year",
+          "15": "6–15 new parts a year",
+          "30": "16–30 new parts a year",
+          "50": "Over 30 new parts a year",
+        },
+      },
+      {
+        from: "npd_trial_work",
+        rank: 32,
+        label: "Tooling trials",
+        kind: "ticks",
+        values: {
+          tool_trial: "T0 / T1 trials",
+          trial_report: "Trial reports & correction lists",
+          layout_inspection: "Sample layout inspection",
+          tool_correction: "Tool-room / vendor corrections",
+          pilot_lot: "Pilot lots",
+          production_handover: "Handover to production",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "npd_costing_work",
+        rank: 44,
+        label: "Costing",
+        kind: "fact",
+        values: {
+          // `none` ("Costing nahi karta") has no entry — the drawing_reading: "none" precedent.
+          rm_cost: "RM weight & cost working",
+          full_cost_sheet: "Full cost sheets (RM, process, tooling)",
+          price_negotiation: "Customer price negotiation",
+        },
+      },
+      {
+        from: "npd_tooling_source",
+        rank: 33,
+        label: "Tooling sourced from",
+        kind: "chips",
+        values: {
+          inhouse_tool_room: "In-house tool room",
+          local_vendor: "Local tool-room vendors",
+          import_tooling: "Imported tooling (China, Taiwan, Korea)",
+          customer_supplied: "Customer-supplied tools",
+          // `unknown` ("Tooling ka kaam main nahi dekhta") has no entry.
+        },
+      },
+      {
+        from: "npd_ppap_work",
+        rank: 34,
+        label: "PPAP work",
+        kind: "ticks",
+        values: {
+          dimensional_report: "Dimensional layout reports",
+          test_reports: "Material & performance test reports",
+          msa: "MSA / gauge R&R",
+          process_capability: "Initial process capability (Cp, Cpk)",
+          pfmea_control_plan: "PFD, PFMEA & control plans",
+          psw_approval: "Customer PSW approvals",
+          imds: "IMDS entries",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "npd_validation_tests",
+        rank: 35,
+        label: "Validation tests",
+        kind: "ticks",
+        values: {
+          endurance: "Endurance / durability tests",
+          salt_spray: "Salt-spray tests",
+          leak_test: "Leak tests",
+          cmm_dimensional: "CMM dimensional checks",
+          material_test: "Hardness & material tests",
+          fitment_trial: "Customer fitment trials",
+          vibration: "Vibration tests",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 36,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          dimension_out: "Trial dimension-outs",
+          tooling_delay: "Tooling delays",
+          ecn_change: "Customer drawing changes (ECN)",
+          sample_rejection: "Sample rejections",
+          cost_overrun: "Cost overruns",
+          vendor_part_failure: "Vendor part failures",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T52 — PPC / PRODUCTION PLANNING ENGINEER (#3012): DESK-TRADE MAP ══
+  //
+  // NO RATIFIED PAGE: sheet T52's headline
+  // (`PPC / Production Planning Engineer · {level} · {experience} · {ppc_function} · {ppc_erp_system}
+  // · {city}`) is the parity reference. Function and ERP lead (the hire is for the plan he can
+  // own), then Excel, the plans he writes and the senior rows. Every `values` key is the STORED
+  // value; `unknown` escape chips and the `followup_only` non-plan have no entry.
+  {
+    pack_id: "qp_ppc",
+    section_title: "Planning, systems & responsibility",
+    tier_section_titles: { easy: "Planning & systems" },
+    capability: [
+      {
+        from: "ppc_function",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Planning functions",
+        kind: "chips",
+        values: {
+          production_planning: "Production planning & scheduling",
+          material_planning: "Material planning (RM / BOP)",
+          dispatch_planning: "Dispatch planning",
+          jobwork_planning: "Job-work / subcontract planning",
+          inventory_control: "Inventory & WIP control",
+          customer_schedule: "Customer schedule follow-up",
+          mis_reporting: "PPC MIS & reporting",
+        },
+      },
+      {
+        from: "ppc_erp_system",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "ERP / systems",
+        kind: "chips",
+        values: {
+          sap_pp: "SAP PP",
+          sap_mm: "SAP MM",
+          oracle: "Oracle ERP",
+          ms_dynamics: "Microsoft Dynamics / Navision",
+          infor_baan: "Infor LN / BaaN",
+          tally: "Tally",
+          inhouse_erp: "In-house ERP",
+          excel_only: "Excel only",
+          // `unknown` ("Koi aur ERP") has no entry ON PURPOSE.
+        },
+      },
+      {
+        from: "ppc_excel_skill",
+        rank: 31,
+        label: "Excel skills",
+        kind: "ticks",
+        values: {
+          vlookup: "VLOOKUP / XLOOKUP",
+          pivot_table: "Pivot tables",
+          sumif_formula: "SUMIF / COUNTIF formulas",
+          dashboard: "Charts & dashboards",
+          macro_vba: "Macros / VBA",
+          power_bi: "Power BI / Power Query",
+          data_entry: "Data entry",
+        },
+      },
+      {
+        from: "ppc_plan_type",
+        rank: 32,
+        label: "Plans made",
+        kind: "ticks",
+        values: {
+          monthly_plan: "Monthly production plans",
+          weekly_plan: "Weekly plans",
+          daily_plan: "Daily / shift plans",
+          machine_loading: "Machine loading plans",
+          procurement_plan: "RM / BOP procurement plans",
+          dispatch_plan: "Dispatch plans",
+          // `followup_only` ("Plan nahi banata, follow-up karta hoon") has no entry — a
+          // stated non-plan is the drawing_reading: "none" precedent exactly.
+        },
+      },
+      {
+        from: "ppc_documents",
+        rank: 33,
+        label: "Documents owned",
+        kind: "ticks",
+        values: {
+          plan_vs_actual: "Plan vs actual reports",
+          daily_production_report: "Daily production reports (DPR)",
+          shortage_list: "Shortage lists",
+          stock_statement: "WIP / stock statements",
+          dispatch_schedule: "Dispatch schedules",
+          job_card: "Job cards / route cards",
+          production_order: "Production orders (SAP / ERP)",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "ppc_plant_type",
+        rank: 61,
+        maxValues: 4,
+        label: "Plants planned for",
+        kind: "chips",
+        values: {
+          machine_shop: "Machine shop",
+          press_shop: "Press shop / sheet metal",
+          weld_shop: "Weld shop / fabrication",
+          assembly: "Assembly line",
+          moulding: "Plastic moulding",
+          casting_forging: "Casting / forging",
+          surface_treatment: "Paint, plating / heat treatment",
+          // `unknown` ("Koi aur plant") has no entry.
+        },
+      },
+      {
+        from: "ppc_customer_schedule",
+        rank: 41,
+        label: "Schedule sources",
+        kind: "ticks",
+        values: {
+          oem_portal: "OEM portals (Maruti, Hero, Honda...)",
+          email_schedule: "Email monthly schedules",
+          daily_calloff: "Daily call-offs / JIT schedules",
+          po_based: "Make-to-order (PO-based)",
+          sales_team: "Sales / marketing team schedules",
+        },
+      },
+      {
+        from: "ppc_material_planning",
+        rank: 34,
+        label: "Material planning",
+        kind: "ticks",
+        values: {
+          mrp_run: "MRP runs",
+          bom_requirement: "BOM-based requirements",
+          purchase_requisition: "PRs / indents",
+          vendor_followup: "Vendor RM / BOP follow-up",
+          jobwork_stock: "Job-work vendor stock & challans",
+          shortage_alert: "Advance shortage alerts",
+          // `unknown` ("Yeh kaam nahi karta") has no entry.
+        },
+      },
+      {
+        from: "ppc_capacity_planning",
+        rank: 35,
+        label: "Capacity planning",
+        kind: "ticks",
+        values: {
+          capacity_calculation: "Machine capacity calculation",
+          cycle_time_loading: "Cycle-time-based loading",
+          manpower_planning: "Manpower requirement planning",
+          overtime_plan: "Overtime / extra-shift plans",
+          bottleneck: "Bottleneck identification",
+          tooling_availability: "Tool / die availability checks",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "ppc_inventory_control",
+        rank: 36,
+        label: "Inventory control",
+        kind: "ticks",
+        values: {
+          wip_tracking: "WIP tracking",
+          min_max: "Min-max / safety-stock levels",
+          kanban: "Kanban",
+          fifo: "FIFO",
+          abc_analysis: "ABC analysis",
+          stock_verification: "Physical stock verification",
+          non_moving: "Non-moving stock reports",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          two_wheeler: "Two-wheeler parts",
+          general_engg: "General engineering",
+          appliances: "Home appliances",
+          electronics: "Electronics / EMS",
+          agri: "Tractors / agri parts",
+          fasteners: "Fasteners",
+          fmcg: "FMCG / packaging",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 37,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          material_shortage: "Material shortages",
+          breakdown_replan: "Breakdown replanning",
+          schedule_change: "Urgent customer schedule changes",
+          vendor_delay: "Late vendor supplies",
+          rejection_shortage: "Rejection-driven shortages",
+          manpower_shortage: "Manpower shortages",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "ppc_kpi_reporting",
+        rank: 38,
+        label: "KPIs reported",
+        kind: "ticks",
+        values: {
+          plan_adherence: "Plan adherence",
+          on_time_delivery: "On-time delivery (OTD)",
+          inventory_turns: "Inventory days / turns",
+          line_stoppage: "Customer line stoppages",
+          premium_freight: "Premium freight",
+          capacity_utilisation: "Capacity utilisation / OEE",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "ppc_improvement_work",
+        rank: 39,
+        label: "Improvement work",
+        kind: "ticks",
+        values: {
+          kaizen: "Kaizen",
+          five_s: "5S",
+          inventory_reduction: "Inventory reduction projects",
+          kanban_implementation: "Kanban / pull systems",
+          lean_vsm: "Lean / VSM",
+          erp_implementation: "SAP / ERP implementation",
+          iatf_audit: "IATF 16949 audits (PPC)",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+    ],
+  },
+  // ══ CEO PACK V2, T54 — PURCHASE / VENDOR DEVELOPMENT ENGINEER (#3012): DESK-TRADE MAP ══
+  //
+  // NO RATIFIED PAGE: sheet T54's headline
+  // (`Purchase / Vendor Development Engineer · {level} · {experience} · {purchase_function} ·
+  // {purchase_category} · {city}`) is the parity reference. Function and bought category lead
+  // (the hire is for what he buys), then the documents, the costing and vendor work, and the
+  // senior rows. Every `values` key is the STORED value; `unknown` escape chips and the `none`
+  // negative have no entry.
+  {
+    pack_id: "qp_purchase",
+    section_title: "Purchase work, categories & responsibility",
+    tier_section_titles: { easy: "Purchase work & categories" },
+    capability: [
+      {
+        from: "purchase_function",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Purchase functions",
+        kind: "chips",
+        values: {
+          po_followup: "POs & follow-up",
+          rfq_negotiation: "RFQs & rate negotiation",
+          vendor_development: "New vendor search & development",
+          npd_sourcing: "NPD sourcing / new-part development",
+          jobwork_outsourcing: "Job-work / outsourcing",
+          import_purchase: "Import purchase",
+          capex_purchase: "Capex / machine purchase",
+          payment_followup: "Vendor bill & payment follow-up",
+        },
+      },
+      {
+        from: "purchase_category",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Categories bought",
+        kind: "chips",
+        values: {
+          raw_material: "Raw material (steel, aluminium, plastic granules)",
+          casting_forging: "Castings & forgings",
+          machined_parts: "Machined parts",
+          sheet_metal: "Sheet-metal parts",
+          plastic_rubber: "Plastic & rubber parts",
+          bought_out: "Bought-outs, hardware & bearings",
+          tooling: "Tooling, dies & fixtures",
+          consumables: "Consumables, packing & MRO",
+          electrical_parts: "Electrical / electronic parts",
+        },
+      },
+      {
+        from: "purchase_erp_system",
+        rank: 71,
+        maxValues: 4,
+        label: "ERP / systems",
+        kind: "chips",
+        values: {
+          sap_mm: "SAP MM",
+          oracle: "Oracle ERP",
+          ms_dynamics: "Microsoft Dynamics / Navision",
+          infor_baan: "Infor LN / BaaN",
+          tally: "Tally",
+          inhouse_erp: "In-house ERP",
+          excel_only: "Excel & email",
+          // `unknown` ("Koi aur ERP") has no entry ON PURPOSE.
+        },
+      },
+      {
+        from: "purchase_documents",
+        rank: 31,
+        label: "Documents owned",
+        kind: "ticks",
+        values: {
+          rfq: "RFQs / enquiries",
+          comparative_statement: "Comparative statements",
+          purchase_order: "Purchase orders",
+          delivery_schedule: "Delivery schedules",
+          rate_contract: "Rate contracts",
+          jobwork_order: "Job-work orders",
+          vendor_registration: "Vendor registration forms",
+          debit_note: "Debit notes",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 43,
+        label: "Drawings",
+        kind: "fact",
+        // `none` ("Nahi padh pata") has no entry ON PURPOSE — the turner-map precedent.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "purchase_vendor_count",
+        rank: 42,
+        label: "Vendors handled",
+        kind: "fact",
+        values: {
+          below_ten: "Under 10 vendors",
+          ten_to_thirty: "10–30 vendors",
+          thirty_to_seventy_five: "30–75 vendors",
+          above_seventy_five: "Over 75 vendors",
+        },
+      },
+      {
+        from: "purchase_costing",
+        rank: 32,
+        label: "Costing work",
+        kind: "ticks",
+        values: {
+          rm_costing: "RM rate & weight costing",
+          process_costing: "Machine-hour-rate process costing",
+          should_cost: "Should-cost / zero-based costing",
+          cost_breakup: "Vendor cost break-ups",
+          price_revision: "RM-linked price revisions",
+          tooling_cost: "Tooling cost & amortisation",
+          quotation_compare: "Three-quote comparison",
+          // No `unknown` chip on this question — every option is a positive claim.
+        },
+      },
+      {
+        from: "purchase_vendor_development",
+        rank: 33,
+        label: "Vendor development",
+        kind: "ticks",
+        values: {
+          vendor_search: "New vendor search",
+          vendor_assessment: "Vendor plant visits & assessment",
+          sample_development: "Sample development & trials",
+          supplier_ppap: "Supplier PPAPs",
+          vendor_rating: "Vendor ratings",
+          vendor_audit: "Vendor audits",
+          tooling_development: "Tooling / gauges at vendors",
+          // `unknown` ("Yeh kaam nahi karta") has no entry.
+        },
+      },
+      {
+        from: "purchase_commercial_terms",
+        rank: 34,
+        label: "Commercial terms",
+        kind: "ticks",
+        values: {
+          payment_terms: "Payment terms",
+          msme_payment: "MSME 45-day payments",
+          gst_basics: "GST, HSN & input credit",
+          freight_terms: "Freight & delivery terms",
+          rate_contract: "Rate contracts / AMCs",
+          bill_passing: "Bill passing follow-up with accounts",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "purchase_import_work",
+        rank: 35,
+        label: "Import work",
+        kind: "ticks",
+        values: {
+          incoterms: "Incoterms (FOB, CIF, EXW)",
+          lc_remittance: "LC / advance remittance",
+          cha_coordination: "CHA / forwarder coordination",
+          bill_of_entry: "Bills of entry & customs clearance",
+          duty_calculation: "HS codes & duty working",
+          // `unknown` ("Import nahi kiya") has no entry.
+        },
+      },
+      {
+        from: "purchase_annual_value",
+        rank: 44,
+        label: "Annual purchase value",
+        kind: "fact",
+        values: {
+          below_one_crore: "Under ₹1 crore a year",
+          one_to_ten_crore: "₹1–10 crore a year",
+          ten_to_fifty_crore: "₹10–50 crore a year",
+          above_fifty_crore: "Over ₹50 crore a year",
+          // `unknown` ("Pata nahi") has no entry.
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 72,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automobile parts",
+          two_wheeler: "Two-wheeler parts",
+          general_engg: "General engineering",
+          spm_parts: "SPM / machine building",
+          appliances: "Home appliances",
+          electronics: "Electronics / EMS",
+          agri: "Tractors / agri parts",
+          pump_valve: "Pumps & valves",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 36,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          late_delivery: "Late vendor deliveries",
+          incoming_rejection: "Incoming rejections",
+          price_increase: "Vendor price-hike demands",
+          capacity_shortage: "Vendor capacity shortfalls",
+          payment_hold: "Payment-hold supply stops",
+          alternate_source: "Alternate-source development",
+          // `unknown` ("Inme se koi nahi") has no entry.
+        },
+      },
+      {
+        from: "purchase_improvement_work",
+        rank: 37,
+        label: "Improvement work",
+        kind: "ticks",
+        values: {
+          cost_reduction: "Cost reduction / VAVE",
+          localisation: "Localisation (import substitution)",
+          vendor_consolidation: "Vendor consolidation",
+          vmi_kanban: "VMI / kanban supplies",
+          iatf_audit: "IATF 16949 / ISO audits (purchase)",
+          erp_implementation: "SAP / ERP implementation",
+          // `unknown` ("Inme se koi nahi") has no entry.
         },
       },
     ],

@@ -72,6 +72,59 @@ describe("buildFresherRows", () => {
   });
 });
 
+describe("buildFresherRows — Wave 1 roles (#3012)", () => {
+  it("reads a shop fresher's workshop machines and trade test (CMM)", () => {
+    const rows = buildFresherRows("qp_cmm", {
+      iti_workshop_machines: ["vernier_micrometer", "cmm_practice"],
+      trade_test_status: "passed",
+      iti_project_work: "Bore gauge se checking seekha",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.role).toBe("ITI workshop training");
+    expect(rows[0]!.work).toBe(
+      "Vernier caliper & micrometer · CMM practice · " +
+        "Trade test passed · Bore gauge se checking seekha",
+    );
+  });
+
+  it("reads a desk fresher's training exposure through the same vocabulary (quality engineer)", () => {
+    // Desk packs ask no `iti_workshop_machines` — the student answers `qe_training_exposure`.
+    // The block still renders, headed "Training and projects" so it never claims ITI training.
+    const rows = buildFresherRows("qp_quality_engineer", {
+      qe_training_exposure: ["internship", "college_project"],
+      iti_project_work: "Gauge R&R par project banaya tha",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.role).toBe("Training and projects");
+    expect(rows[0]!.work).toBe(
+      "Internship · College major project · Gauge R&R par project banaya tha",
+    );
+  });
+
+  it("drops an exposure slug the desk vocabulary does not know", () => {
+    const rows = buildFresherRows("qp_quality_engineer", {
+      qe_training_exposure: ["internship", "spaceship"],
+    });
+    expect(rows[0]!.work).toBe("Internship");
+  });
+
+  it("renders a desk block from the project alone when no exposure was answered", () => {
+    const rows = buildFresherRows("qp_ppc", {
+      iti_project_work: "Inventory ABC analysis par project",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.role).toBe("Training and projects");
+  });
+
+  it("still ignores other packs' keys — no cross-talk into shop vocabularies", () => {
+    // A shop role's dictionary knows workshop slugs only; an exposure key on it drops.
+    const rows = buildFresherRows("qp_cnc_turning", {
+      qe_training_exposure: ["internship"],
+    });
+    expect(rows).toEqual([]);
+  });
+});
+
 describe("the fresher block reaches Zone 4 on a real sheet", () => {
   const sheetFor = (attributes: Record<string, unknown>, employments: unknown[] = []) =>
     buildResumeRenderInput({}, "Vikas Chauhan", "bb_trade", null, false, "worker", {

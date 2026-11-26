@@ -109,6 +109,12 @@ function allVersionsPack(packId: string): Pack {
 /** A form id that replaces another (#3009): new id → the ids whose stored answers it carries. */
 const REPLACED_FORMS: Readonly<Record<string, readonly string[]>> = {
   qp_foundry_casting: ["qp_foundry_forging"],
+  // #3009 split the combined foundry/forging form three ways: the die-casting and forging forms
+  // carry the old form's answers on the keys both ask (drawing_reading, sector_worked,
+  // troubleshooting, quality_work), so the old form's values on those keys are history values
+  // here too (#3012).
+  qp_die_casting: ["qp_foundry_forging"],
+  qp_forging: ["qp_foundry_forging"],
 };
 
 const map = tradeResumeMapFor("qp_cnc_turning");
@@ -208,6 +214,17 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_production_supervisor",
       "qp_foundry_forging",
       "qp_foundry_casting",
+      "qp_die_casting",
+      "qp_forging",
+      "qp_cnc_router",
+      "qp_cmm",
+      "qp_quality_engineer",
+      "qp_maintenance_engineer",
+      "qp_production_engineer",
+      "qp_process_engineer",
+      "qp_npd_engineer",
+      "qp_ppc",
+      "qp_purchase",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`

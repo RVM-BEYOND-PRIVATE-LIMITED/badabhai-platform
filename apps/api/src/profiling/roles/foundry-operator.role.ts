@@ -70,4 +70,18 @@ export const FOUNDRY_OPERATOR = {
      */
     extraConflictTerms: ["die casting", "grinding"],
   },
+  fresher: {
+    workshopMachines: {
+      hand_moulding: "Hand moulding",
+      core_making: "Core making",
+      melting: "Furnace melting",
+      pouring: "Pouring",
+      fettling: "Fettling & grinding",
+      sand_testing: "Sand testing",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;

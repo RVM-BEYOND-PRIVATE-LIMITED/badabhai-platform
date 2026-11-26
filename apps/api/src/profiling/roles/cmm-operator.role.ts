@@ -57,4 +57,18 @@ export const CMM_OPERATOR = {
      */
     extraConflictTerms: ["quality", "cnc programming", "profile projector"],
   },
+  fresher: {
+    workshopMachines: {
+      vernier_micrometer: "Vernier caliper & micrometer",
+      height_gauge: "Height gauge & surface plate",
+      dial_bore_gauge: "Dial indicator & bore gauge",
+      profile_projector: "Profile projector",
+      cmm_practice: "CMM practice",
+      cmm_software_course: "CMM software course (Calypso / PC-DMIS)",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
 } as const satisfies RoleFormDescriptor;
