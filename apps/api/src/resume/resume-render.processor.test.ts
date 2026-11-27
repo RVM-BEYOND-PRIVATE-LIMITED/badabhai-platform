@@ -290,6 +290,10 @@ function setup(
     // #1800 — the résumé-QR link service, as the optional 17th dependency. OMITTED is the service
     // absent (every construction before #1800), which prints the homepage QR.
     resumeQrLinks?: unknown;
+    // #3086 — the trade section's own answers, as the optional 19th dependency. OMITTED is
+    // the reader absent (every construction before per-pack scoping), which renders the
+    // section from the shared bag exactly as before.
+    sectionBags?: unknown;
     // ADR-0031 — the deletion grace marker on the worker row. Omitted is an active worker.
     deletionScheduledAt?: Date | null;
   } = {},
@@ -434,6 +438,9 @@ function setup(
     generalRoads as never,
     opts.skins as never,
     opts.resumeQrLinks as never,
+    // `otherAnswers` — absent, as in every test here; the #2409 suite covers it.
+    undefined,
+    opts.sectionBags as never,
   );
   return {
     proc,
@@ -533,6 +540,73 @@ describe("ResumeRenderProcessor — the trade capability block", () => {
     const input = renderer.renderPdf.mock.calls[0]![0];
     expect(input.capSectionTitle).toBeNull();
     expect([...input.capChipRows!, ...input.capTickRows!, ...input.capFactRows!]).toEqual([]);
+  });
+
+  it("scopes the trade section to its own form's answers (#3086)", async () => {
+    // The shared bag holds the LAST writer's values (robotics); the PLC section must print
+    // the PLC form's values. The reader, not the render, decides the bag — this asserts the
+    // wiring hands the section bag (not the shared bag) to the mapper.
+    const sectionBags = {
+      forWorker: vi.fn(async () => ({
+        troubleshooting: ["plc_fault", "drive_fault"],
+        sector_worked: ["pharma", "steel_plant"],
+      })),
+    };
+    const shared = {
+      troubleshooting: ["collision_recovery", "backup_restore"],
+      sector_worked: ["two_wheeler", "foundry"],
+    };
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      tradeSheet: { packId: "qp_plc_automation", attributes: shared },
+      sectionBags,
+    });
+    await proc.process(makeJob());
+    expect(sectionBags.forWorker).toHaveBeenCalledWith(WORKER_ID, "qp_plc_automation", shared);
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.capTickRows).toContainEqual({
+      label: "Troubleshooting",
+      values: ["PLC fault / CPU stop", "Drive trip and alarm"],
+      key: "troubleshooting",
+      rank: 72,
+    });
+    expect(input.capFactRows).toContainEqual({
+      label: "Industry",
+      value: "Pharma, Steel / metal plant",
+      key: "sector_worked",
+      rank: 71,
+    });
+  });
+
+  it("renders the shared bag when section scoping THROWS (#3086)", async () => {
+    // The one-load-one-section degrade: a failed scoping read costs the fix, never the PDF —
+    // the section renders from the shared bag exactly as it did before per-pack scoping.
+    const sectionBags = {
+      forWorker: vi.fn(async () => {
+        throw new Error("section boom");
+      }),
+    };
+    const { proc, renderer, storage } = setup({
+      fullName: NAME_TOKEN,
+      tradeSheet: {
+        packId: "qp_plc_automation",
+        attributes: {
+          troubleshooting: ["collision_recovery", "backup_restore"],
+          sector_worked: ["two_wheeler", "foundry"],
+        },
+      },
+      sectionBags,
+    });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ rendered: true });
+    expect(storage.uploadPdf).toHaveBeenCalledOnce();
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.capTickRows).toContainEqual({
+      label: "Troubleshooting",
+      values: ["Program download and backup restore"],
+      key: "troubleshooting",
+      rank: 72,
+    });
   });
 });
 
@@ -722,9 +796,14 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // `AiCostRecorder`, whose `ai.cost_recorded` row carries the task, tokens, cost and the worker
     // id — no text — which is true of every model call this render already makes.
     //
+    // `sectionBags` (PackSectionBagReader) joined for #3086 — the trade section's OWN answers,
+    // overlaid on the shared last-write-wins bag so a two-trade worker's section prints its own
+    // form's values. It reaches TradeFormRepository (settled typed columns only, never an
+    // "other" text) and nothing else; no service, no event surface. Checked before this bump.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(18);
+    expect(ResumeRenderProcessor.length).toBe(19);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
@@ -768,6 +847,16 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     expect(reviewCalls).toEqual([
       "workerId, loaded.packId, { correlationId: job.data.correlationId, requestId: job.data.requestId }, this.config,",
     ]);
+    // #3086 — the section-bag reader emits nothing (repositories only), and the render hands
+    // it ids plus the already-loaded shared bag — nothing it decrypted.
+    const sectionBags = readFileSync(join(__dirname, "pack-section-bag.reader.ts"), "utf8");
+    expect([...sectionBags.matchAll(/event_name:\s*"([a-z_.0-9]+)"/g)].map((m) => m[1])).toEqual(
+      [],
+    );
+    const sectionCalls = [...source.matchAll(/sectionBags\?\.forWorker\(([^)]*)\)/g)].map((m) =>
+      m[1]!.replace(/\s+/g, " ").trim(),
+    );
+    expect(sectionCalls).toEqual(["workerId, loaded.packId, sectionAttributes"]);
   });
 
   it("degrades to a name-less render WITHOUT throwing when decrypt fails", async () => {

@@ -37,6 +37,7 @@ import { PROFILING_TIER_FOOTER_LABEL } from "../profiling/tiers/profiling-tier.p
 import { applyTierScope, type ResumeTierScope } from "./resume-tier-scope";
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
 import { GeneralRoadReader, type GeneralRoadMarker } from "./general-road.reader";
+import { PackSectionBagReader } from "./pack-section-bag.reader";
 import { ownBriefUsable } from "./resume-brief";
 import type { ResumeSkin } from "@badabhai/types";
 import { templateTakesSkin } from "./resume-skins";
@@ -120,6 +121,12 @@ export class ResumeRenderProcessor extends WorkerHost {
     // ids and nothing this render decrypted; its one emit is `profile.other_answer_reviewed`
     // (ids, a closed outcome and a count, strict). This processor emits nothing itself.
     @Optional() private readonly otherAnswers?: OtherAnswerPolishService,
+    // #3086 (option B) — THE TRADE SECTION'S OWN ANSWERS. Optional on the same terms as the
+    // readers above: absent is today's sheet (the shared last-write-wins bag). One call,
+    // `forWorker(workerId, packId, shared)`, handed ids and the already-loaded bag; it reads
+    // only settled typed columns and never an "other" text, so the payer guard below still
+    // holds. Database-only reads, no event surface.
+    @Optional() private readonly sectionBags?: PackSectionBagReader,
   ) {
     super();
   }
@@ -567,12 +574,36 @@ export class ResumeRenderProcessor extends WorkerHost {
               !nameUnreadable && ownBriefUsable(loaded?.attributes?.profile_brief, displayName),
           };
 
+    // #3086 (option B) — THE TRADE SECTION'S OWN ANSWERS, a TENTH independent load on the
+    // same degrade as the nine above: a failure costs the per-pack scoping and the section
+    // renders from the shared last-write-wins bag, exactly as it did before this issue. A
+    // worker profiled in two trades sharing a question key would otherwise print the other
+    // trade's chips under this section's labels; scoping overlays this pack's own answers
+    // onto the shared bag so each section prints its own form's values. The bag below is the
+    // ONLY consumer — matching, prefill and tiers keep reading the shared bag.
+    let sectionAttributes = loaded?.attributes ?? {};
+    if (loaded?.packId) {
+      try {
+        sectionAttributes =
+          (await this.sectionBags?.forWorker(workerId, loaded.packId, sectionAttributes)) ??
+          sectionAttributes;
+      } catch {
+        this.logger.warn(
+          `could not scope the trade section to its own answers for worker ${workerId}; rendering without`,
+        );
+      }
+    }
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
+    // #3086 — `attributes` below is the SECTION bag (this pack's own answers overlaid on the
+    // shared bag, computed above), NOT the raw shared bag: every other reader of `loaded`
+    // above (the brief gate, the tier scope) deliberately keeps the shared one.
     const tradeSheet: TradeSheetContext = {
-      packId: null,
-      attributes: {},
-      ...(loaded ?? {}),
+      ...(loaded ?? { packId: null, attributes: {} }),
+      // #3086 — the section bag wins over the shared bag: the capability block renders this
+      // pack's own answers, everything else (packId included) is exactly the shared load.
+      attributes: sectionAttributes,
       employments,
       employmentsUnavailable,
       // #1350 item 4 — the renderer half of the kill switch. Flipping this false reverts every

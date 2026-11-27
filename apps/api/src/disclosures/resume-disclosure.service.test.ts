@@ -31,10 +31,7 @@ import { ROAD_FALLBACK_FRESHER, roadSnapshot } from "../resume/__fixtures__/gene
 import type { TradeSheetContext } from "../resume/resume-render-input";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
-import type {
-  ActiveMembershipFacts,
-  PayerOrgTenancyMode,
-} from "../payers/payer-tenant-scope";
+import type { ActiveMembershipFacts, PayerOrgTenancyMode } from "../payers/payer-tenant-scope";
 
 // ADR-0045 Phase 5 — WHAT THE LEAK GUARD SCANS, captured by a PASS-THROUGH wrapper: the guard
 // still runs for real on every call, and the context it saw is the evidence that the road was
@@ -154,6 +151,9 @@ interface SetupOpts {
   lapsedGrant?: boolean;
   /** #2752: what the institute open gate answers (default: not a linked student). */
   institute?: "not_linked" | "open" | "closed";
+  // #3086 — the trade section's own answers, as the optional last dependency. OMITTED is
+  // the reader absent, which renders the section from the shared bag exactly as before.
+  sectionBags?: unknown;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -345,6 +345,7 @@ function setup(opts: SetupOpts = {}) {
     opts.contactRules === undefined
       ? undefined
       : ({ isEnabledFor: vi.fn(async () => opts.contactRules) } as never),
+    opts.sectionBags as never,
   );
 
   return {
@@ -515,6 +516,48 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
       { label: "Tolerance held", value: "±0.02 mm", key: "tolerance_band", rank: 62 },
     ]);
     // The three withheld things are still withheld — the capability block is not a hole in the gate.
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
+  });
+
+  it("the payer's copy scopes the trade section to its own form's answers too (#3086)", async () => {
+    // THE TWO-COPIES AGREEMENT. The worker's render scopes the section through the same
+    // reader; the payer's copy must print the same section values, not the shared bag's.
+    // The shared bag here holds the robotics values while the section renders PLC.
+    const sectionBags = {
+      forWorker: vi.fn(async () => ({
+        troubleshooting: ["plc_fault", "drive_fault"],
+        sector_worked: ["pharma", "steel_plant"],
+      })),
+    };
+    const t = setup({
+      tradeSheet: {
+        packId: "qp_plc_automation",
+        attributes: {
+          troubleshooting: ["collision_recovery", "backup_restore"],
+          sector_worked: ["two_wheeler", "foundry"],
+        },
+      },
+      sectionBags,
+    });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.capTickRows).toContainEqual({
+      label: "Troubleshooting",
+      values: ["PLC fault / CPU stop", "Drive trip and alarm"],
+      key: "troubleshooting",
+      rank: 72,
+    });
+    expect(t.getRenderInput()?.capFactRows).toContainEqual({
+      label: "Industry",
+      value: "Pharma, Steel / metal plant",
+      key: "sector_worked",
+      rank: 71,
+    });
+    // The masking around the scoped section holds.
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
     expect(t.getRenderInput()?.photoDataUri).toBeNull();
     expect(t.getRenderInput()?.expectedSalary).toBeNull();
@@ -875,7 +918,11 @@ describe("#2562 - a suspended worker's resume is not disclosable (byte-identical
   it("the in-tx RE-CHECK catches a suspension landing after the pre-lock read", async () => {
     const t = setup({
       consentPurposes: ["employer_sharing"],
-      existing: { id: "disc-existing", status: "disclosed", expiresAt: new Date(Date.now() + 60_000) },
+      existing: {
+        id: "disc-existing",
+        status: "disclosed",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
     });
     t.txMethods.getWorkerDeletionMarker.mockResolvedValue({
       deletionScheduledAt: null,
@@ -1123,10 +1170,20 @@ describe("#1899 — a payer-session posting reference must be null or the payer'
   }
 
   const allowed: { who: string; payer: string; ref: string | null; stored: string | null }[] = [
-    { who: "employer · own posting (kept)", payer: EMPLOYER, ref: EMPLOYER_POSTING, stored: EMPLOYER_POSTING },
+    {
+      who: "employer · own posting (kept)",
+      payer: EMPLOYER,
+      ref: EMPLOYER_POSTING,
+      stored: EMPLOYER_POSTING,
+    },
     { who: "employer · null", payer: EMPLOYER, ref: null, stored: null },
     { who: "agent · own jobs row (stored null)", payer: AGENT, ref: AGENT_JOB, stored: null },
-    { who: "agent · own pre-#1969 posting (kept)", payer: AGENT, ref: AGENT_OLD_POSTING, stored: AGENT_OLD_POSTING },
+    {
+      who: "agent · own pre-#1969 posting (kept)",
+      payer: AGENT,
+      ref: AGENT_OLD_POSTING,
+      stored: AGENT_OLD_POSTING,
+    },
     { who: "agent · null", payer: AGENT, ref: null, stored: null },
   ];
 
@@ -1151,16 +1208,19 @@ describe("#1899 — a payer-session posting reference must be null or the payer'
     { who: "employer · unknown id", payer: EMPLOYER, ref: UNKNOWN },
   ];
 
-  it.each(refused)("$who → the neutral body, and nothing is read, written or emitted", async ({ payer, ref }) => {
-    const { t, res } = await discloseAs(payer, ref);
-    expect(res).toEqual(NEUTRAL);
-    expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
-    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
-    expect(t.repo.withTransaction).not.toHaveBeenCalled();
-    expect(t.txMethods.insertRow).not.toHaveBeenCalled();
-    expect(t.renderer.renderPdf).not.toHaveBeenCalled();
-    expect(t.emitted).toHaveLength(0);
-  });
+  it.each(refused)(
+    "$who → the neutral body, and nothing is read, written or emitted",
+    async ({ payer, ref }) => {
+      const { t, res } = await discloseAs(payer, ref);
+      expect(res).toEqual(NEUTRAL);
+      expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
+      expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+      expect(t.repo.withTransaction).not.toHaveBeenCalled();
+      expect(t.txMethods.insertRow).not.toHaveBeenCalled();
+      expect(t.renderer.renderPdf).not.toHaveBeenCalled();
+      expect(t.emitted).toHaveLength(0);
+    },
+  );
 
   it("unknown vs foreign vs an existing deny (no consent) are byte-identical (no id oracle)", async () => {
     const foreign = (await discloseAs(AGENT, EMPLOYER_POSTING)).res;
@@ -1259,7 +1319,10 @@ describe("ResumeDisclosureService — ADR-0053 org tenancy", () => {
 
   it("off: the same teammate is keyed to themself, and the event names them twice — identical to before", async () => {
     const t = setup({ tenancy: off() });
-    await t.service.requestDisclosure({ payerId: MEMBER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: MEMBER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.txMethods.insertRow).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ payerId: MEMBER }),
@@ -1350,7 +1413,10 @@ describe("ResumeDisclosureService — ADR-0053 org tenancy", () => {
   it("on: a refused tenancy is the resolver's 403 before any read, write or event", async () => {
     const t = setup({
       tenancy: tenancyService("on", {
-        [MEMBER]: [...MEMBERSHIPS[MEMBER]!, facts("66666666-6666-4666-8666-666666666666", "recruiter")],
+        [MEMBER]: [
+          ...MEMBERSHIPS[MEMBER]!,
+          facts("66666666-6666-4666-8666-666666666666", "recruiter"),
+        ],
       }),
     });
     await expect(
@@ -1425,7 +1491,6 @@ describe("2026-11-03 — the payer route discloses only a worker the tenant has 
   });
 });
 
-
 // #2747 (ADR-0064 §3.3–3.4, §3.8) — with `contact_rules` on and the brief's rules applying to the
 // worker, what a credit opens includes the full name and a contact opened long ago still gives its
 // résumé; a RE-read is not stopped by the per-worker cap, a first résumé still is. A worker on the
@@ -1489,13 +1554,23 @@ describe("#2747 — the payer route with contact_rules on", () => {
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
     expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER, { openForGood: false });
     expect(
-      (await asPayer({ contactRules: false, consentVersion: BRIEF, dailyCount: 5, disclosedBefore: true })).res,
+      (
+        await asPayer({
+          contactRules: false,
+          consentVersion: BRIEF,
+          dailyCount: 5,
+          disclosedBefore: true,
+        })
+      ).res,
     ).toEqual(NEUTRAL);
   });
 
   it("the ops route never prints the full name, whatever the switch", async () => {
     const t = setup({ contactRules: true, consentVersion: BRIEF });
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
   });
 });

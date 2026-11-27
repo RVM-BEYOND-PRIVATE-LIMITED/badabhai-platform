@@ -2,6 +2,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   type Database,
+  questionPackItems,
+  questionPacks,
   workerPackAnswers,
   type NewWorkerPackAnswer,
   type WorkerPackAnswer,
@@ -34,6 +36,39 @@ export class TradeFormRepository {
       .from(workerPackAnswers)
       .where(and(eq(workerPackAnswers.workerId, workerId), eq(workerPackAnswers.packId, packId)))
       .orderBy(workerPackAnswers.questionKey);
+  }
+
+  /**
+   * `question_key` → `target_field` for the pack's ACTIVE version — the résumé section's
+   * read (#3086, option B).
+   *
+   * THE SAME MAP the résumé's tier scope reads (`ProfilingTierRepository.findActiveItemTiers`),
+   * for the same reason stated there: the résumé knows the pack a worker's sheet renders as
+   * but not the version he answered, and `question_key` is stable across versions. A trade
+   * section overlays the pack's own answers onto the shared bag keyed by ATTRIBUTE, while
+   * the stored rows are keyed by QUESTION — this map is what joins the two. `target_field`
+   * is what the write path projected (`recordFor`), so the overlay lands on the same key.
+   *
+   * NULL when an item names no target (an RFS-routed question): the caller keeps the shared
+   * value for it, which is today's behavior. A question the active pack no longer asks is
+   * absent rather than null, and reads the same way.
+   */
+  async listActiveItemTargets(packId: string): Promise<Map<string, string | null>> {
+    const rows = await this.db
+      .select({
+        questionKey: questionPackItems.questionKey,
+        targetField: questionPackItems.targetField,
+      })
+      .from(questionPackItems)
+      .innerJoin(
+        questionPacks,
+        and(
+          eq(questionPacks.packId, questionPackItems.packId),
+          eq(questionPacks.version, questionPackItems.packVersion),
+        ),
+      )
+      .where(and(eq(questionPackItems.packId, packId), eq(questionPacks.status, "active")));
+    return new Map(rows.map((row) => [row.questionKey, row.targetField]));
   }
 
   /**

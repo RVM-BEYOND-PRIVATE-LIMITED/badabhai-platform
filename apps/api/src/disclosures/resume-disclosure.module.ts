@@ -15,6 +15,7 @@ import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repo
 import { ProfilingTierRepository } from "../profiling/tiers/profiling-tier.repository";
 import { TradeFormRepository } from "../profiling/form/trade-form.repository";
 import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
+import { PackSectionBagReader } from "../resume/pack-section-bag.reader";
 import { GeneralRoadRepository } from "../resume/general-road.repository";
 import { GeneralRoadReader } from "../resume/general-road.reader";
 
@@ -77,6 +78,10 @@ import { GeneralRoadReader } from "../resume/general-road.reader";
     ProfilingTierRepository,
     TradeFormRepository,
     ResumeTierScopeReader,
+    // #3086 (option B) — the trade section's own answers, the same reader the worker's render
+    // uses so the two copies agree. Provided here on the same terms as the three above: its
+    // only dependency is TradeFormRepository, already provided here.
+    PackSectionBagReader,
     // ADR-0045 Phase 5 — the general road on the employer's copy, by the résumé's own provenance
     // (the same reader the render worker uses). The repository's only dependency is the @Global
     // DATABASE, so it is provided here on the same terms as the three above: no module edge.

@@ -33,6 +33,7 @@ import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.reposit
 import { applyTierScope, type ResumeTierScope } from "../resume/resume-tier-scope";
 import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
 import { GeneralRoadReader, type GeneralRoadMarker } from "../resume/general-road.reader";
+import { PackSectionBagReader } from "../resume/pack-section-bag.reader";
 import { ownBriefUsable } from "../resume/resume-brief";
 import type { JobRefPolicy } from "../payers/job-ref-policy";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
@@ -134,6 +135,11 @@ export class ResumeDisclosureService {
     // #2747 — the `contact_rules` switch (ADR-0064 §3.3–3.4). Optional so the hand-built unit
     // instances keep compiling; absent reads as off. Nest always injects it.
     @Optional() private readonly rollout?: FeatureRolloutService,
+    // #3086 (option B) — THE TRADE SECTION'S OWN ANSWERS: the same reader the worker's
+    // render uses, so the two copies agree about which answers the section prints. Optional
+    // on the tier reader's terms: absent is today's disclosure (the shared bag). Reads only
+    // settled typed columns, never an "other" text, so the last-line guard below still holds.
+    @Optional() private readonly sectionBags?: PackSectionBagReader,
   ) {}
 
   /**
@@ -253,11 +259,7 @@ export class ResumeDisclosureService {
       // signed URL is a new disclosure) during grace. ONE cheap tx-SCOPED pk read
       // (deadlock rule); a gone row is the same neutral.
       const marker = await this.repo.getWorkerDeletionMarker(tx, workerId);
-      if (
-        !marker ||
-        marker.deletionScheduledAt !== null ||
-        marker.status === "suspended"
-      )
+      if (!marker || marker.deletionScheduledAt !== null || marker.status === "suspended")
         return { kind: "neutral" };
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
@@ -582,9 +584,31 @@ export class ResumeDisclosureService {
       };
     }
 
+    // #3086 (option B) — THE TRADE SECTION'S OWN ANSWERS, on the render worker's degrade:
+    // a failed scoping read renders the shared bag, never a failed disclosure. Placed AFTER
+    // the road gate so the brief-usability re-check above still reads the shared bag, and
+    // BEFORE the last-line guard so the guard scans exactly what the mapper will print. The
+    // reader overlays only settled typed columns — never an "other" text — so the guard's
+    // fail-closed contract is unchanged (its docblock names the precise read).
+    if (tradeSheet?.packId) {
+      try {
+        const scoped =
+          (await this.sectionBags?.forWorker(workerId, tradeSheet.packId, tradeSheet.attributes)) ??
+          tradeSheet.attributes;
+        tradeSheet = { ...tradeSheet, attributes: scoped };
+      } catch {
+        this.logger.warn(
+          `could not scope the trade section to its own answers for worker ${workerId}; rendering without`,
+        );
+      }
+    }
+
     // LAST-LINE GUARD (mandatory fix, "typed custom answer, everywhere" ruling): an unreviewed
     // "other" answer must never reach this payer-facing render. The primary defence is that
-    // nothing above reads `worker_pack_answer` at all — see `other-answer-leak-guard.ts` for why
+    // nothing above reads `worker_pack_answer`'s UNREVIEWED columns: the tier reader takes a
+    // single settled number, and the #3086 section scoping above takes only settled typed
+    // columns (`answer_text` / `answer_number` / `answer_bool` / `answer_option_keys`) —
+    // never `answer_other_text` — so an unreviewed answer has no route onto this render;
     // a second, structural check sits here anyway. FAIL CLOSED, whole disclosure, never partial.
     // #2409 — and the REVIEWED typed answers, which are plain strings and worker-facing only.
     if (containsOtherAnswerMarker(tradeSheet) || carriesReviewedOtherAnswers(tradeSheet)) {
@@ -825,7 +849,6 @@ export class ResumeDisclosureService {
       return { openable: false, brief: false };
     }
   }
-
 
   private async workerExists(workerId: string): Promise<boolean> {
     try {
