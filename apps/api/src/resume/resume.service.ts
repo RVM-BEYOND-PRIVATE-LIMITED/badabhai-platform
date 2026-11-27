@@ -12,6 +12,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
@@ -28,6 +29,7 @@ import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
+import { PackSectionBagReader } from "./pack-section-bag.reader";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { StorageService } from "../storage/storage.service";
 import {
@@ -185,6 +187,9 @@ export class ResumeService {
     // consent. `generate` is also reached off the worker's request (the ops regenerate, an admin
     // correction, the queue). CampusLinkModule, a one-way edge.
     private readonly instituteAi: InstituteAiGate,
+    // #3086 (option B) — the text lines' own answers for the overlay below. Optional so its
+    // absence is today's overlay (the shared bag); Nest always injects it.
+    @Optional() private readonly sectionBags?: PackSectionBagReader,
   ) {}
 
   /**
@@ -357,12 +362,27 @@ export class ResumeService {
       const sheet = await this.attributes.loadTradeSheet(dto.worker_id);
       if (sheet.packId !== null) {
         const rows = await this.packAnswers.listAnswers(dto.worker_id, sheet.packId);
+        // #3086 (option B) — the text lines read the SECTION bag, the same scoping the PDF
+        // render applies: this pack's own answers overlaid on the shared bag, so the lines
+        // print the same values as the sheet's capability rows. A failed scoping read keeps
+        // the shared bag — today's overlay, never a failed generate.
+        let sectionAttributes = sheet.attributes;
+        try {
+          sectionAttributes =
+            (await this.sectionBags?.forAnswers(sheet.packId, sheet.attributes, rows)) ??
+            sheet.attributes;
+        } catch (err) {
+          this.logger.warn(
+            `resume capability overlay not scoped for worker=${dto.worker_id} ` +
+              `(${err instanceof Error ? err.message : "unknown"})`,
+          );
+        }
         const overlaid = overlayFreshCapabilityLines({
           draft: stored,
           packAnswers: rows,
           profileCreatedAt: profile.createdAt,
           packId: sheet.packId,
-          attributes: sheet.attributes,
+          attributes: sectionAttributes,
         });
         if (overlaid.overlaidMachines || overlaid.overlaidSkills) {
           this.logger.log(

@@ -17,6 +17,7 @@ import { ResumeGenerateProcessor } from "./resume-generate.processor";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import { ProfilingTierRepository } from "../profiling/tiers/profiling-tier.repository";
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
+import { PackSectionBagReader } from "./pack-section-bag.reader";
 import { GeneralRoadRepository } from "./general-road.repository";
 import { GeneralRoadReader } from "./general-road.reader";
 import { ResumeSkinRepository } from "./resume-skin.repository";
@@ -65,6 +66,10 @@ import { ResumeRerenderService } from "./resume-rerender.service";
     // PROFILING_TIERS_ENABLED is off.
     ProfilingTierRepository,
     ResumeTierScopeReader,
+    // #3086 (option B) — the trade section's own answers, read by the render worker and the
+    // generate-time overlay. DATABASE-free itself (it reads through TradeFormRepository, which
+    // comes from ProfilingModule above); provided here so both have the same instance.
+    PackSectionBagReader,
     // ADR-0045 Phase 5 — the general road, by the résumé's own provenance. The repository depends
     // only on the @Global DATABASE (provided here on the same terms as the tier repository), and
     // the reader queries only for a `bb_general` render.

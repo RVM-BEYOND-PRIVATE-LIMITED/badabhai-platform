@@ -557,11 +557,16 @@ Honest state of the rails as of `qp_cnc_turning@1`:
   server-side and dropped by `chat.dto.ts`, so today a `multi_select` shows as a flat chip row and a
   `boolean` as a bare text field. Until that ships, prefer `single_select` where the distinction
   matters to data quality.
-- **Shared question keys are last-write-wins across trades (#3019).** Eleven keys
-  (`sector_worked`, `troubleshooting`, …) recur across forms but `worker_attributes` is keyed by
-  `(worker, attributeKey)` (`wa_worker_key_uq`), so a worker profiled in `qp_plc_automation` and
-  then `qp_robotics` keeps only the robotics answers; the PLC résumé section then prints the
-  robotics `backup_restore` chip under its own label and drops its `Industry` row, while
-  `PACK_ANSWER_SKILLS` derives nothing from either key under either pack. Pinned by
-  `apps/api/src/profiling/shared-keys-pin.test.ts` — do not store per-trade here, fix in the
-  follow-up.
+- **Shared question keys are last-write-wins in storage, per-pack on the résumé (#3019,
+  fixed #3086).** Eleven keys (`sector_worked`, `troubleshooting`, …) recur across forms but
+  `worker_attributes` is keyed by `(worker, attributeKey)` (`wa_worker_key_uq`), so a worker
+  profiled in `qp_plc_automation` and then `qp_robotics` keeps only the robotics answers in the
+  shared bag — storage, matching, prefill and tier gates all still read that bag, by design
+  (option B: no per-trade storage). Each trade's résumé section instead reads its own form's
+  answers: `worker_pack_answer` is keyed `(worker, pack, question)`, and the section bag is the
+  shared bag overlaid with the pack's own rows (`PackSectionBagReader`, same builders as the
+  write path). The PLC section therefore prints its own chips and its own `Industry` row;
+  `PACK_ANSWER_SKILLS` derives per form (rule 4) and still derives nothing from either shared
+  key under either pack. Known residual: a key the section's pack never answered still shows
+  the shared (latest) value under that pack's labels. Pinned by
+  `apps/api/src/profiling/shared-keys-pin.test.ts`.
