@@ -1,0 +1,1271 @@
+{
+  "_why": "Role track for Store Keeper / Stores Executive (T53), new trade (CEO pack v2). fam_stores binds the 1324 and 4321 stores codes.",
+  "_scope": "Planning and Supply Chain desk trade. The interview separates at senior_executive; higher contact price from senior_executive.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T53 (Store Keeper / Stores Executive). Status: NEW",
+  "pack_id": "qp_stores",
+  "version": 1,
+  "family_id": "fam_stores",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T53): new trade.",
+  "items": [
+    {
+      "question_key": "store_experience",
+      "min_tier": "easy",
+      "prompt_text": "Store ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "store_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Store ka kaam kiya hai?"
+    },
+    {
+      "question_key": "store_level",
+      "min_tier": "easy",
+      "prompt_text": "Store me aap kis post par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "store_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Store Helper / Assistant",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "executive",
+          "label_text": "Store Keeper / Executive",
+          "value_text": "executive"
+        },
+        {
+          "option_key": "senior_executive",
+          "label_text": "Senior Executive",
+          "value_text": "senior_executive"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Store In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Store me helper, store keeper ya senior executive hain?"
+    },
+    {
+      "question_key": "store_senior_executive_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Month-end ka stock reconciliation aap khud karte ho ya in-charge?",
+      "why_text": "Stock ka hisaab khud milane wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "store_senior_executive_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "In-charge ya koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "store_level"
+        },
+        "right": {
+          "const": [
+            "senior_executive"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "store_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne log aur kaun kaun se store aapke under hain?",
+      "why_text": "Poora store sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "store_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "store_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "store_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa store sambhalte hain?",
+      "why_text": "Store ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "store_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "raw_material",
+          "label_text": "Raw material store",
+          "value_text": "raw_material"
+        },
+        {
+          "option_key": "bop",
+          "label_text": "BOP / bought-out parts store",
+          "value_text": "bop"
+        },
+        {
+          "option_key": "finished_goods",
+          "label_text": "Finished goods (FG) store",
+          "value_text": "finished_goods"
+        },
+        {
+          "option_key": "tool_store",
+          "label_text": "Tool store / tool crib",
+          "value_text": "tool_store"
+        },
+        {
+          "option_key": "consumables",
+          "label_text": "Consumable store",
+          "value_text": "consumables"
+        },
+        {
+          "option_key": "maintenance_spares",
+          "label_text": "Maintenance spares store",
+          "value_text": "maintenance_spares"
+        },
+        {
+          "option_key": "packing_material",
+          "label_text": "Packing material store",
+          "value_text": "packing_material"
+        },
+        {
+          "option_key": "scrap_yard",
+          "label_text": "Scrap yard",
+          "value_text": "scrap_yard"
+        },
+        {
+          "option_key": "site_store",
+          "label_text": "Project / site store",
+          "value_text": "site_store"
+        }
+      ]
+    },
+    {
+      "question_key": "store_erp_system",
+      "min_tier": "medium",
+      "prompt_text": "Store ki entry kis software me karte hain?",
+      "why_text": "Software jaanne wale store keeper ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "store_erp_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sap_mm",
+          "label_text": "SAP MM",
+          "value_text": "sap_mm"
+        },
+        {
+          "option_key": "tally",
+          "label_text": "Tally",
+          "value_text": "tally"
+        },
+        {
+          "option_key": "busy",
+          "label_text": "Busy",
+          "value_text": "busy"
+        },
+        {
+          "option_key": "marg",
+          "label_text": "Marg",
+          "value_text": "marg"
+        },
+        {
+          "option_key": "oracle",
+          "label_text": "Oracle ERP",
+          "value_text": "oracle"
+        },
+        {
+          "option_key": "ms_dynamics",
+          "label_text": "Microsoft Dynamics / Navision",
+          "value_text": "ms_dynamics"
+        },
+        {
+          "option_key": "inhouse_erp",
+          "label_text": "Company ka apna ERP",
+          "value_text": "inhouse_erp"
+        },
+        {
+          "option_key": "excel_register",
+          "label_text": "Excel ya register me",
+          "value_text": "excel_register"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "store_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Store me roz kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "store_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "receiving",
+          "label_text": "Gaadi se material utarwana aur ginti",
+          "value_text": "receiving"
+        },
+        {
+          "option_key": "weighment",
+          "label_text": "Kanta par wajan check karna",
+          "value_text": "weighment"
+        },
+        {
+          "option_key": "invoice_matching",
+          "label_text": "Bill ya challan se material milana",
+          "value_text": "invoice_matching"
+        },
+        {
+          "option_key": "binning",
+          "label_text": "Material ko location par rakhna",
+          "value_text": "binning"
+        },
+        {
+          "option_key": "material_issue",
+          "label_text": "Indent par material issue karna",
+          "value_text": "material_issue"
+        },
+        {
+          "option_key": "erp_entry",
+          "label_text": "ERP me entry",
+          "value_text": "erp_entry"
+        },
+        {
+          "option_key": "fifo",
+          "label_text": "FIFO se material dena",
+          "value_text": "fifo"
+        },
+        {
+          "option_key": "stock_count",
+          "label_text": "Stock ki ginti",
+          "value_text": "stock_count"
+        }
+      ]
+    },
+    {
+      "question_key": "store_documents",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse kaagaz ya register aap khud banate hain?",
+      "why_text": "Kaagaz sahi rakhne wale par company bharosa karti hai.",
+      "target_kind": "attribute",
+      "target_field": "store_documents",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "grn",
+          "label_text": "GRN",
+          "value_text": "grn"
+        },
+        {
+          "option_key": "gate_entry",
+          "label_text": "Gate entry / inward register",
+          "value_text": "gate_entry"
+        },
+        {
+          "option_key": "bin_card",
+          "label_text": "Bin card",
+          "value_text": "bin_card"
+        },
+        {
+          "option_key": "stock_ledger",
+          "label_text": "Stock register ya ledger",
+          "value_text": "stock_ledger"
+        },
+        {
+          "option_key": "issue_slip",
+          "label_text": "Material issue slip",
+          "value_text": "issue_slip"
+        },
+        {
+          "option_key": "delivery_challan",
+          "label_text": "Delivery challan",
+          "value_text": "delivery_challan"
+        },
+        {
+          "option_key": "return_note",
+          "label_text": "Material return note",
+          "value_text": "return_note"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "store_material_handled",
+      "min_tier": "hard",
+      "prompt_text": "Store me kis tarah ka material rehta hai?",
+      "why_text": "Material ki pehchaan wale ko usi line ki company dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "store_material_handled",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "steel_stock",
+          "label_text": "Steel bar, sheet ya coil",
+          "value_text": "steel_stock"
+        },
+        {
+          "option_key": "casting_forging",
+          "label_text": "Casting aur forging",
+          "value_text": "casting_forging"
+        },
+        {
+          "option_key": "machined_parts",
+          "label_text": "Machined ya auto parts",
+          "value_text": "machined_parts"
+        },
+        {
+          "option_key": "plastic_granules",
+          "label_text": "Plastic dana",
+          "value_text": "plastic_granules"
+        },
+        {
+          "option_key": "chemical_oil",
+          "label_text": "Chemical, oil ya paint",
+          "value_text": "chemical_oil"
+        },
+        {
+          "option_key": "hardware",
+          "label_text": "Hardware, nut-bolt, bearing",
+          "value_text": "hardware"
+        },
+        {
+          "option_key": "electrical_parts",
+          "label_text": "Electrical ya electronic parts",
+          "value_text": "electrical_parts"
+        },
+        {
+          "option_key": "tools_gauges",
+          "label_text": "Cutting tool aur gauge",
+          "value_text": "tools_gauges"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur material",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "store_computer_skill",
+      "min_tier": "hard",
+      "prompt_text": "Computer par aap kya kya kar lete hain?",
+      "why_text": "Computer jaanne wale store keeper ko office wala kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "store_computer_skill",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "excel_stock_sheet",
+          "label_text": "Excel me stock sheet banana",
+          "value_text": "excel_stock_sheet"
+        },
+        {
+          "option_key": "excel_advanced",
+          "label_text": "VLOOKUP ya pivot table",
+          "value_text": "excel_advanced"
+        },
+        {
+          "option_key": "email",
+          "label_text": "Email likhna",
+          "value_text": "email"
+        },
+        {
+          "option_key": "erp_report",
+          "label_text": "ERP se report nikalna",
+          "value_text": "erp_report"
+        },
+        {
+          "option_key": "barcode_scanner",
+          "label_text": "Barcode scanner ya label print",
+          "value_text": "barcode_scanner"
+        },
+        {
+          "option_key": "typing",
+          "label_text": "Hindi ya English typing",
+          "value_text": "typing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Computer nahi chalata",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "store_handling_equipment",
+      "min_tier": "hard",
+      "prompt_text": "Material uthane rakhne me kya use hota hai?",
+      "why_text": "Bhaari material wale store ka tajurba alag gina jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "store_handling_equipment",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pallet_truck",
+          "label_text": "Hand pallet truck",
+          "value_text": "pallet_truck"
+        },
+        {
+          "option_key": "forklift",
+          "label_text": "Forklift",
+          "value_text": "forklift"
+        },
+        {
+          "option_key": "stacker",
+          "label_text": "Stacker",
+          "value_text": "stacker"
+        },
+        {
+          "option_key": "eot_crane",
+          "label_text": "EOT crane ya hoist",
+          "value_text": "eot_crane"
+        },
+        {
+          "option_key": "trolley",
+          "label_text": "Trolley",
+          "value_text": "trolley"
+        },
+        {
+          "option_key": "rack_bin",
+          "label_text": "Rack aur bin",
+          "value_text": "rack_bin"
+        },
+        {
+          "option_key": "weighbridge",
+          "label_text": "Weighbridge (dharam kanta)",
+          "value_text": "weighbridge"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "store_stock_control",
+      "min_tier": "hard",
+      "prompt_text": "Stock control ka kaunsa kaam aap karte hain?",
+      "why_text": "Stock control jaanne wale ko senior ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "store_stock_control",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "min_max",
+          "label_text": "Min-max ya reorder level dekhna",
+          "value_text": "min_max"
+        },
+        {
+          "option_key": "fifo",
+          "label_text": "FIFO maintain karna",
+          "value_text": "fifo"
+        },
+        {
+          "option_key": "shelf_life",
+          "label_text": "Shelf life ya expiry dekhna",
+          "value_text": "shelf_life"
+        },
+        {
+          "option_key": "abc_analysis",
+          "label_text": "ABC analysis",
+          "value_text": "abc_analysis"
+        },
+        {
+          "option_key": "non_moving",
+          "label_text": "Non-moving stock ki list",
+          "value_text": "non_moving"
+        },
+        {
+          "option_key": "purchase_indent",
+          "label_text": "Purchase ko indent ya PR dena",
+          "value_text": "purchase_indent"
+        },
+        {
+          "option_key": "barcode",
+          "label_text": "Barcode ya QR se tracking",
+          "value_text": "barcode"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "store_stock_audit",
+      "min_tier": "hard",
+      "prompt_text": "Stock taking me aapka kya kaam rehta hai?",
+      "why_text": "Stock audit sambhalne wale par company zyada bharosa karti hai.",
+      "target_kind": "attribute",
+      "target_field": "store_stock_audit",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cycle_count",
+          "label_text": "Daily cycle count",
+          "value_text": "cycle_count"
+        },
+        {
+          "option_key": "monthly_stock",
+          "label_text": "Monthly physical stock",
+          "value_text": "monthly_stock"
+        },
+        {
+          "option_key": "yearly_audit",
+          "label_text": "Year-end stock audit",
+          "value_text": "yearly_audit"
+        },
+        {
+          "option_key": "reconciliation",
+          "label_text": "Book aur physical stock ka reconciliation",
+          "value_text": "reconciliation"
+        },
+        {
+          "option_key": "auditor_verification",
+          "label_text": "Auditor ke saath verification",
+          "value_text": "auditor_verification"
+        },
+        {
+          "option_key": "count_helper",
+          "label_text": "Sirf ginti me madad",
+          "value_text": "count_helper"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "store_gst_documents",
+      "min_tier": "hard",
+      "prompt_text": "GST aur gate ke kaunse kaagaz aap sambhal lete hain?",
+      "why_text": "GST ke kaagaz jaanne wale ki galti kam hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "store_gst_documents",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "invoice_po_match",
+          "label_text": "GST invoice ko PO se milana",
+          "value_text": "invoice_po_match"
+        },
+        {
+          "option_key": "eway_bill",
+          "label_text": "E-way bill banana",
+          "value_text": "eway_bill"
+        },
+        {
+          "option_key": "jobwork_challan",
+          "label_text": "Job-work challan banana",
+          "value_text": "jobwork_challan"
+        },
+        {
+          "option_key": "rejection_return",
+          "label_text": "Rejection ka return challan ya debit note",
+          "value_text": "rejection_return"
+        },
+        {
+          "option_key": "gate_pass",
+          "label_text": "Gate pass (RGP / NRGP)",
+          "value_text": "gate_pass"
+        },
+        {
+          "option_key": "tax_invoice",
+          "label_text": "Tax invoice banana",
+          "value_text": "tax_invoice"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "store_rejection_scrap",
+      "min_tier": "hard",
+      "prompt_text": "Rejection aur scrap ka kaunsa kaam aap dekhte hain?",
+      "why_text": "Rejection aur scrap ka hisaab rakhna store ki badi zimmedari hai.",
+      "target_kind": "attribute",
+      "target_field": "store_rejection_scrap",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vendor_return",
+          "label_text": "Incoming rejection vendor ko wapas bhejna",
+          "value_text": "vendor_return"
+        },
+        {
+          "option_key": "line_rejection",
+          "label_text": "Line rejection alag rakhna",
+          "value_text": "line_rejection"
+        },
+        {
+          "option_key": "quality_hold",
+          "label_text": "Quality hold material alag rakhna",
+          "value_text": "quality_hold"
+        },
+        {
+          "option_key": "scrap_weighment",
+          "label_text": "Scrap ka wajan aur record",
+          "value_text": "scrap_weighment"
+        },
+        {
+          "option_key": "scrap_sale",
+          "label_text": "Scrap bikri ke kaagaz",
+          "value_text": "scrap_sale"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "store_item_count",
+      "min_tier": "hard",
+      "prompt_text": "Aapke store me lagbhag kitne item code hain?",
+      "why_text": "Store ka size dekhkar employer aapka level samajhta hai.",
+      "target_kind": "attribute",
+      "target_field": "store_item_count",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "below_five_hundred",
+          "label_text": "500 se kam",
+          "value_text": "below_five_hundred"
+        },
+        {
+          "option_key": "five_hundred_to_two_thousand",
+          "label_text": "500 se 2000",
+          "value_text": "five_hundred_to_two_thousand"
+        },
+        {
+          "option_key": "two_to_five_thousand",
+          "label_text": "2000 se 5000",
+          "value_text": "two_to_five_thousand"
+        },
+        {
+          "option_key": "above_five_thousand",
+          "label_text": "5000 se zyada",
+          "value_text": "above_five_thousand"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ki company ke store me kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG ya food",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "project_site",
+          "label_text": "Construction ya project site",
+          "value_text": "project_site"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Stock ki kaunsi gadbadi aap khud pakad kar sulajhate hain?",
+      "why_text": "Gadbadi pakadne wale store keeper ki har company me zaroorat hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "stock_mismatch",
+          "label_text": "Book aur physical stock me farak",
+          "value_text": "stock_mismatch"
+        },
+        {
+          "option_key": "short_supply",
+          "label_text": "Vendor se short ya excess supply",
+          "value_text": "short_supply"
+        },
+        {
+          "option_key": "wrong_issue",
+          "label_text": "Galat material issue ho jaana",
+          "value_text": "wrong_issue"
+        },
+        {
+          "option_key": "invoice_mismatch",
+          "label_text": "Bill aur GRN me farak",
+          "value_text": "invoice_mismatch"
+        },
+        {
+          "option_key": "damage_expiry",
+          "label_text": "Damage ya expiry material",
+          "value_text": "damage_expiry"
+        },
+        {
+          "option_key": "pilferage",
+          "label_text": "Material ki chori ya gum hona",
+          "value_text": "pilferage"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "store_system_work",
+      "min_tier": "hard",
+      "prompt_text": "Store ka system sudhaarne ka kaunsa kaam kiya hai?",
+      "why_text": "System sudhaarne wale ko in-charge ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "store_system_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "location_system",
+          "label_text": "Rack aur location system banana",
+          "value_text": "location_system"
+        },
+        {
+          "option_key": "barcode_implementation",
+          "label_text": "Barcode system lagana",
+          "value_text": "barcode_implementation"
+        },
+        {
+          "option_key": "erp_implementation",
+          "label_text": "ERP ya SAP chalu karwana",
+          "value_text": "erp_implementation"
+        },
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "iso_audit",
+          "label_text": "ISO ya IATF audit me store ka jawab dena",
+          "value_text": "iso_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "store_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "store_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "store_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis line se hai?",
+      "why_text": "Kai company padhai ki line dekhkar hi bulati hain.",
+      "target_kind": "attribute",
+      "target_field": "store_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "twelfth_pass",
+          "label_text": "12th tak",
+          "value_text": "twelfth_pass"
+        },
+        {
+          "option_key": "iti",
+          "label_text": "ITI",
+          "value_text": "iti"
+        },
+        {
+          "option_key": "diploma_any",
+          "label_text": "Diploma (koi bhi branch)",
+          "value_text": "diploma_any"
+        },
+        {
+          "option_key": "bcom",
+          "label_text": "B.Com",
+          "value_text": "bcom"
+        },
+        {
+          "option_key": "ba",
+          "label_text": "BA",
+          "value_text": "ba"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "mba_supply_chain",
+          "label_text": "MBA / PGDM (Supply Chain ya Material Management)",
+          "value_text": "mba_supply_chain"
+        }
+      ]
+    },
+    {
+      "question_key": "store_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke saath kaunsi training ya kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "store_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "computer_course",
+          "label_text": "Tally ya computer course",
+          "value_text": "computer_course"
+        },
+        {
+          "option_key": "shop_godown_work",
+          "label_text": "Dukaan ya godown me hisaab ka kaam",
+          "value_text": "shop_godown_work"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "store_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "store_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -146,6 +146,17 @@ const FORKLIFT_OPERATOR = ["mskill_forklift_operator"] as const;
 /** A second-skill chip's skill (pack "Chips that add a second match skill"). */
 const CRANE_OPERATOR = ["mskill_crane_operator"] as const;
 
+// ── The Wave 3 trades of CEO pack v2 (#3017) — each pack-only skill, named once ─────────────────
+// Minted by #3001 with no role and no corpus id, so the trade's own form is the only evidence.
+const SERVICE_ENGINEER = ["mskill_service_engineer"] as const;
+const SAFETY_OFFICER = ["mskill_safety_officer"] as const;
+const PROJECT_SITE_ENGINEER = ["mskill_project_site_engineer"] as const;
+const TECHNICAL_SALES_ENGINEER = ["mskill_technical_sales_engineer"] as const;
+const STORE_KEEPER = ["mskill_store_keeper"] as const;
+const DISPATCH_LOGISTICS_EXECUTIVE = ["mskill_dispatch_logistics_executive"] as const;
+const CAE_ANALYST = ["mskill_cae_analyst"] as const;
+const PIPING_DESIGNER = ["mskill_piping_designer"] as const;
+
 /**
  * `pack_id` → `attribute_key` (= the pack item's `question_key`) → `option_key` → taxonomy ids.
  *
@@ -728,8 +739,8 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // names. Each stem scopes every chip to the trade, so every chip but the none-of-above escape
   // is the claim, and the escape claims nothing. Only the two second-skill chips named on the
   // pack ("Chips that add a second match skill") map a second question; no other question of
-  // these forms is mapped (rules 1 to 3). T49 Safety has no related trade and is untouched —
-  // Wave 3 (#3016 step 5 leaves the statutory trade alone).
+  // these forms is mapped (rules 1 to 3). T49 Safety has no related trade (Wave 3 loads its
+  // claim like every other Wave 3 form).
 
   // T18 "Gear ka kaunsa process aap karte hain?" — every named gear process is the claim.
   qp_gear_cutting: {
@@ -1000,6 +1011,135 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       rigger: CRANE_OPERATOR,
       both: CRANE_OPERATOR,
       signalman: CRANE_OPERATOR,
+    },
+  },
+
+  // ── WAVE 3 NEW TRADES (CEO pack v2, #3017) ──────────────────────────────────────────────
+  // One claim question per form (the trade-specific first question after the experience, level
+  // and confirm questions): the machine, site, product, store, dispatch, domain or software
+  // question the pack's first posting key names. Each stem scopes every chip to the trade, so
+  // every chip but the none-of-above escape is the claim, and the escape claims nothing. No
+  // other question of these forms is mapped (rules 1 to 3).
+
+  // T44 "Service me aap kaunsi machine sambhalte hain?" — every named equipment is the claim.
+  // The form offers no none-of-above escape on this question.
+  qp_service_engineer: {
+    service_equipment: {
+      cnc_machine_tools: SERVICE_ENGINEER,
+      moulding_machine: SERVICE_ENGINEER,
+      laser_welding: SERVICE_ENGINEER,
+      air_compressor: SERVICE_ENGINEER,
+      dg_set: SERVICE_ENGINEER,
+      material_handling: SERVICE_ENGINEER,
+      packaging_machine: SERVICE_ENGINEER,
+      hvac_chiller: SERVICE_ENGINEER,
+      medical_lab: SERVICE_ENGINEER,
+    },
+  },
+
+  // T49 "Safety me aap kis site par kaam karte hain?" — every named site is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_safety_ehs: {
+    ehs_site_type: {
+      engineering_factory: SAFETY_OFFICER,
+      chemical_pharma: SAFETY_OFFICER,
+      construction_site: SAFETY_OFFICER,
+      heavy_process_plant: SAFETY_OFFICER,
+      oil_gas: SAFETY_OFFICER,
+      warehouse: SAFETY_OFFICER,
+      fmcg_food: SAFETY_OFFICER,
+    },
+  },
+
+  // T50 "Site par aap kis tarah ka project dekhte hain?" — every named project is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_project_site: {
+    site_project_type: {
+      equipment_installation: PROJECT_SITE_ENGINEER,
+      structural_erection: PROJECT_SITE_ENGINEER,
+      piping_erection: PROJECT_SITE_ENGINEER,
+      hvac: PROJECT_SITE_ENGINEER,
+      fire_fighting: PROJECT_SITE_ENGINEER,
+      material_handling: PROJECT_SITE_ENGINEER,
+      peb: PROJECT_SITE_ENGINEER,
+      utilities: PROJECT_SITE_ENGINEER,
+    },
+  },
+
+  // T51 "Aap kaunsi product line bechte hain?" — every named line is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_technical_sales: {
+    sales_product_line: {
+      machine_tools: TECHNICAL_SALES_ENGINEER,
+      cutting_tools: TECHNICAL_SALES_ENGINEER,
+      cad_cam_software: TECHNICAL_SALES_ENGINEER,
+      measuring_instruments: TECHNICAL_SALES_ENGINEER,
+      welding_automation: TECHNICAL_SALES_ENGINEER,
+      bearings_hydraulics: TECHNICAL_SALES_ENGINEER,
+      raw_material: TECHNICAL_SALES_ENGINEER,
+      job_work_components: TECHNICAL_SALES_ENGINEER,
+    },
+  },
+
+  // T53 "Store me aap kaunsa maal sambhalte hain?" — every named store is the claim.
+  // The form offers no none-of-above escape on this question.
+  qp_stores: {
+    store_type: {
+      raw_material: STORE_KEEPER,
+      bop: STORE_KEEPER,
+      finished_goods: STORE_KEEPER,
+      tool_store: STORE_KEEPER,
+      consumables: STORE_KEEPER,
+      maintenance_spares: STORE_KEEPER,
+      packing_material: STORE_KEEPER,
+      scrap_yard: STORE_KEEPER,
+      site_store: STORE_KEEPER,
+    },
+  },
+
+  // T55 "Dispatch me aap kaunsa kaam sambhalte hain?" — every named function is the claim.
+  // The form offers no none-of-above escape on this question.
+  qp_dispatch_logistics: {
+    dispatch_function: {
+      invoicing: DISPATCH_LOGISTICS_EXECUTIVE,
+      pick_pack_loading: DISPATCH_LOGISTICS_EXECUTIVE,
+      vehicle_arrangement: DISPATCH_LOGISTICS_EXECUTIVE,
+      fg_stock: DISPATCH_LOGISTICS_EXECUTIVE,
+      dispatch_plan: DISPATCH_LOGISTICS_EXECUTIVE,
+      export_dispatch: DISPATCH_LOGISTICS_EXECUTIVE,
+      returns_handling: DISPATCH_LOGISTICS_EXECUTIVE,
+      pod_freight: DISPATCH_LOGISTICS_EXECUTIVE,
+    },
+  },
+
+  // T59 "CAE me aap kaunsa domain dekhte hain?" — every named domain is the claim.
+  // The form offers no none-of-above escape on this question.
+  qp_cae_fea: {
+    cae_domain: {
+      linear_static: CAE_ANALYST,
+      modal: CAE_ANALYST,
+      non_linear: CAE_ANALYST,
+      fatigue: CAE_ANALYST,
+      crash: CAE_ANALYST,
+      nvh: CAE_ANALYST,
+      thermal: CAE_ANALYST,
+      cfd: CAE_ANALYST,
+      process_simulation: CAE_ANALYST,
+    },
+  },
+
+  // T60 "Aap kaunse piping software par kaam karte hain?" — every named software is the claim.
+  // `unknown` is the none-of-above escape and claims nothing.
+  qp_piping_design: {
+    piping_software: {
+      pdms: PIPING_DESIGNER,
+      e_three_d: PIPING_DESIGNER,
+      smart_three_d: PIPING_DESIGNER,
+      plant_three_d: PIPING_DESIGNER,
+      cadworx: PIPING_DESIGNER,
+      autocad: PIPING_DESIGNER,
+      navisworks: PIPING_DESIGNER,
+      microstation: PIPING_DESIGNER,
     },
   },
 

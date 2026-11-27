@@ -1095,3 +1095,53 @@
 {"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_0700"}
 {"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_1200"}
 {"kind":"binding","family_id":"fam_crane_rigging","job_domain_id":"jd_nco_8343_9900"}
+# CEO pack v2, Wave 3 (#3017): families and bindings for the 8 trades that complete the catalogue.
+# Codes from pack section 13.1. T60 binds the minted piping entry (#3007); 2144.1402 belongs to T44 only.
+# CEO pack v2, T44 (new, Wave 3, #3017): fam_service_engineer.
+{"kind":"family","family_id":"fam_service_engineer","label_en":"Service Engineer (Field / Machine Service)","label_hi":"सर्विस इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_service_engineer","job_domain_id":"jd_nco_2144_0601"}
+{"kind":"binding","family_id":"fam_service_engineer","job_domain_id":"jd_nco_2144_1401"}
+{"kind":"binding","family_id":"fam_service_engineer","job_domain_id":"jd_nco_2144_1402"}
+# CEO pack v2, T49 (new, Wave 3, #3017): fam_safety_ehs.
+{"kind":"family","family_id":"fam_safety_ehs","label_en":"Safety / EHS Officer","label_hi":"सेफ्टी / ईएचएस ऑफिसर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_safety_ehs","job_domain_id":"jd_nco_2141_2500"}
+{"kind":"binding","family_id":"fam_safety_ehs","job_domain_id":"jd_nco_2141_2600"}
+{"kind":"binding","family_id":"fam_safety_ehs","job_domain_id":"jd_nco_2263_9900"}
+{"kind":"binding","family_id":"fam_safety_ehs","job_domain_id":"jd_nco_3257_0600"}
+# CEO pack v2, T50 (new, Wave 3, #3017): fam_project_site.
+{"kind":"family","family_id":"fam_project_site","label_en":"Project / Site Engineer (Mechanical)","label_hi":"प्रोजेक्ट / साइट इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_project_site","job_domain_id":"jd_nco_8211_1000"}
+# CEO pack v2, T51 (new, Wave 3, #3017): fam_technical_sales.
+{"kind":"family","family_id":"fam_technical_sales","label_en":"Technical Sales / Application Engineer","label_hi":"टेक्निकल सेल्स इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_technical_sales","job_domain_id":"jd_nco_3322_0101"}
+# CEO pack v2, T53 (new, Wave 3, #3017): fam_stores.
+{"kind":"family","family_id":"fam_stores","label_en":"Store Keeper / Stores Executive","label_hi":"स्टोर कीपर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_1324_0100"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0100"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0102"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0103"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0104"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0200"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0301"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0401"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_0501"}
+{"kind":"binding","family_id":"fam_stores","job_domain_id":"jd_nco_4321_9900"}
+# CEO pack v2, T55 (new, Wave 3, #3017): fam_dispatch_logistics.
+{"kind":"family","family_id":"fam_dispatch_logistics","label_en":"Dispatch / Logistics Executive","label_hi":"डिस्पैच / लॉजिस्टिक्स एग्जीक्यूटिव","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_1324_1200"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_1324_1201"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_3323_0601"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_4321_0601"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_4321_0602"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_4321_0603"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_4321_0604"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_4323_9900"}
+{"kind":"binding","family_id":"fam_dispatch_logistics","job_domain_id":"jd_nco_9321_0102"}
+# CEO pack v2, T59 (new, Wave 3, #3017): fam_cae_fea.
+{"kind":"family","family_id":"fam_cae_fea","label_en":"CAE / FEA Analyst","label_hi":"सीएई / एफईए एनालिस्ट","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_cae_fea","job_domain_id":"jd_nco_2152_0301"}
+{"kind":"binding","family_id":"fam_cae_fea","job_domain_id":"jd_nco_2512_0207"}
+{"kind":"binding","family_id":"fam_cae_fea","job_domain_id":"jd_nco_2512_0601"}
+# CEO pack v2, T60 (new, Wave 3, #3017): fam_piping_design binds the minted piping entry (#3007).
+{"kind":"family","family_id":"fam_piping_design","label_en":"Piping Designer / Draughtsman","label_hi":"पाइपिंग डिजाइनर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_piping_design","job_domain_id":"jd_rvm_piping_designer"}

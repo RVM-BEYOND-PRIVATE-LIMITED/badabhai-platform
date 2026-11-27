@@ -359,6 +359,16 @@ export const NOT_A_WORKER_FACT: Readonly<Record<string, string>> = {
   fab_work_location:
     "where fabrication work happens (shop or site with erection) — capability of the trade",
   ndt_job_type: "what an NDT technician tests (weld joints, castings, pipeline) — capability",
+  // CEO pack v2, Wave 3 (#3017). Trade capability chips, not the worker's papers
+  // (`documents_ready`) or where he wants to work (`preferred_locations`).
+  dispatch_documents:
+    "dispatch documents a logistics executive prepares (invoice, e-way bill) — capability",
+  site_location_worked:
+    "where site work happens (EPC site, plant shutdown) — capability of the trade",
+  ehs_documents_owned:
+    "safety documents an EHS officer maintains (permit, audit report) — capability",
+  store_documents: "store records a keeper maintains (GRN, bin card) — capability",
+  store_gst_documents: "GST documents a store handles — capability, not the worker's papers",
 };
 
 /** The page types a trade form serves as markers rather than questions. */

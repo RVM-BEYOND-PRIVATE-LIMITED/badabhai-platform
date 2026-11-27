@@ -182,4 +182,10 @@ describe("claim question per trade (#3011)", () => {
       expect(e.claimQuestionKey, `${e.code} claim question`).toBeDefined();
     }
   });
+
+  it("every Wave 3 trade records its claim question", () => {
+    for (const e of TRADE_CATALOGUE.filter((t) => t.wave === 3)) {
+      expect(e.claimQuestionKey, `${e.code} claim question`).toBeDefined();
+    }
+  });
 });

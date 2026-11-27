@@ -2529,3 +2529,293 @@
 {"kind":"alias","job_domain_id":"jd_nco_8343_9900","text":"हाइड्रा ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_8343_0700","text":"ओवरहेड क्रेन","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_8343_0600","text":"टावर क्रेन","lang":"hi"}
+# CEO pack v2, Wave 3 worker phrases (#3017 step 3).
+#
+# One line per sheet "Words that lead here" for the 8 Wave 3 trades (T44, T49, T50, T51,
+# T53, T55, T59, T60 in docs/reference/BadaBhai_Manufacturing_Taxonomy_and_Question_Pack_v2.md).
+# Hinglish rows carry "lang":"en", Devanagari "lang":"hi", pointing at the occupation
+# of the trade that the phrase most exactly names (spread across each trade's bound codes
+# from packages/db/data/question-packs/_families.jsonl, Wave 3 bindings).
+#
+# Digits are LOADABLE here (#2995 point 2, ruled 26 Nov 2026: validator allows digits on main,
+# DO NOT touch job-domain-corpus.ts): T51 "b2b sales" and T60 "e3d", "sp3d", "smart plant 3d",
+# "plant 3d" are rows, test-and-hold 0 moves or hold-and-list (#3010 pattern). Shorts "cae",
+# "fea", "cfd", "nvh" the same way. All proved 0 moves across the corpus and are loaded.
+#
+# NOT loaded here:
+#   - "installation engineer" + Devanagari twin and "commissioning engineer" + Devanagari twin:
+#     the pack gives both to T44 and T50, so routing takes them nowhere (#3015 owns them).
+#     Loaded on NEITHER trade.
+#   - No "must NOT lead here" phrase is loaded.
+#
+# Moves in this change (with a retire line in rvm-alias-retirements.jsonl, ruled CEO pack v2):
+# "store helper" off Trainee Associate (jd_nco_5223_0105) to T53 Store Keeper (jd_nco_4321_0100,
+# same change, #3017). The code keeps "Trainee Associate", so the retirement keeps another phrase.
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"field service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"field engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"service technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"machine service","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"machine service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"cnc service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"customer support engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"amc engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"after sales service","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"service executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"breakdown call","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"machine installation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"cnc machine repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"spindle repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"compressor service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"dg service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"service incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"service manager","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"customer site par service","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"sarvice engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"feild service engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"service enginer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"सर्विस इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"फील्ड सर्विस इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"सर्विस टेक्नीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"मशीन सर्विस","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"एएमसी इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2144_0601","text":"सर्विस मैनेजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety steward","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety marshal","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety trainee","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"ehs officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"ehs executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"ehs engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"ehs manager","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"hse officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"hse engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"hse supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"she officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"fire and safety","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"fire safety officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"fire safety supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"industrial safety","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safety ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"adis kiya hai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"pdis kiya hai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"nebosh","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"environment officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"safty officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"sefty officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"सेफ्टी ऑफिसर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"सेफ्टी सुपरवाइजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"सेफ्टी इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"सेफ्टी इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"फायर एंड सेफ्टी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"ईएचएस ऑफिसर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"एचएसई ऑफिसर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2141_2500","text":"सुरक्षा अधिकारी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site engineer mechanical","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"mechanical site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"project engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"project site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site enginer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"erection engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"erection and commissioning","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"e&c engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site supervisor mechanical","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"erection supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site execution engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"project execution","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"piping site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"hvac site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"mep engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"fire fighting site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"peb site engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"structural erection engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"plant erection ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"site par erection karwata hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"project manager mechanical","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"साइट इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"प्रोजेक्ट इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"इरेक्शन इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"साइट इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"साइट सुपरवाइजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8211_1000","text":"प्रोजेक्ट मैनेजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"sales engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"technical sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"technical sales engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"application engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"sales enginer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"field sales engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"industrial sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"industrial marketing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"marketing engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"business development engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"bde industrial","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"b2b sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"techno commercial","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"presales engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"key account manager","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"area sales manager industrial","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"asm industrial","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"regional sales manager","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"territory sales engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"machine tool sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"cutting tool sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"cad cam sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"dealer sales engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"machine bechta hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"insert aur tool bechta hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"factory me jaakar order laata hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"सेल्स इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"टेक्निकल सेल्स","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"एप्लीकेशन इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"मार्केटिंग इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"इंडस्ट्रियल सेल्स","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"एरिया सेल्स मैनेजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"मशीन सेल्स","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3322_0101","text":"बिजनेस डेवलपमेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"storekeeper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"stor keeper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"stoar keeper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store kipar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"stores executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store assistant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store helper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store officer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"store supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"factory store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"material store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"raw material store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"tool store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"tool crib","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"godown keeper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"godown incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"grn entry","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"material issue ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"stock ka hisaab","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"bin card","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"inventory executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"sap mm store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"tally stock entry","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"स्टोर कीपर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"स्टोर इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"स्टोर का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"स्टोर हेल्पर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"स्टोर असिस्टेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"गोदाम कीपर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"भंडार का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"माल का हिसाब","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_4321_0100","text":"स्टॉक एंट्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispatch","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispatch executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispatch incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispatch in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispatch supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispatch assistant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"despatch","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispach","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"dispetch","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"logistics executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"logistic executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"logistics ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"logistics incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"fg store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"finished goods store","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"warehouse executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"warehouse incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"billing aur dispatch","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"invoice banana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"eway bill banana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"asn banana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"gaadi lagana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"transport executive","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"transport ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"export documentation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"maal bhejna","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"loading supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"डिस्पैच","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"डिस्पैच इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"लॉजिस्टिक्स","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"वेयरहाउस इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"माल भेजना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"गाड़ी लोडिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_1324_1200","text":"बिलिंग और डिस्पैच","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"cae","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"cae engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"cae analyst","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"fea","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"fea engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"fea analyst","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"analysis engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"simulation engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"hypermesh","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"meshing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"meshing engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"ansys","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"abaqus","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"nastran","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"optistruct","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"ls dyna","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"ansa","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"cfd","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"cfd engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"fluent","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"star ccm","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"moldflow","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"mould flow analysis","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"crash analysis","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"nvh","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"durability analysis","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"structural analysis","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"stress analysis","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"autoform","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"casting simulation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"सीएई इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"एफईए एनालिस्ट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"हाइपरमेश","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"एनसिस","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"मेशिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"सिमुलेशन इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"एनालिसिस इंजीनियर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_2152_0301","text":"सीएफडी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping draughtsman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping draftsman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping design","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"pdms","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"pdms designer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"pdms modeller","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"e3d","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"sp3d","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"smart plant 3d","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"plant 3d","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"cadworx","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"isometric drawing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"iso drawing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping layout","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping ga","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"p&id","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"pid drawing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"spool drawing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping modeller","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping detailing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"pipe support design","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping mto","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"caesar ii","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"navisworks","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"plant design","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"piping checker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"पाइपिंग डिज़ाइनर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"पाइपिंग ड्राफ्ट्समैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"पाइपिंग डिज़ाइन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"पीडीएमएस","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"आइसोमेट्रिक ड्राइंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"पाइपिंग लेआउट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"स्पूल ड्राइंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_rvm_piping_designer","text":"प्लांट डिज़ाइन","lang":"hi"}

@@ -56,6 +56,14 @@ describe("trade catalogue DB parity", () => {
       const bound = bindings.get(e.familyId) ?? new Set<string>();
       for (const code of e.ncoCodes) {
         const binding = `jd_nco_${code.replace(".", "_")}`;
+        // #3009: pack 13.1 lists these four under T45, but the casting pair stays with
+        // T24 and the forging pair with T26, so T45 does not bind them.
+        if (
+          e.code === "T45" &&
+          ["3122.4401", "3122.4402", "3122.4501", "3122.4502"].includes(code)
+        ) {
+          continue;
+        }
         expect(bound.has(binding), `${e.code} binds ${binding}`).toBe(true);
       }
     }
@@ -253,6 +261,68 @@ describe("trade catalogue DB parity — Wave 2 forms (#3016)", () => {
   it("each Wave 2 form has exactly one active version, on its own family", () => {
     const { packFiles } = indexCorpus();
     for (const e of wave2) {
+      const files = [...packFiles].filter(
+        (f) => f === `${e.packId}.json` || f.startsWith(`${e.packId}@`),
+      );
+      const heads = files.map(packHead);
+      const active = heads.filter((h) => h.status === "active");
+      expect(
+        active.map((h) => h.version),
+        `${e.code} active versions`,
+      ).toEqual([1]);
+      expect(active[0]?.family_id).toBe(e.familyId);
+    }
+  });
+});
+
+/**
+ * Wave 3 — 8 trades that complete the catalogue (#3017), checked ahead of LOADED_WAVE.
+ * Raising LOADED_WAVE to 3 also turns on the posting-trade, answer-skill and résumé-map
+ * checks for these trades; until then this block holds what #3017 loads: the family,
+ * every section 13.1 binding, and the form files.
+ */
+const wave3 = TRADE_CATALOGUE.filter((e) => e.wave === 3);
+
+describe("trade catalogue DB parity — Wave 3 forms (#3017)", () => {
+  it("covers the 8 trades #3017 loads", () => {
+    expect(wave3.map((e) => e.code)).toEqual([
+      "T44",
+      "T49",
+      "T50",
+      "T51",
+      "T53",
+      "T55",
+      "T59",
+      "T60",
+    ]);
+  });
+
+  it("every Wave 3 family exists, with a Devanagari label_hi, and binds its section 13.1 codes", () => {
+    const { families, bindings } = indexCorpus();
+    const labels = new Map<string, string>();
+    for (const line of readFileSync(join(DATA_DIR, "_families.jsonl"), "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (t === "" || t.startsWith("#")) continue;
+      const rec = JSON.parse(t) as { kind: string; family_id: string; label_hi?: string };
+      if (rec.kind === "family") labels.set(rec.family_id, rec.label_hi ?? "");
+    }
+    for (const e of wave3) {
+      expect(families.has(e.familyId), `${e.code} family ${e.familyId}`).toBe(true);
+      expect(labels.get(e.familyId) ?? "", `${e.code} label_hi`).toMatch(/[ऀ-ॿ]/);
+      const bound = bindings.get(e.familyId) ?? new Set<string>();
+      for (const code of e.ncoCodes) {
+        const binding = `jd_nco_${code.replace(".", "_")}`;
+        expect(bound.has(binding), `${e.code} binds ${binding}`).toBe(true);
+      }
+    }
+    // T60 has no 8-digit NCO-2015 code (pack section 13.2); it binds the minted piping entry
+    // (#3007), like T33's minted CMM and T34's minted NDT entries above.
+    expect(bindings.get("fam_piping_design")?.has("jd_rvm_piping_designer")).toBe(true);
+  });
+
+  it("each Wave 3 form has exactly one active version, on its own family", () => {
+    const { packFiles } = indexCorpus();
+    for (const e of wave3) {
       const files = [...packFiles].filter(
         (f) => f === `${e.packId}.json` || f.startsWith(`${e.packId}@`),
       );

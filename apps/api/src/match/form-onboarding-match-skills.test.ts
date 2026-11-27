@@ -226,6 +226,15 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_utility: ["mskill_utility_operator"],
     qp_forklift: ["mskill_crane_operator", "mskill_forklift_operator"],
     qp_crane_rigging: ["mskill_crane_operator"],
+    // #3017: the eight Wave 3 trades each reach their own skill and nothing else.
+    qp_service_engineer: ["mskill_service_engineer"],
+    qp_safety_ehs: ["mskill_safety_officer"],
+    qp_project_site: ["mskill_project_site_engineer"],
+    qp_technical_sales: ["mskill_technical_sales_engineer"],
+    qp_stores: ["mskill_store_keeper"],
+    qp_dispatch_logistics: ["mskill_dispatch_logistics_executive"],
+    qp_cae_fea: ["mskill_cae_analyst"],
+    qp_piping_design: ["mskill_piping_designer"],
   };
 
   it("pins every mapped pack", () => {
@@ -694,6 +703,11 @@ describe("each Wave 2 form's claim question (#3016)", () => {
     "qp_utility",
     "qp_forklift",
     "qp_crane_rigging",
+    // #3017 Wave 3 forms with no none-of-above chip on the claim question.
+    "qp_service_engineer",
+    "qp_stores",
+    "qp_dispatch_logistics",
+    "qp_cae_fea",
   ];
 
   it("covers the eighteen Wave 2 forms", () => {
@@ -780,10 +794,127 @@ describe("each Wave 2 form's claim question (#3016)", () => {
   });
 
   it("names the forms whose claim question has no escape chip, and only those", () => {
-    const without = WAVE2.filter((e) => {
+    const WAVE3_FOR_CHECK: ReadonlyArray<{ packId: string; claimQuestionKey: string }> = [
+      { packId: "qp_service_engineer", claimQuestionKey: "service_equipment" },
+      { packId: "qp_safety_ehs", claimQuestionKey: "ehs_site_type" },
+      { packId: "qp_project_site", claimQuestionKey: "site_project_type" },
+      { packId: "qp_technical_sales", claimQuestionKey: "sales_product_line" },
+      { packId: "qp_stores", claimQuestionKey: "store_type" },
+      { packId: "qp_dispatch_logistics", claimQuestionKey: "dispatch_function" },
+      { packId: "qp_cae_fea", claimQuestionKey: "cae_domain" },
+      { packId: "qp_piping_design", claimQuestionKey: "piping_software" },
+    ];
+    const without = [...WAVE2, ...WAVE3_FOR_CHECK].filter((e) => {
       const item = latestPack(e.packId).items.find((i) => i.question_key === e.claimQuestionKey);
       return !(item?.options ?? []).some((o) => o.is_none_of_above === true);
     }).map((e) => e.packId);
     expect(without.sort()).toEqual([...NO_ESCAPE_ON_CLAIM].sort());
+  });
+});
+
+/**
+ * WAVE 3 OF CEO PACK v2 (#3017): EACH FORM'S CLAIM QUESTION EARNS ITS TRADE'S SKILL.
+ */
+describe("each Wave 3 form's claim question (#3017)", () => {
+  const WAVE3_LOCAL: ReadonlyArray<{
+    code: string;
+    packId: string;
+    claimQuestionKey: string;
+    matchSkillId: string;
+  }> = [
+    { code: "T44", packId: "qp_service_engineer", claimQuestionKey: "service_equipment", matchSkillId: "mskill_service_engineer" },
+    { code: "T49", packId: "qp_safety_ehs", claimQuestionKey: "ehs_site_type", matchSkillId: "mskill_safety_officer" },
+    { code: "T50", packId: "qp_project_site", claimQuestionKey: "site_project_type", matchSkillId: "mskill_project_site_engineer" },
+    { code: "T51", packId: "qp_technical_sales", claimQuestionKey: "sales_product_line", matchSkillId: "mskill_technical_sales_engineer" },
+    { code: "T53", packId: "qp_stores", claimQuestionKey: "store_type", matchSkillId: "mskill_store_keeper" },
+    { code: "T55", packId: "qp_dispatch_logistics", claimQuestionKey: "dispatch_function", matchSkillId: "mskill_dispatch_logistics_executive" },
+    { code: "T59", packId: "qp_cae_fea", claimQuestionKey: "cae_domain", matchSkillId: "mskill_cae_analyst" },
+    { code: "T60", packId: "qp_piping_design", claimQuestionKey: "piping_software", matchSkillId: "mskill_piping_designer" },
+  ];
+
+  function storableLocal(item: PackRecord["items"][number]) {
+    return (item.options ?? []).filter(
+      (o) =>
+        o.value_text !== undefined || o.value_number !== undefined || o.value_bool !== undefined,
+    );
+  }
+
+  const SECOND_SKILL_LOCAL = new Set(["plc_programming", "hydra_crane"]);
+
+  const NO_ESCAPE_LOCAL = [
+    "qp_service_engineer",
+    "qp_stores",
+    "qp_dispatch_logistics",
+    "qp_cae_fea",
+  ];
+
+  it("covers the eight Wave 3 forms", () => {
+    expect(WAVE3_LOCAL.map((e) => e.code).sort()).toEqual([
+      "T44",
+      "T49",
+      "T50",
+      "T51",
+      "T53",
+      "T55",
+      "T59",
+      "T60",
+    ]);
+  });
+
+  describe.each(WAVE3_LOCAL)("$code $packId", ({ packId, claimQuestionKey, matchSkillId }) => {
+    const pack = latestPack(packId);
+    const claim = pack.items.find((i) => i.question_key === claimQuestionKey)!;
+    const escapes = (claim?.options ?? []).filter((o) => o.is_none_of_above === true);
+    const chips = storableLocal(claim).filter(
+      (o) => o.is_none_of_above !== true && !SECOND_SKILL_LOCAL.has(o.option_key),
+    );
+
+    it("the claim question is a mandatory select on the active version", () => {
+      expect(claim, `${packId} has no ${claimQuestionKey}`).toBeDefined();
+      expect(claim.is_mandatory).toBe(true);
+      expect(["single_select", "multi_select"]).toContain(claim.answer_type);
+    });
+
+    it("a synthetic worker profiled through the whole form derives exactly the base skill", () => {
+      const answers: Record<string, string[]> = {};
+      for (const item of pack.items) {
+        if (item.answer_type !== "single_select" && item.answer_type !== "multi_select") continue;
+        const first = storableLocal(item).find(
+          (o) => o.is_none_of_above !== true && !SECOND_SKILL_LOCAL.has(o.option_key),
+        );
+        if (first) answers[item.question_key] = [first.option_key];
+      }
+      expect(answers[claimQuestionKey!]).toBeDefined();
+      expect(derive(packId, attributesFor(pack, answers))).toEqual([matchSkillId]);
+    });
+
+    it("every claim chip of the claim question, alone, derives exactly the base skill", () => {
+      expect(chips.length).toBeGreaterThan(0);
+      for (const option of chips) {
+        expect(
+          derive(packId, attributesFor(pack, { [claimQuestionKey!]: [option.option_key] })),
+          `${packId}.${claimQuestionKey}.${option.option_key}`,
+        ).toEqual([matchSkillId]);
+      }
+    });
+
+    it("a worker who taps only the escape chip on the claim question derives nothing", () => {
+      if (NO_ESCAPE_LOCAL.includes(packId)) {
+        expect(escapes, `${packId}.${claimQuestionKey} grew an escape chip`).toEqual([]);
+        return;
+      }
+      expect(escapes.length, `${packId}.${claimQuestionKey} has no escape chip`).toBe(1);
+      const before = pack.items.slice(0, pack.items.indexOf(claim));
+      const answers: Record<string, string[]> = {
+        [claimQuestionKey!]: [escapes[0]!.option_key],
+      };
+      for (const item of before) {
+        if (!item.is_mandatory) continue;
+        const first = storableLocal(item)[0];
+        if (first) answers[item.question_key] = [first.option_key];
+      }
+      expect(Object.keys(answers).length).toBeGreaterThan(1);
+      expect(derive(packId, attributesFor(pack, answers))).toEqual([]);
+    });
   });
 });

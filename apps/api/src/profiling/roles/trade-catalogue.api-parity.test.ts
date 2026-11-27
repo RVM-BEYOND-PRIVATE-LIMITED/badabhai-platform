@@ -92,3 +92,46 @@ describe("trade catalogue API parity — Wave 2 (#3016)", () => {
     }
   });
 });
+
+/**
+ * Trade catalogue API parity — Wave 3 (#3017), checked ahead of LOADED_WAVE. The descriptors
+ * land with #3004, the résumé maps with #3012's Wave 3 step, and the chip labels with their own
+ * slice; until the wave loads, this block holds all three to the catalogue row.
+ */
+const wave3 = TRADE_CATALOGUE.filter((e) => e.wave === 3);
+
+describe("trade catalogue API parity — Wave 3 (#3017)", () => {
+  it("covers the 8 trades #3017 loads", () => {
+    expect(wave3.map((e) => e.code)).toEqual([
+      "T44",
+      "T49",
+      "T50",
+      "T51",
+      "T53",
+      "T55",
+      "T59",
+      "T60",
+    ]);
+  });
+
+  it("every Wave 3 trade has a role descriptor with the same pack and family", () => {
+    for (const e of wave3) {
+      const descriptor = descriptorForKind(e.roleKind);
+      expect(descriptor, `${e.code} has no role descriptor`).toBeDefined();
+      expect(descriptor?.packId).toBe(e.packId);
+      expect(descriptor?.familyId).toBe(e.familyId);
+    }
+  });
+
+  it("every Wave 3 pack has a résumé map", () => {
+    for (const e of wave3) {
+      expect(tradeResumeMapFor(e.packId), `${e.code} has no résumé map`).toBeDefined();
+    }
+  });
+
+  it("every Wave 3 family has a chip label", () => {
+    for (const e of wave3) {
+      expect(FAMILY_CHIP_LABELS[e.familyId], `${e.code} has no chip label`).toBeDefined();
+    }
+  });
+});

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 239,
+  "pack_count": 247,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -101,6 +101,10 @@
     "qp_cad_drafting@2": {
       "served_text_sha256": "13574a08e1f4e24ae15e2ebc5d7168c4ad64684808cdc7f56d9a5a00d95aaee1",
       "served_text_count": 73
+    },
+    "qp_cae_fea@1": {
+      "served_text_sha256": "758259f1a04893842c47d5390105a58fb545164c7b313179ed4013fe0112a296",
+      "served_text_count": 70
     },
     "qp_calibration@1": {
       "served_text_sha256": "207b63e035ff2ce5584439ed1b25d678c6219bf92c66cc37cf0eb58620349f97",
@@ -277,6 +281,10 @@
     "qp_die_casting@1": {
       "served_text_sha256": "91fa5e12a74535b97e7264852fc11058cd7282b0747282f114c3bf39f5fddc59",
       "served_text_count": 73
+    },
+    "qp_dispatch_logistics@1": {
+      "served_text_sha256": "4906a89806fd135c9e9c34e42d27c829ac51e3c55819216d043ab832b405c58c",
+      "served_text_count": 70
     },
     "qp_domestic@1": {
       "served_text_sha256": "b487982eea4b9f7dcb33c63fc922a85491941c1114bf0ba846a3a7c22ff44d0c",
@@ -598,6 +606,10 @@
       "served_text_sha256": "c36911a4cf4e6bb5b156430942ae927cb7e9070e0f6ed0bdfb91f0f809e0ff14",
       "served_text_count": 15
     },
+    "qp_piping_design@1": {
+      "served_text_sha256": "c93b4b61e959afc951ae04cdd48746dab70504d0f0c5ad9f25e3eea26fe2c06e",
+      "served_text_count": 67
+    },
     "qp_plastic_extrusion@1": {
       "served_text_sha256": "7cf2b31e7d7cf0ee64bfde01c730de3312c482dd25189979d201aab0b048a7fc",
       "served_text_count": 70
@@ -653,6 +665,10 @@
     "qp_production_supervisor@2": {
       "served_text_sha256": "f98e24457660448867d2aa4674676016d85ea68fd51e8e1fdf0b200ead5d577c",
       "served_text_count": 64
+    },
+    "qp_project_site@1": {
+      "served_text_sha256": "561d0995c5757dcb5e63f7b897d1a194e46535fdcb004fbbd99eae73c7f232d5",
+      "served_text_count": 70
     },
     "qp_protective_service@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
@@ -718,6 +734,10 @@
       "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
       "served_text_count": 12
     },
+    "qp_safety_ehs@1": {
+      "served_text_sha256": "4e7b598783645dadbc02245e107ba5bfde1579e0dd62ab76ac7ab49730b56d2b",
+      "served_text_count": 67
+    },
     "qp_security@1": {
       "served_text_sha256": "21688567a633a38c5969e8a60067d0e5b3febf3e97b25db7b7fb29a9aa1d295d",
       "served_text_count": 18
@@ -725,6 +745,10 @@
     "qp_security@2": {
       "served_text_sha256": "3c7a2e7b881c102ce13b015751f93531c8a169006fe30c71448c3a6f398c93ea",
       "served_text_count": 15
+    },
+    "qp_service_engineer@1": {
+      "served_text_sha256": "3979574389a50d08e7bacdafe7531892866600d9a7383f3c79bb7b6474dfa70a",
+      "served_text_count": 67
     },
     "qp_sewing_machine@1": {
       "served_text_sha256": "f48c68bd147a70602e084edaf628ccca88363338a2b304d42bc6778f97aaa8f4",
@@ -765,6 +789,10 @@
     "qp_spm_finishing@1": {
       "served_text_sha256": "be37c881a99041a9a7541a060b3957567e80be704b53bc4a88d0ab92f0d66818",
       "served_text_count": 73
+    },
+    "qp_stores@1": {
+      "served_text_sha256": "579e892bc49d252099447a006e978480101fb28df7028e63008b45478faaab5c",
+      "served_text_count": 70
     },
     "qp_street_sales@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
@@ -817,6 +845,10 @@
     "qp_tailoring@1": {
       "served_text_sha256": "c807861e061ac3806e03a1578e524f6d06b84e091d4dd64a36ec05b93c898661",
       "served_text_count": 18
+    },
+    "qp_technical_sales@1": {
+      "served_text_sha256": "2d3abd00562b9a23bac18caba1bd540b9ca90a72b7c2f0775ece3a681a00d4d7",
+      "served_text_count": 70
     },
     "qp_textile_machines@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",

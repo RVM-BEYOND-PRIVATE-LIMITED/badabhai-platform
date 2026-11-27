@@ -244,6 +244,16 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_utility: "utility operator",
   fam_forklift: "forklift / reach truck",
   fam_crane_rigging: "EOT crane / rigger",
+  // CEO pack v2, Wave 3 (#3017). Worker-facing trade names. The roles are declared and
+  // disabled (#3004 pattern), so a pin here keeps talking, like the Wave 1/2 families above.
+  fam_service_engineer: "service engineer",
+  fam_safety_ehs: "safety / EHS officer",
+  fam_project_site: "project / site engineer",
+  fam_technical_sales: "technical sales engineer",
+  fam_stores: "store keeper",
+  fam_dispatch_logistics: "dispatch executive",
+  fam_cae_fea: "CAE analyst",
+  fam_piping_design: "piping designer",
 });
 
 /**

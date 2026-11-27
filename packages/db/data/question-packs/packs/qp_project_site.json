@@ -1,0 +1,1231 @@
+{
+  "_why": "Role track for Project / Site Engineer, mechanical (T50), new trade (CEO pack v2). fam_project_site binds NCO 8211.1000.",
+  "_scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T50 (Project / Site Engineer (Mechanical)). Status: NEW",
+  "pack_id": "qp_project_site",
+  "version": 1,
+  "family_id": "fam_project_site",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T50): new trade.",
+  "items": [
+    {
+      "question_key": "site_experience",
+      "min_tier": "easy",
+      "prompt_text": "Site ya project ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "site_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Site ya project ka kaam kiya hai?"
+    },
+    {
+      "question_key": "site_level",
+      "min_tier": "easy",
+      "prompt_text": "Site par aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "site_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Site Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Site In-charge",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Project Manager",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Site par trainee, site engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "site_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apne area ka erection aap akele contractor se karwa lete hain?",
+      "why_text": "Kaam akele karwane wale senior engineer ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "site_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele karwa leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ki dekh-rekh me karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "site_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "site_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Poori site ka kaam aur client ko jawab aap hi dete hain?",
+      "why_text": "Poori site sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "site_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, site mere zimme hai",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, mere upar site in-charge hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "site_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "site_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Aapke under kitni site aur kitne engineer hain, aur project kitne crore ka hai?",
+      "why_text": "Kai site sambhalne wale manager ko badi zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "site_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "site_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "site_project_type",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kis tarah ke project par kaam kiya hai?",
+      "why_text": "Project ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "site_project_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "equipment_installation",
+          "label_text": "Machinery aur equipment installation",
+          "value_text": "equipment_installation"
+        },
+        {
+          "option_key": "structural_erection",
+          "label_text": "Steel structure erection",
+          "value_text": "structural_erection"
+        },
+        {
+          "option_key": "piping_erection",
+          "label_text": "Piping erection",
+          "value_text": "piping_erection"
+        },
+        {
+          "option_key": "hvac",
+          "label_text": "HVAC project",
+          "value_text": "hvac"
+        },
+        {
+          "option_key": "fire_fighting",
+          "label_text": "Fire fighting system",
+          "value_text": "fire_fighting"
+        },
+        {
+          "option_key": "material_handling",
+          "label_text": "Conveyor ya material handling system",
+          "value_text": "material_handling"
+        },
+        {
+          "option_key": "peb",
+          "label_text": "PEB shed",
+          "value_text": "peb"
+        },
+        {
+          "option_key": "utilities",
+          "label_text": "Utility (boiler, compressor, DG, cooling tower)",
+          "value_text": "utilities"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur project",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "site_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Site par roz ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "site_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "contractor_supervision",
+          "label_text": "Contractor aur labour se kaam karwana",
+          "value_text": "contractor_supervision"
+        },
+        {
+          "option_key": "dpr",
+          "label_text": "DPR banana",
+          "value_text": "dpr"
+        },
+        {
+          "option_key": "drawing_check",
+          "label_text": "Drawing ke hisaab se kaam check karna",
+          "value_text": "drawing_check"
+        },
+        {
+          "option_key": "material_control",
+          "label_text": "Material receive aur issue dekhna",
+          "value_text": "material_control"
+        },
+        {
+          "option_key": "measurement",
+          "label_text": "Measurement lena (MB / JMR)",
+          "value_text": "measurement"
+        },
+        {
+          "option_key": "client_inspection",
+          "label_text": "Client ya consultant ko inspection dena",
+          "value_text": "client_inspection"
+        },
+        {
+          "option_key": "site_safety",
+          "label_text": "Toolbox talk aur work permit",
+          "value_text": "site_safety"
+        },
+        {
+          "option_key": "alignment_check",
+          "label_text": "Alignment aur levelling check karna",
+          "value_text": "alignment_check"
+        }
+      ]
+    },
+    {
+      "question_key": "site_drawings_read",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi drawing padh kar aap kaam karwate hain?",
+      "why_text": "Drawing padhna site engineer ka sabse zaroori kaam hai.",
+      "target_kind": "attribute",
+      "target_field": "site_drawings_read",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ga_drawing",
+          "label_text": "GA drawing",
+          "value_text": "ga_drawing"
+        },
+        {
+          "option_key": "pid",
+          "label_text": "P&ID",
+          "value_text": "pid"
+        },
+        {
+          "option_key": "isometric",
+          "label_text": "Piping isometric",
+          "value_text": "isometric"
+        },
+        {
+          "option_key": "structural_drawing",
+          "label_text": "Structural ya fabrication drawing",
+          "value_text": "structural_drawing"
+        },
+        {
+          "option_key": "foundation_drawing",
+          "label_text": "Foundation drawing",
+          "value_text": "foundation_drawing"
+        },
+        {
+          "option_key": "equipment_layout",
+          "label_text": "Equipment layout",
+          "value_text": "equipment_layout"
+        },
+        {
+          "option_key": "ducting_drawing",
+          "label_text": "HVAC ducting ki shop drawing",
+          "value_text": "ducting_drawing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Drawing senior padhte hain",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "site_software",
+      "min_tier": "medium",
+      "prompt_text": "Site ke kaam me aap kaunsa software chalate hain?",
+      "why_text": "Software jaanne wale engineer ko planning ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "site_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "ms_project",
+          "label_text": "MS Project",
+          "value_text": "ms_project"
+        },
+        {
+          "option_key": "primavera",
+          "label_text": "Primavera P6",
+          "value_text": "primavera"
+        },
+        {
+          "option_key": "sap",
+          "label_text": "SAP (MM / PS)",
+          "value_text": "sap"
+        },
+        {
+          "option_key": "other_erp",
+          "label_text": "Company ka apna ERP",
+          "value_text": "other_erp"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "site_employer_type",
+      "min_tier": "hard",
+      "prompt_text": "Aap kis tarah ki company ki taraf se site par hote hain?",
+      "why_text": "Company ke hisaab se site par aapka role alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "site_employer_type",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "epc_contractor",
+          "label_text": "EPC ya project company",
+          "value_text": "epc_contractor"
+        },
+        {
+          "option_key": "oem",
+          "label_text": "Machine ya plant banane wali company (OEM)",
+          "value_text": "oem"
+        },
+        {
+          "option_key": "erection_contractor",
+          "label_text": "Erection contractor ya sub-contractor",
+          "value_text": "erection_contractor"
+        },
+        {
+          "option_key": "owner_client",
+          "label_text": "Plant owner ki project team",
+          "value_text": "owner_client"
+        },
+        {
+          "option_key": "pmc_consultant",
+          "label_text": "Consultant ya PMC",
+          "value_text": "pmc_consultant"
+        }
+      ]
+    },
+    {
+      "question_key": "site_location_worked",
+      "min_tier": "hard",
+      "prompt_text": "Site ke kaam ke liye aap kahaan tak ja chuke hain?",
+      "why_text": "Bahar ki site kar chuke engineer ko door ke project jaldi milte hain.",
+      "target_kind": "attribute",
+      "target_field": "site_location_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "home_state",
+          "label_text": "Apne state ke andar",
+          "value_text": "home_state"
+        },
+        {
+          "option_key": "other_states",
+          "label_text": "India ke doosre state",
+          "value_text": "other_states"
+        },
+        {
+          "option_key": "gulf",
+          "label_text": "Gulf (UAE, Saudi, Qatar, Oman)",
+          "value_text": "gulf"
+        },
+        {
+          "option_key": "africa",
+          "label_text": "Africa",
+          "value_text": "africa"
+        },
+        {
+          "option_key": "other_abroad",
+          "label_text": "Koi aur desh",
+          "value_text": "other_abroad"
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapne kis industry ke plant me project kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "cement",
+          "label_text": "Cement plant",
+          "value_text": "cement"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas, refinery",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma plant",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "chemical",
+          "label_text": "Chemical ya fertiliser plant",
+          "value_text": "chemical"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile plant",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "commercial_building",
+          "label_text": "Commercial building, mall ya hospital",
+          "value_text": "commercial_building"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_erection_work",
+      "min_tier": "hard",
+      "prompt_text": "Erection ka kaunsa kaam aapne khud khade hokar karwaya hai?",
+      "why_text": "Erection ka asli tajurba isi se pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "site_erection_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "levelling_grouting",
+          "label_text": "Equipment ki levelling aur grouting",
+          "value_text": "levelling_grouting"
+        },
+        {
+          "option_key": "shaft_alignment",
+          "label_text": "Pump aur motor ka alignment",
+          "value_text": "shaft_alignment"
+        },
+        {
+          "option_key": "heavy_lifting",
+          "label_text": "Crane se heavy lifting",
+          "value_text": "heavy_lifting"
+        },
+        {
+          "option_key": "piping_fitup",
+          "label_text": "Piping fit-up aur welding",
+          "value_text": "piping_fitup"
+        },
+        {
+          "option_key": "hydro_test",
+          "label_text": "Hydro test ya pneumatic test",
+          "value_text": "hydro_test"
+        },
+        {
+          "option_key": "structure_bolting",
+          "label_text": "Structure ki bolting aur torque",
+          "value_text": "structure_bolting"
+        },
+        {
+          "option_key": "ducting_insulation",
+          "label_text": "Ducting aur insulation",
+          "value_text": "ducting_insulation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_billing_work",
+      "min_tier": "hard",
+      "prompt_text": "Billing aur measurement ka kaunsa kaam aap karte hain?",
+      "why_text": "Billing jaanne wale site engineer ko site in-charge banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "site_billing_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "measurement_sheet",
+          "label_text": "Measurement sheet ya JMR banana",
+          "value_text": "measurement_sheet"
+        },
+        {
+          "option_key": "contractor_bill",
+          "label_text": "Contractor ka RA bill check karna",
+          "value_text": "contractor_bill"
+        },
+        {
+          "option_key": "client_bill",
+          "label_text": "Client ko RA bill lagana",
+          "value_text": "client_bill"
+        },
+        {
+          "option_key": "material_reconciliation",
+          "label_text": "Material reconciliation",
+          "value_text": "material_reconciliation"
+        },
+        {
+          "option_key": "extra_item_claim",
+          "label_text": "Extra item ka claim banana",
+          "value_text": "extra_item_claim"
+        },
+        {
+          "option_key": "boq",
+          "label_text": "BOQ banana",
+          "value_text": "boq"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_project_value",
+      "min_tier": "hard",
+      "prompt_text": "Aapne sabse bada project kitne ka sambhala hai?",
+      "why_text": "Project ke size se aapki zimmedari ka andaaza lagta hai.",
+      "target_kind": "attribute",
+      "target_field": "site_project_value",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_one",
+          "label_text": "1 crore tak",
+          "value_text": "1"
+        },
+        {
+          "option_key": "upto_five",
+          "label_text": "1 se 5 crore",
+          "value_text": "5"
+        },
+        {
+          "option_key": "upto_twenty_five",
+          "label_text": "5 se 25 crore",
+          "value_text": "25"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "25 se 100 crore",
+          "value_text": "100"
+        },
+        {
+          "option_key": "upto_two_fifty",
+          "label_text": "100 crore se zyada",
+          "value_text": "250"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_quality_docs",
+      "min_tier": "hard",
+      "prompt_text": "Site quality ka kaunsa document aap sambhalte hain?",
+      "why_text": "Quality document sambhalne wale engineer par client bharosa karta hai.",
+      "target_kind": "attribute",
+      "target_field": "site_quality_docs",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "qap_itp",
+          "label_text": "QAP / ITP",
+          "value_text": "qap_itp"
+        },
+        {
+          "option_key": "wps_pqr",
+          "label_text": "WPS, PQR aur welder qualification record",
+          "value_text": "wps_pqr"
+        },
+        {
+          "option_key": "ndt_reports",
+          "label_text": "NDT report (DPT / RT) ka follow-up",
+          "value_text": "ndt_reports"
+        },
+        {
+          "option_key": "inspection_protocol",
+          "label_text": "Inspection protocol sign karwana",
+          "value_text": "inspection_protocol"
+        },
+        {
+          "option_key": "punch_list",
+          "label_text": "Punch list band karwana",
+          "value_text": "punch_list"
+        },
+        {
+          "option_key": "as_built",
+          "label_text": "As-built drawing",
+          "value_text": "as_built"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_commissioning_work",
+      "min_tier": "hard",
+      "prompt_text": "Commissioning me aapne khud kya kiya hai?",
+      "why_text": "Commissioning kar chuke engineer ki maang erection wale se zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "site_commissioning_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pre_commissioning",
+          "label_text": "Pre-commissioning checklist",
+          "value_text": "pre_commissioning"
+        },
+        {
+          "option_key": "no_load_trial",
+          "label_text": "No-load trial",
+          "value_text": "no_load_trial"
+        },
+        {
+          "option_key": "load_trial",
+          "label_text": "Load trial aur PG test",
+          "value_text": "load_trial"
+        },
+        {
+          "option_key": "handover",
+          "label_text": "Client ko handover",
+          "value_text": "handover"
+        },
+        {
+          "option_key": "client_training",
+          "label_text": "Client ke operator ko training dena",
+          "value_text": "client_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Commissioning nahi ki",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_planning_work",
+      "min_tier": "hard",
+      "prompt_text": "Planning ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Planning sambhalne wale engineer ko poori site di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "site_planning_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "schedule",
+          "label_text": "Project schedule (bar chart) banana",
+          "value_text": "schedule"
+        },
+        {
+          "option_key": "resource_planning",
+          "label_text": "Manpower aur machinery ki planning",
+          "value_text": "resource_planning"
+        },
+        {
+          "option_key": "material_followup",
+          "label_text": "Material ka follow-up",
+          "value_text": "material_followup"
+        },
+        {
+          "option_key": "client_meeting",
+          "label_text": "Client meeting aur MoM",
+          "value_text": "client_meeting"
+        },
+        {
+          "option_key": "budget_cash_flow",
+          "label_text": "Site ka budget aur cash flow",
+          "value_text": "budget_cash_flow"
+        },
+        {
+          "option_key": "subcontractor_finalisation",
+          "label_text": "Sub-contractor final karna",
+          "value_text": "subcontractor_finalisation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Site par aayi kaunsi dikkat aap khud suljhaate hain?",
+      "why_text": "Site ki dikkat khud suljhaane wale engineer ki zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "drawing_mismatch",
+          "label_text": "Drawing aur site me mismatch",
+          "value_text": "drawing_mismatch"
+        },
+        {
+          "option_key": "material_delay",
+          "label_text": "Material late aana",
+          "value_text": "material_delay"
+        },
+        {
+          "option_key": "labour_shortage",
+          "label_text": "Labour kam padna",
+          "value_text": "labour_shortage"
+        },
+        {
+          "option_key": "front_not_available",
+          "label_text": "Civil front ya foundation na milna",
+          "value_text": "front_not_available"
+        },
+        {
+          "option_key": "scope_change",
+          "label_text": "Client ka extra kaam maangna",
+          "value_text": "scope_change"
+        },
+        {
+          "option_key": "alignment_issue",
+          "label_text": "Alignment na baithna",
+          "value_text": "alignment_issue"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "site_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "site_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "site_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi branch se padhai ki hai?",
+      "why_text": "Branch ke hisaab se company post tay karti hai.",
+      "target_kind": "attribute",
+      "target_field": "site_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "civil_engg",
+          "label_text": "Civil engineering",
+          "value_text": "civil_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "site_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan site ya factory ka kaunsa kaam aapne dekha hai?",
+      "why_text": "Training me dekha hua kaam bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "site_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "site_training",
+          "label_text": "Project site par training",
+          "value_text": "site_training"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "site_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "site_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

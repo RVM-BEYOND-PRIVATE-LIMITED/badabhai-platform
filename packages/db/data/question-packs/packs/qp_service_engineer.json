@@ -1,0 +1,1082 @@
+{
+  "_why": "Role track for Service Engineer, field and machine service (T44), new trade (CEO pack v2). fam_service_engineer binds NCO 2144.0601, 2144.1401 and 2144.1402.",
+  "_scope": "Maintenance and Automation desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 7 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T44 (Service Engineer (Field / Machine Service)). Status: NEW",
+  "pack_id": "qp_service_engineer",
+  "version": 1,
+  "family_id": "fam_service_engineer",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T44): new trade.",
+  "items": [
+    {
+      "question_key": "service_experience",
+      "min_tier": "easy",
+      "prompt_text": "Machine service ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "service_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Machine service ka kaam kiya hai?"
+    },
+    {
+      "question_key": "service_level",
+      "min_tier": "easy",
+      "prompt_text": "Service team me aap kis level par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "service_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Service Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Service Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Area / Team Lead",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Service Manager",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Service team me trainee, service engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "service_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer site par installation aur breakdown call aap akele close karte ho?",
+      "why_text": "Akele call close karne wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "service_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele jaata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath jaata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "service_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "service_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apne area ki call aap engineers me baantte aur close karwate ho?",
+      "why_text": "Area ki call sambhalne wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "service_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main baantta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, manager baantte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "service_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "service_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne service engineer aur kaunsa region aapke under hai?",
+      "why_text": "Team sambhalne wale manager ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "service_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "service_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "service_equipment",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi machine ya equipment ki service karte hain?",
+      "why_text": "Machine ke hisaab se sahi company ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "service_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cnc_machine_tools",
+          "label_text": "CNC machine tools, lathe, VMC ya HMC",
+          "value_text": "cnc_machine_tools"
+        },
+        {
+          "option_key": "moulding_machine",
+          "label_text": "Injection moulding ya die casting machine",
+          "value_text": "moulding_machine"
+        },
+        {
+          "option_key": "laser_welding",
+          "label_text": "Laser cutting ya welding machine",
+          "value_text": "laser_welding"
+        },
+        {
+          "option_key": "air_compressor",
+          "label_text": "Air compressor",
+          "value_text": "air_compressor"
+        },
+        {
+          "option_key": "dg_set",
+          "label_text": "DG set ya engine",
+          "value_text": "dg_set"
+        },
+        {
+          "option_key": "material_handling",
+          "label_text": "Forklift, crane ya material handling",
+          "value_text": "material_handling"
+        },
+        {
+          "option_key": "packaging_machine",
+          "label_text": "Packaging ya printing machine",
+          "value_text": "packaging_machine"
+        },
+        {
+          "option_key": "hvac_chiller",
+          "label_text": "HVAC ya chiller",
+          "value_text": "hvac_chiller"
+        },
+        {
+          "option_key": "medical_lab",
+          "label_text": "Medical ya lab equipment",
+          "value_text": "medical_lab"
+        }
+      ]
+    },
+    {
+      "question_key": "service_work_type",
+      "min_tier": "medium",
+      "prompt_text": "Service me aap kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "service_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "installation_commissioning",
+          "label_text": "Installation aur commissioning",
+          "value_text": "installation_commissioning"
+        },
+        {
+          "option_key": "breakdown_calls",
+          "label_text": "Breakdown call",
+          "value_text": "breakdown_calls"
+        },
+        {
+          "option_key": "amc_visits",
+          "label_text": "AMC ya preventive visit",
+          "value_text": "amc_visits"
+        },
+        {
+          "option_key": "warranty_calls",
+          "label_text": "Warranty call",
+          "value_text": "warranty_calls"
+        },
+        {
+          "option_key": "customer_training",
+          "label_text": "Customer ke operator ko training",
+          "value_text": "customer_training"
+        },
+        {
+          "option_key": "remote_support",
+          "label_text": "Phone ya remote support",
+          "value_text": "remote_support"
+        },
+        {
+          "option_key": "overhaul_retrofit",
+          "label_text": "Overhauling ya retrofitting",
+          "value_text": "overhaul_retrofit"
+        },
+        {
+          "option_key": "spares_sales",
+          "label_text": "Spares ki quotation aur sale",
+          "value_text": "spares_sales"
+        }
+      ]
+    },
+    {
+      "question_key": "service_employer_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kiski taraf se service dete hain?",
+      "why_text": "OEM aur dealer ki service ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "service_employer_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oem",
+          "label_text": "Machine banane wali company, OEM",
+          "value_text": "oem"
+        },
+        {
+          "option_key": "dealer",
+          "label_text": "Dealer ya authorised service partner",
+          "value_text": "dealer"
+        },
+        {
+          "option_key": "third_party",
+          "label_text": "Third-party service ya AMC company",
+          "value_text": "third_party"
+        },
+        {
+          "option_key": "self_employed",
+          "label_text": "Apna khud ka service kaam",
+          "value_text": "self_employed"
+        }
+      ]
+    },
+    {
+      "question_key": "service_technical_area",
+      "min_tier": "medium",
+      "prompt_text": "Machine ka kaunsa hissa aap khud theek kar lete hain?",
+      "why_text": "Technical pakad se pata chalta hai aap kaunsi call akele le sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "service_technical_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mechanical",
+          "label_text": "Mechanical, bearing, gearbox aur alignment",
+          "value_text": "mechanical"
+        },
+        {
+          "option_key": "hydraulics",
+          "label_text": "Hydraulics",
+          "value_text": "hydraulics"
+        },
+        {
+          "option_key": "pneumatics",
+          "label_text": "Pneumatics",
+          "value_text": "pneumatics"
+        },
+        {
+          "option_key": "electrical",
+          "label_text": "Electrical panel aur motor",
+          "value_text": "electrical"
+        },
+        {
+          "option_key": "plc_hmi",
+          "label_text": "PLC / HMI",
+          "value_text": "plc_hmi"
+        },
+        {
+          "option_key": "drives",
+          "label_text": "Servo drive aur VFD",
+          "value_text": "drives"
+        },
+        {
+          "option_key": "cnc_controller",
+          "label_text": "CNC controller, Fanuc, Siemens ya Mitsubishi",
+          "value_text": "cnc_controller"
+        },
+        {
+          "option_key": "engine_airend",
+          "label_text": "Engine ya compressor ka air end",
+          "value_text": "engine_airend"
+        },
+        {
+          "option_key": "refrigeration",
+          "label_text": "Refrigeration circuit",
+          "value_text": "refrigeration"
+        }
+      ]
+    },
+    {
+      "question_key": "service_brand_handled",
+      "min_tier": "hard",
+      "prompt_text": "Kis company ya brand ki machine ki service ki hai?",
+      "why_text": "Usi brand ke dealer aur company aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "service_brand_handled",
+      "answer_type": "text",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "service_travel_region",
+      "min_tier": "hard",
+      "prompt_text": "Service ke liye aap sabse door kahaan tak jaate rahe hain?",
+      "why_text": "Field ki naukri me travel ka tajurba sabse pehle dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "service_travel_region",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "local_city",
+          "label_text": "Apne sheher ke andar",
+          "value_text": "local_city"
+        },
+        {
+          "option_key": "within_state",
+          "label_text": "Apne state ke andar",
+          "value_text": "within_state"
+        },
+        {
+          "option_key": "multi_state",
+          "label_text": "Kai state, poora region",
+          "value_text": "multi_state"
+        },
+        {
+          "option_key": "all_india",
+          "label_text": "Poore India me",
+          "value_text": "all_india"
+        },
+        {
+          "option_key": "abroad",
+          "label_text": "Videsh bhi gaya hoon",
+          "value_text": "abroad"
+        }
+      ]
+    },
+    {
+      "question_key": "service_vehicle_licence",
+      "min_tier": "hard",
+      "prompt_text": "Aapke paas kaunsi gaadi aur licence hai?",
+      "why_text": "Field service me apni gaadi aur licence maanga jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "service_vehicle_licence",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "own_two_wheeler",
+          "label_text": "Apni two-wheeler hai",
+          "value_text": "own_two_wheeler"
+        },
+        {
+          "option_key": "two_wheeler_licence",
+          "label_text": "Two-wheeler ka licence hai",
+          "value_text": "two_wheeler_licence"
+        },
+        {
+          "option_key": "lmv_licence",
+          "label_text": "Car ka licence, LMV hai",
+          "value_text": "lmv_licence"
+        },
+        {
+          "option_key": "passport",
+          "label_text": "Passport hai",
+          "value_text": "passport"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "service_call_closing",
+      "min_tier": "hard",
+      "prompt_text": "Call ke baad kaunsa kaam aap khud karte hain?",
+      "why_text": "Report aur record ka kaam service engineer ki aadhi naukri hai.",
+      "target_kind": "attribute",
+      "target_field": "service_call_closing",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "service_report",
+          "label_text": "Service report banakar customer se sign lena",
+          "value_text": "service_report"
+        },
+        {
+          "option_key": "crm_entry",
+          "label_text": "CRM ya app me call close karna",
+          "value_text": "crm_entry"
+        },
+        {
+          "option_key": "spare_quotation",
+          "label_text": "Spare ki requirement ya quotation bhejna",
+          "value_text": "spare_quotation"
+        },
+        {
+          "option_key": "warranty_claim",
+          "label_text": "Warranty claim aur failed part wapas bhejna",
+          "value_text": "warranty_claim"
+        },
+        {
+          "option_key": "expense_statement",
+          "label_text": "Tour expense ka statement",
+          "value_text": "expense_statement"
+        },
+        {
+          "option_key": "failure_report",
+          "label_text": "Failure report factory ko bhejna",
+          "value_text": "failure_report"
+        }
+      ]
+    },
+    {
+      "question_key": "service_installation_scope",
+      "min_tier": "hard",
+      "prompt_text": "Installation aur commissioning me aap kya kya khud karte hain?",
+      "why_text": "Akele installation karne wale engineer ki maang zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "service_installation_scope",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "foundation_check",
+          "label_text": "Foundation aur layout check",
+          "value_text": "foundation_check"
+        },
+        {
+          "option_key": "machine_positioning",
+          "label_text": "Unloading aur machine position karwana",
+          "value_text": "machine_positioning"
+        },
+        {
+          "option_key": "levelling_alignment",
+          "label_text": "Levelling aur alignment",
+          "value_text": "levelling_alignment"
+        },
+        {
+          "option_key": "utility_connection",
+          "label_text": "Electrical aur utility connection check",
+          "value_text": "utility_connection"
+        },
+        {
+          "option_key": "trial_run",
+          "label_text": "Trial run aur parameter setting",
+          "value_text": "trial_run"
+        },
+        {
+          "option_key": "job_prove_out",
+          "label_text": "Customer ke job ka trial, prove-out",
+          "value_text": "job_prove_out"
+        },
+        {
+          "option_key": "handover_training",
+          "label_text": "Handover report aur training",
+          "value_text": "handover_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "service_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "service_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "service_machine_tool_work",
+      "min_tier": "hard",
+      "prompt_text": "CNC machine tool me inme se kaunsa kaam aapne khud kiya hai?",
+      "why_text": "Ye kaam jaanne wale machine tool service engineer kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "service_machine_tool_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "geometry_alignment",
+          "label_text": "Geometry aur alignment check",
+          "value_text": "geometry_alignment"
+        },
+        {
+          "option_key": "spindle_work",
+          "label_text": "Spindle badalna ya repair",
+          "value_text": "spindle_work"
+        },
+        {
+          "option_key": "ballscrew_lm_guide",
+          "label_text": "Ball screw aur LM guide badalna",
+          "value_text": "ballscrew_lm_guide"
+        },
+        {
+          "option_key": "backlash_compensation",
+          "label_text": "Backlash aur pitch error compensation",
+          "value_text": "backlash_compensation"
+        },
+        {
+          "option_key": "laser_ballbar",
+          "label_text": "Laser calibration ya ballbar test",
+          "value_text": "laser_ballbar"
+        },
+        {
+          "option_key": "atc_turret",
+          "label_text": "ATC ya turret setting",
+          "value_text": "atc_turret"
+        },
+        {
+          "option_key": "parameter_pmc",
+          "label_text": "Parameter aur PMC ladder dekhna",
+          "value_text": "parameter_pmc"
+        },
+        {
+          "option_key": "drive_replacement",
+          "label_text": "Servo ya spindle drive badalna",
+          "value_text": "drive_replacement"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Machine tool par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "service_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "service_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapke customer kis industry ke hote hain?",
+      "why_text": "Customer ki industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die aur mould, tool room",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "plastics_packaging",
+          "label_text": "Plastic ya packaging",
+          "value_text": "plastics_packaging"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG ya food",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "hospital_lab",
+          "label_text": "Hospital ya lab",
+          "value_text": "hospital_lab"
+        },
+        {
+          "option_key": "construction",
+          "label_text": "Construction ya infrastructure site",
+          "value_text": "construction"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "service_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "service_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse mushkil fault aap site par akele sudhaar lete hain?",
+      "why_text": "Mushkil fault akele sudhaarne wale engineer ko senior maana jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "repeat_breakdown",
+          "label_text": "Baar baar aane wala breakdown",
+          "value_text": "repeat_breakdown"
+        },
+        {
+          "option_key": "drive_fault",
+          "label_text": "Electrical ya drive fault",
+          "value_text": "drive_fault"
+        },
+        {
+          "option_key": "controller_alarm",
+          "label_text": "PLC ya controller alarm",
+          "value_text": "controller_alarm"
+        },
+        {
+          "option_key": "hydraulic_fault",
+          "label_text": "Hydraulic pressure ya leakage",
+          "value_text": "hydraulic_fault"
+        },
+        {
+          "option_key": "accuracy_complaint",
+          "label_text": "Accuracy ya geometry ki shikayat",
+          "value_text": "accuracy_complaint"
+        },
+        {
+          "option_key": "vibration_noise",
+          "label_text": "Vibration ya noise",
+          "value_text": "vibration_noise"
+        },
+        {
+          "option_key": "overheating_trip",
+          "label_text": "Overheating ya trip",
+          "value_text": "overheating_trip"
+        },
+        {
+          "option_key": "backup_restore",
+          "label_text": "Software aur parameter ka backup restore",
+          "value_text": "backup_restore"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "service_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "service_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "service_customer_business",
+      "min_tier": "hard",
+      "prompt_text": "Customer aur business ka kaunsa kaam aap sambhalte hain?",
+      "why_text": "Customer aur business sambhalne wale ko lead ya manager banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "service_customer_business",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "escalation_handling",
+          "label_text": "Naraaz customer aur escalation sambhalna",
+          "value_text": "escalation_handling"
+        },
+        {
+          "option_key": "amc_sales",
+          "label_text": "AMC bechna aur renew karwana",
+          "value_text": "amc_sales"
+        },
+        {
+          "option_key": "spares_target",
+          "label_text": "Spares ka target",
+          "value_text": "spares_target"
+        },
+        {
+          "option_key": "payment_collection",
+          "label_text": "Payment collection",
+          "value_text": "payment_collection"
+        },
+        {
+          "option_key": "call_planning",
+          "label_text": "Engineer ka call aur tour plan banana",
+          "value_text": "call_planning"
+        },
+        {
+          "option_key": "junior_training",
+          "label_text": "Junior engineer ko training",
+          "value_text": "junior_training"
+        },
+        {
+          "option_key": "service_mis",
+          "label_text": "Service MIS, response time aur MTTR",
+          "value_text": "service_mis"
+        },
+        {
+          "option_key": "dealer_support",
+          "label_text": "Dealer ya channel partner ko support",
+          "value_text": "dealer_support"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "service_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "service_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "service_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch se hai?",
+      "why_text": "Branch ke hisaab se mechanical ya electrical service ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "service_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "mechatronics_instrumentation",
+          "label_text": "Mechatronics ya Instrumentation",
+          "value_text": "mechatronics_instrumentation"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "service_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke saath machine ka kaunsa kaam dekha hai?",
+      "why_text": "Training me dekha hua kaam bhi employer ginte hain.",
+      "target_kind": "attribute",
+      "target_field": "service_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "service_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "service_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

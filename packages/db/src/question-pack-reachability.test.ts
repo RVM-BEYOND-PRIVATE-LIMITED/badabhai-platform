@@ -5420,3 +5420,189 @@ describe("Left-out guards — pack 10.2 (#3027)", () => {
     expect(familyFor("plant head"), "plant head").toBeNull();
   });
 });
+
+/**
+ * Wave 3 worker phrases (#3017) — every loaded phrase reaches its trade.
+ *
+ * Digits are LOADABLE (#2995 point 2): T51 "b2b sales" and T60 "e3d", "sp3d",
+ * "smart plant 3d", "plant 3d" are rows, test-and-hold 0 moves. Shorts "cae",
+ * "fea", "cfd", "nvh" the same way. All proved 0 moves across the corpus and are
+ * loaded. "installation engineer" + Devanagari twin and "commissioning engineer" +
+ * Devanagari twin are on NEITHER T44 nor T50 (routing #3015 owns them).
+ * "store helper" leaves jd_nco_5223_0105 (which keeps "Trainee Associate") for T53.
+ */
+describe("Wave 3 worker phrases (#3017) — every loaded phrase reaches its trade", () => {
+  it("T44 Service Engineer — loaded phrases reach fam_service_engineer", () => {
+    const routing = Object.fromEntries(
+      [
+        "service engineer",
+        "field service engineer",
+        "service technician",
+        "machine service",
+        "amc engineer",
+        "breakdown call",
+        "cnc service engineer",
+        "customer support engineer",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "service engineer": "fam_service_engineer",
+      "field service engineer": "fam_service_engineer",
+      "service technician": "fam_service_engineer",
+      "machine service": "fam_service_engineer",
+      "amc engineer": "fam_service_engineer",
+      "breakdown call": "fam_service_engineer",
+      "cnc service engineer": "fam_service_engineer",
+      "customer support engineer": "fam_service_engineer",
+    });
+  });
+
+  it("T49 Safety / EHS — loaded phrases reach fam_safety_ehs", () => {
+    const routing = Object.fromEntries(
+      [
+        "safety officer",
+        "safety supervisor",
+        "ehs officer",
+        "hse officer",
+        "fire and safety",
+        "industrial safety",
+        "nebosh",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "safety officer": "fam_safety_ehs",
+      "safety supervisor": "fam_safety_ehs",
+      "ehs officer": "fam_safety_ehs",
+      "hse officer": "fam_safety_ehs",
+      "fire and safety": "fam_safety_ehs",
+      "industrial safety": "fam_safety_ehs",
+      "nebosh": "fam_safety_ehs",
+    });
+  });
+
+  it("T50 Project / Site — loaded phrases reach fam_project_site", () => {
+    const routing = Object.fromEntries(
+      [
+        "site engineer",
+        "project engineer",
+        "project site engineer",
+        "erection engineer",
+        "site incharge",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "site engineer": "fam_project_site",
+      "project engineer": "fam_project_site",
+      "project site engineer": "fam_project_site",
+      "erection engineer": "fam_project_site",
+      "site incharge": "fam_project_site",
+    });
+  });
+
+  it("T51 Technical Sales — loaded phrases reach fam_technical_sales (incl digit b2b sales, 0 moves)", () => {
+    const routing = Object.fromEntries(
+      [
+        "sales engineer",
+        "technical sales engineer",
+        "application engineer",
+        "b2b sales",
+        "industrial sales",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "sales engineer": "fam_technical_sales",
+      "technical sales engineer": "fam_technical_sales",
+      "application engineer": "fam_technical_sales",
+      "b2b sales": "fam_technical_sales",
+      "industrial sales": "fam_technical_sales",
+    });
+  });
+
+  it("T53 Stores — loaded phrases reach fam_stores (incl store helper move)", () => {
+    const routing = Object.fromEntries(
+      [
+        "store keeper",
+        "store helper",
+        "godown keeper",
+        "inventory executive",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "store keeper": "fam_stores",
+      "store helper": "fam_stores",
+      "godown keeper": "fam_stores",
+      "inventory executive": "fam_stores",
+    });
+    // The move leaves 5223_0105 with its published title.
+    expect(aliases.get("store helper")).toBe("jd_nco_4321_0100");
+  });
+
+  it("T55 Dispatch — loaded phrases reach fam_dispatch_logistics", () => {
+    const routing = Object.fromEntries(
+      [
+        "dispatch executive",
+        "logistics executive",
+        "warehouse incharge",
+        "export documentation",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "dispatch executive": "fam_dispatch_logistics",
+      "logistics executive": "fam_dispatch_logistics",
+      "warehouse incharge": "fam_dispatch_logistics",
+      "export documentation": "fam_dispatch_logistics",
+    });
+  });
+
+  it("T59 CAE / FEA — loaded phrases reach fam_cae_fea (incl shorts cae/fea/cfd/nvh, 0 moves)", () => {
+    const routing = Object.fromEntries(
+      ["cae", "fea", "cfd", "nvh", "ansys", "hypermesh"].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      cae: "fam_cae_fea",
+      fea: "fam_cae_fea",
+      cfd: "fam_cae_fea",
+      nvh: "fam_cae_fea",
+      ansys: "fam_cae_fea",
+      hypermesh: "fam_cae_fea",
+    });
+  });
+
+  it("T60 Piping — loaded phrases reach fam_piping_design (incl digits e3d/sp3d/smart plant 3d/plant 3d, 0 moves)", () => {
+    const routing = Object.fromEntries(
+      ["piping designer", "pdms", "e3d", "sp3d", "smart plant 3d", "plant 3d"].map((p) => [
+        p,
+        familyFor(p),
+      ]),
+    );
+    expect(routing).toEqual({
+      "piping designer": "fam_piping_design",
+      pdms: "fam_piping_design",
+      e3d: "fam_piping_design",
+      sp3d: "fam_piping_design",
+      "smart plant 3d": "fam_piping_design",
+      "plant 3d": "fam_piping_design",
+    });
+  });
+
+  it("installation / commissioning engineers are on NEITHER T44 nor T50 (routing #3015 owns them)", () => {
+    for (const p of [
+      "installation engineer",
+      "commissioning engineer",
+      "इंस्टॉलेशन इंजीनियर",
+      "कमीशनिंग इंजीनियर",
+    ]) {
+      expect(familyFor(p), p).not.toBe("fam_service_engineer");
+      expect(familyFor(p), p).not.toBe("fam_project_site");
+    }
+  });
+
+  it("T49 Safety has no related trade (statutory role, empty relation list)", () => {
+    // Pinned here for the wave that completes the catalogue; the pair table itself
+    // is pinned in taxonomy (match-skills.test.ts expects [] for mskill_safety_officer).
+    // Reachability proves the routing half: safety phrases reach only fam_safety_ehs.
+    expect(familyFor("safety officer")).toBe("fam_safety_ehs");
+    expect(familyFor("ehs officer")).toBe("fam_safety_ehs");
+  });
+});
+

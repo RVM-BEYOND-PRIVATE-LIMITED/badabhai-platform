@@ -1,0 +1,1294 @@
+{
+  "_why": "Role track for CAE / FEA Analyst (T59), new trade (CEO pack v2). fam_cae_fea binds NCO 2152.0301, 2512.0207 and 2512.0601.",
+  "_scope": "Design desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T59 (CAE / FEA Analyst). Status: NEW",
+  "pack_id": "qp_cae_fea",
+  "version": 1,
+  "family_id": "fam_cae_fea",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T59): new trade. Gated on the multi-select cae_domain, which the engine reads as any-overlap.",
+  "items": [
+    {
+      "question_key": "cae_experience",
+      "min_tier": "easy",
+      "prompt_text": "CAE ya FEA ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal CAE ya FEA ka kaam kiya hai?"
+    },
+    {
+      "question_key": "cae_level",
+      "min_tier": "easy",
+      "prompt_text": "CAE team me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Analyst / CAE Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Analyst",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Project Lead",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / CAE Head",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "CAE team me trainee, analyst ya senior analyst hain?"
+    },
+    {
+      "question_key": "cae_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Load case, boundary condition aur result report aap akele nikaal lete ho?",
+      "why_text": "Akele poora analysis nikaalne wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele nikaal leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior set karke deta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cae_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cae_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer ko result aur design sujhav aap khud present karte ho?",
+      "why_text": "Customer ke saamne result rakhne wale lead ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud present karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, lead ya manager karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cae_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cae_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne analyst aapke under hain aur kaunse project aap sambhalte hain?",
+      "why_text": "Team sambhalne wale CAE head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cae_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cae_domain",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa analysis karte hain?",
+      "why_text": "Analysis ki line ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_domain",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "linear_static",
+          "label_text": "Linear static / strength",
+          "value_text": "linear_static"
+        },
+        {
+          "option_key": "modal",
+          "label_text": "Modal / frequency",
+          "value_text": "modal"
+        },
+        {
+          "option_key": "non_linear",
+          "label_text": "Non-linear, contact aur material",
+          "value_text": "non_linear"
+        },
+        {
+          "option_key": "fatigue",
+          "label_text": "Durability / fatigue",
+          "value_text": "fatigue"
+        },
+        {
+          "option_key": "crash",
+          "label_text": "Crash / safety",
+          "value_text": "crash"
+        },
+        {
+          "option_key": "nvh",
+          "label_text": "NVH",
+          "value_text": "nvh"
+        },
+        {
+          "option_key": "thermal",
+          "label_text": "Thermal",
+          "value_text": "thermal"
+        },
+        {
+          "option_key": "cfd",
+          "label_text": "CFD",
+          "value_text": "cfd"
+        },
+        {
+          "option_key": "process_simulation",
+          "label_text": "Moulding, casting ya forming simulation",
+          "value_text": "process_simulation"
+        }
+      ]
+    },
+    {
+      "question_key": "cae_solver",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsa solver aapne chalaya hai?",
+      "why_text": "Solver jaanne wale analyst ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_solver",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ansys",
+          "label_text": "ANSYS Mechanical",
+          "value_text": "ansys"
+        },
+        {
+          "option_key": "abaqus",
+          "label_text": "Abaqus",
+          "value_text": "abaqus"
+        },
+        {
+          "option_key": "nastran",
+          "label_text": "Nastran",
+          "value_text": "nastran"
+        },
+        {
+          "option_key": "optistruct",
+          "label_text": "OptiStruct",
+          "value_text": "optistruct"
+        },
+        {
+          "option_key": "ls_dyna",
+          "label_text": "LS-DYNA",
+          "value_text": "ls_dyna"
+        },
+        {
+          "option_key": "radioss",
+          "label_text": "Radioss",
+          "value_text": "radioss"
+        },
+        {
+          "option_key": "fluent",
+          "label_text": "ANSYS Fluent",
+          "value_text": "fluent"
+        },
+        {
+          "option_key": "star_ccm",
+          "label_text": "Star-CCM+",
+          "value_text": "star_ccm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur solver",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cae_preprocessor",
+      "min_tier": "medium",
+      "prompt_text": "Meshing aur pre-processing ke liye kaunsa software chalate hain?",
+      "why_text": "Meshing software ke hisaab se sahi project dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_preprocessor",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hypermesh",
+          "label_text": "HyperMesh",
+          "value_text": "hypermesh"
+        },
+        {
+          "option_key": "ansa",
+          "label_text": "ANSA",
+          "value_text": "ansa"
+        },
+        {
+          "option_key": "ansys_workbench",
+          "label_text": "ANSYS Workbench",
+          "value_text": "ansys_workbench"
+        },
+        {
+          "option_key": "abaqus_cae",
+          "label_text": "Abaqus CAE",
+          "value_text": "abaqus_cae"
+        },
+        {
+          "option_key": "simlab",
+          "label_text": "SimLab",
+          "value_text": "simlab"
+        },
+        {
+          "option_key": "patran",
+          "label_text": "Patran",
+          "value_text": "patran"
+        },
+        {
+          "option_key": "ls_prepost",
+          "label_text": "LS-PrePost",
+          "value_text": "ls_prepost"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cae_work_stage",
+      "min_tier": "medium",
+      "prompt_text": "Analysis ka kaunsa hissa aap khud karte hain?",
+      "why_text": "Isse pata chalta hai aap sirf meshing karte hain ya poora analysis.",
+      "target_kind": "attribute",
+      "target_field": "cae_work_stage",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "geometry_cleanup",
+          "label_text": "Geometry clean-up aur mid-surface",
+          "value_text": "geometry_cleanup"
+        },
+        {
+          "option_key": "meshing",
+          "label_text": "Meshing, shell, tetra ya hexa",
+          "value_text": "meshing"
+        },
+        {
+          "option_key": "connections",
+          "label_text": "Weld, bolt aur adhesive connection",
+          "value_text": "connections"
+        },
+        {
+          "option_key": "deck_setup",
+          "label_text": "Material, property, load aur BC dena",
+          "value_text": "deck_setup"
+        },
+        {
+          "option_key": "solver_run",
+          "label_text": "Solver run aur error debugging",
+          "value_text": "solver_run"
+        },
+        {
+          "option_key": "post_processing",
+          "label_text": "Post-processing aur report",
+          "value_text": "post_processing"
+        },
+        {
+          "option_key": "test_correlation",
+          "label_text": "Test se correlation",
+          "value_text": "test_correlation"
+        },
+        {
+          "option_key": "design_recommendation",
+          "label_text": "Design team ko sujhav dena",
+          "value_text": "design_recommendation"
+        }
+      ]
+    },
+    {
+      "question_key": "cae_process_sim_software",
+      "min_tier": "hard",
+      "prompt_text": "Moulding, casting ya forming ke liye kaunsa simulation software chalaya hai?",
+      "why_text": "Process simulation ka software tool room aur foundry alag se dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_process_sim_software",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "moldflow",
+          "label_text": "Moldflow",
+          "value_text": "moldflow"
+        },
+        {
+          "option_key": "moldex",
+          "label_text": "Moldex3D",
+          "value_text": "moldex"
+        },
+        {
+          "option_key": "magma",
+          "label_text": "MAGMASOFT",
+          "value_text": "magma"
+        },
+        {
+          "option_key": "procast",
+          "label_text": "ProCAST",
+          "value_text": "procast"
+        },
+        {
+          "option_key": "autoform",
+          "label_text": "AutoForm",
+          "value_text": "autoform"
+        },
+        {
+          "option_key": "pam_stamp",
+          "label_text": "PAM-STAMP",
+          "value_text": "pam_stamp"
+        },
+        {
+          "option_key": "deform",
+          "label_text": "DEFORM",
+          "value_text": "deform"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cae_domain"
+        },
+        "right": {
+          "const": [
+            "process_simulation"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cae_employer_type",
+      "min_tier": "hard",
+      "prompt_text": "Aapne kis tarah ki company me kaam kiya hai?",
+      "why_text": "Company ke type se kaam ka tareeka samajh aata hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_employer_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oem",
+          "label_text": "Auto OEM",
+          "value_text": "oem"
+        },
+        {
+          "option_key": "tier_one",
+          "label_text": "Tier-1 supplier",
+          "value_text": "tier_one"
+        },
+        {
+          "option_key": "engg_services",
+          "label_text": "Engineering services company, client project",
+          "value_text": "engg_services"
+        },
+        {
+          "option_key": "rnd_centre",
+          "label_text": "R&D centre ya global tech centre",
+          "value_text": "rnd_centre"
+        },
+        {
+          "option_key": "consulting",
+          "label_text": "CAE consulting ya software reseller",
+          "value_text": "consulting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cae_component",
+      "min_tier": "hard",
+      "prompt_text": "Kis part ya system ka analysis kiya hai?",
+      "why_text": "Part ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_component",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "biw",
+          "label_text": "BIW ya body structure",
+          "value_text": "biw"
+        },
+        {
+          "option_key": "chassis_suspension",
+          "label_text": "Chassis, frame aur suspension",
+          "value_text": "chassis_suspension"
+        },
+        {
+          "option_key": "powertrain",
+          "label_text": "Powertrain, engine ya gearbox",
+          "value_text": "powertrain"
+        },
+        {
+          "option_key": "interior_exterior",
+          "label_text": "Seat, trim aur bumper",
+          "value_text": "interior_exterior"
+        },
+        {
+          "option_key": "brackets_castings",
+          "label_text": "Casting, bracket aur machined part",
+          "value_text": "brackets_castings"
+        },
+        {
+          "option_key": "pressure_vessel",
+          "label_text": "Pressure vessel, heat exchanger ya piping",
+          "value_text": "pressure_vessel"
+        },
+        {
+          "option_key": "fabricated_structure",
+          "label_text": "Fabricated structure ya machine frame",
+          "value_text": "fabricated_structure"
+        },
+        {
+          "option_key": "ev_battery",
+          "label_text": "EV battery pack",
+          "value_text": "ev_battery"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke project par kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive, car ya commercial vehicle",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Aerospace ya defence",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Construction aur off-highway equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agri equipment",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil, gas aur process equipment",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_model_checks",
+      "min_tier": "hard",
+      "prompt_text": "Model banate waqt aap kaunse kaam khud karte hain?",
+      "why_text": "Model ki quality se result ka bharosa banta hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_model_checks",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "quality_criteria",
+          "label_text": "Element quality criteria check",
+          "value_text": "quality_criteria"
+        },
+        {
+          "option_key": "customer_guideline",
+          "label_text": "Customer ki meshing guideline follow karna",
+          "value_text": "customer_guideline"
+        },
+        {
+          "option_key": "weld_bolt_modelling",
+          "label_text": "Seam weld, spot weld aur bolt modelling",
+          "value_text": "weld_bolt_modelling"
+        },
+        {
+          "option_key": "midsurface",
+          "label_text": "Mid-surface aur thickness assignment",
+          "value_text": "midsurface"
+        },
+        {
+          "option_key": "hexa_mesh",
+          "label_text": "Hexa meshing",
+          "value_text": "hexa_mesh"
+        },
+        {
+          "option_key": "contacts",
+          "label_text": "Contact definition",
+          "value_text": "contacts"
+        },
+        {
+          "option_key": "penetration_check",
+          "label_text": "Penetration aur intersection check",
+          "value_text": "penetration_check"
+        },
+        {
+          "option_key": "model_assembly",
+          "label_text": "Full assembly, mass aur CG milana",
+          "value_text": "model_assembly"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_standards",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse standard ya regulation ke hisaab se analysis kiya hai?",
+      "why_text": "Regulation jaanne wale analyst ko OEM ke project milte hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_standards",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ais",
+          "label_text": "AIS / CMVR",
+          "value_text": "ais"
+        },
+        {
+          "option_key": "ece",
+          "label_text": "ECE regulation",
+          "value_text": "ece"
+        },
+        {
+          "option_key": "fmvss",
+          "label_text": "FMVSS",
+          "value_text": "fmvss"
+        },
+        {
+          "option_key": "ncap",
+          "label_text": "NCAP, Bharat ya Global",
+          "value_text": "ncap"
+        },
+        {
+          "option_key": "asme",
+          "label_text": "ASME pressure vessel code",
+          "value_text": "asme"
+        },
+        {
+          "option_key": "oem_dvp",
+          "label_text": "Customer ka DVP ya test standard",
+          "value_text": "oem_dvp"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_scripting",
+      "min_tier": "hard",
+      "prompt_text": "Automation ke liye kaunsi scripting aap karte hain?",
+      "why_text": "Scripting jaanne wale analyst ka kaam tez hota hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_scripting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tcl",
+          "label_text": "Tcl / Tk, HyperMesh ke liye",
+          "value_text": "tcl"
+        },
+        {
+          "option_key": "python",
+          "label_text": "Python",
+          "value_text": "python"
+        },
+        {
+          "option_key": "apdl",
+          "label_text": "APDL",
+          "value_text": "apdl"
+        },
+        {
+          "option_key": "matlab",
+          "label_text": "MATLAB",
+          "value_text": "matlab"
+        },
+        {
+          "option_key": "vba",
+          "label_text": "Excel macro / VBA",
+          "value_text": "vba"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_test_correlation",
+      "min_tier": "hard",
+      "prompt_text": "Test aur validation ke saath aap kya kaam karte hain?",
+      "why_text": "Test se result milane wale analyst par employer zyada bharosa karte hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_test_correlation",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "correlation",
+          "label_text": "Test data se correlation",
+          "value_text": "correlation"
+        },
+        {
+          "option_key": "sensor_location",
+          "label_text": "Strain gauge ya accelerometer ki location dena",
+          "value_text": "sensor_location"
+        },
+        {
+          "option_key": "test_witness",
+          "label_text": "Test lab me jaakar test dekhna",
+          "value_text": "test_witness"
+        },
+        {
+          "option_key": "failure_rca",
+          "label_text": "Failure ka root cause analysis",
+          "value_text": "failure_rca"
+        },
+        {
+          "option_key": "load_case_definition",
+          "label_text": "DVP ke hisaab se load case tay karna",
+          "value_text": "load_case_definition"
+        },
+        {
+          "option_key": "material_card",
+          "label_text": "Material card banana",
+          "value_text": "material_card"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_optimisation",
+      "min_tier": "hard",
+      "prompt_text": "Design sudhaarne ke liye aapne kya kiya hai?",
+      "why_text": "Design sudhaar dene wale analyst ko lead ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_optimisation",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "topology",
+          "label_text": "Topology optimisation",
+          "value_text": "topology"
+        },
+        {
+          "option_key": "size_optimisation",
+          "label_text": "Gauge ya size optimisation",
+          "value_text": "size_optimisation"
+        },
+        {
+          "option_key": "weight_reduction",
+          "label_text": "Weight reduction",
+          "value_text": "weight_reduction"
+        },
+        {
+          "option_key": "morphing",
+          "label_text": "Morphing se shape change",
+          "value_text": "morphing"
+        },
+        {
+          "option_key": "doe",
+          "label_text": "DOE study",
+          "value_text": "doe"
+        },
+        {
+          "option_key": "countermeasure",
+          "label_text": "Design team ko countermeasure dena",
+          "value_text": "countermeasure"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_project_ownership",
+      "min_tier": "hard",
+      "prompt_text": "Project me aap kaunsi zimmedari sambhalte hain?",
+      "why_text": "Project sambhalne wale analyst ko lead banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cae_project_ownership",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "estimation",
+          "label_text": "Effort estimate aur project plan",
+          "value_text": "estimation"
+        },
+        {
+          "option_key": "model_review",
+          "label_text": "Junior ka model aur report check karna",
+          "value_text": "model_review"
+        },
+        {
+          "option_key": "customer_call",
+          "label_text": "Customer se technical call",
+          "value_text": "customer_call"
+        },
+        {
+          "option_key": "method_development",
+          "label_text": "CAE method ya guideline banana",
+          "value_text": "method_development"
+        },
+        {
+          "option_key": "training",
+          "label_text": "Naye analyst ko training dena",
+          "value_text": "training"
+        },
+        {
+          "option_key": "onsite",
+          "label_text": "Client ke yahan onsite deputation",
+          "value_text": "onsite"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cae_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cae_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cae_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch se hai?",
+      "why_text": "CAE ke kaam me employer branch aur degree zaroor dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "mtech",
+          "label_text": "M.Tech / ME, Design, CAD/CAM ya Thermal",
+          "value_text": "mtech"
+        },
+        {
+          "option_key": "auto_aero_engg",
+          "label_text": "Automobile ya Aerospace engineering",
+          "value_text": "auto_aero_engg"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        }
+      ]
+    },
+    {
+      "question_key": "cae_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan CAE ka kaunsa practical exposure mila hai?",
+      "why_text": "Training ka exposure bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "cae_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project, FEA ya CFD",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "mtech_thesis",
+          "label_text": "M.Tech thesis",
+          "value_text": "mtech_thesis"
+        },
+        {
+          "option_key": "cae_course",
+          "label_text": "Private institute ka HyperMesh ya ANSYS course",
+          "value_text": "cae_course"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "cae_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "cae_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

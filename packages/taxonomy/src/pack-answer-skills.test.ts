@@ -62,12 +62,14 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(bypassing).toEqual([]);
   });
 
-  it("names exactly the pack-only skills: #2022, Phase 2 trades, Wave 1-2 new and foundry-split trades", () => {
+  it("names exactly the pack-only skills: #2022, Phase 2 trades, Wave 1-3 new and foundry-split trades", () => {
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
       // #3016: the eighteen Wave 2 trades of CEO pack v2 (minted by #3001), each pack-only.
       "mskill_blow_moulding_operator",
       "mskill_boring_machine_operator",
+      // #3017: CAE / FEA (T59), pack-only.
+      "mskill_cae_analyst",
       "mskill_calibration_technician",
       // #3011: the nine new Wave 1 trades of CEO pack v2 (minted by #3001), each pack-only.
       "mskill_cmm_operator",
@@ -77,6 +79,8 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       "mskill_crane_operator",
       // #3011 (foundry split, T25): pressure and gravity die casting, pack-only.
       "mskill_die_casting_operator",
+      // #3017: dispatch / logistics (T55), pack-only.
+      "mskill_dispatch_logistics_executive",
       // Phase 2 #7: the new EDM trade's own ID.
       "mskill_edm_wirecut_operator",
       // #3016: fabrication (T22), pack-only.
@@ -107,6 +111,8 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       "mskill_ndt_technician",
       "mskill_npd_engineer",
       "mskill_painter_coater",
+      // #3017: piping designer (T60), pack-only.
+      "mskill_piping_designer",
       // #3016: plastic extrusion (T31) and plating / surface treatment (T28), pack-only.
       "mskill_plastic_extrusion_operator",
       "mskill_plating_operator",
@@ -118,15 +124,25 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       "mskill_production_engineer",
       // Phase 2 #10: the new production supervisor's own ID.
       "mskill_production_supervisor",
+      // #3017: project / site (T50), pack-only.
+      "mskill_project_site_engineer",
       "mskill_purchase_engineer",
       "mskill_quality_engineer",
       // #3011 §3: the PLC form's second-skill chip (robot programming).
       "mskill_robot_operator_programmer",
       // #3016: rubber moulding (T32), pack-only.
       "mskill_rubber_moulding_operator",
+      // #3017: safety / EHS (T49), pack-only.
+      "mskill_safety_officer",
+      // #3017: service engineer (T44), pack-only.
+      "mskill_service_engineer",
       "mskill_sheet_metal_worker",
       // #3016: SPM finishing (T20), pack-only.
       "mskill_spm_finishing_operator",
+      // #3017: store keeper (T53), pack-only.
+      "mskill_store_keeper",
+      // #3017: technical sales (T51), pack-only.
+      "mskill_technical_sales_engineer",
       "mskill_tool_die_maker",
       // #3016: tube bending (T23) and utility (T42), pack-only.
       "mskill_tube_bending_operator",
@@ -254,6 +270,15 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_utility: ["mskill_utility_operator"],
     qp_forklift: ["mskill_crane_operator", "mskill_forklift_operator"],
     qp_crane_rigging: ["mskill_crane_operator"],
+    // #3017: each new Wave 3 trade's claim question reaches its own skill and nothing else.
+    qp_service_engineer: ["mskill_service_engineer"],
+    qp_safety_ehs: ["mskill_safety_officer"],
+    qp_project_site: ["mskill_project_site_engineer"],
+    qp_technical_sales: ["mskill_technical_sales_engineer"],
+    qp_stores: ["mskill_store_keeper"],
+    qp_dispatch_logistics: ["mskill_dispatch_logistics_executive"],
+    qp_cae_fea: ["mskill_cae_analyst"],
+    qp_piping_design: ["mskill_piping_designer"],
   };
 
   it("pins every mapped pack", () => {

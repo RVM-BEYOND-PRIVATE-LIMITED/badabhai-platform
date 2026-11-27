@@ -88,6 +88,18 @@ const WAVE_2_FORMS = [
   "qp_crane_rigging",
 ];
 
+/** The 8 forms Wave 3 writes (#3017). */
+const WAVE_3_FORMS = [
+  "qp_service_engineer",
+  "qp_safety_ehs",
+  "qp_project_site",
+  "qp_technical_sales",
+  "qp_stores",
+  "qp_dispatch_logistics",
+  "qp_cae_fea",
+  "qp_piping_design",
+];
+
 function compileAll(): PackRecord[] {
   const overrides = loadSheetOverrides(OVERRIDES);
   return compileAllSheets(readFileSync(PACK, "utf8"), overrides);
@@ -299,6 +311,10 @@ describe("sheet compiler", () => {
     expect(published.has("qp_edm_wirecut@1")).toBe(true);
     expect(published.has("qp_gear_cutting@1")).toBe(true);
     expect(published.has("qp_service_engineer@1")).toBe(false);
+    // Wave 3 (#3017) is not published yet: none of its 8 forms collides.
+    for (const formId of WAVE_3_FORMS) {
+      expect(published.has(`${formId}@1`), `${formId}@1 not published`).toBe(false);
+    }
 
     const packs = compileAll();
     const t17 = packs.find((p) => p.pack_id === "qp_edm_wirecut") as PackRecord;
