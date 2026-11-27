@@ -1,5 +1,5 @@
 import type { AnswerRecord } from "@badabhai/ai-contracts";
-import type { WorkerPackAnswer } from "@badabhai/db";
+import type { NewWorkerPackAnswer } from "@badabhai/db";
 
 import { projectProfile } from "../profiling/answer-map-projector";
 
@@ -8,11 +8,14 @@ import type { WorkerAttributeValues } from "./trade-resume-map";
 /**
  * One trade section's answers, in the shape `worker_pack_answer` stores them.
  *
- * `target_field` is deliberately NOT on this row — the table never carried it — so the
- * caller resolves it from the pack's items (see below).
+ * KEYED OFF THE INSERT SHAPE, and deliberately so: both producers hand it rows — the
+ * render paths pass `listAnswers` (select) rows, the pin test passes `packAnswerRowFor`
+ * (insert) output — and the select columns are all narrower-or-equal, so one Pick covers
+ * both. A field the table never carried (`target_field`) stays absent on both, which is
+ * why the caller resolves it from the pack's items.
  */
 export type StoredSectionAnswer = Pick<
-  WorkerPackAnswer,
+  NewWorkerPackAnswer,
   | "questionKey"
   | "status"
   | "answerText"
