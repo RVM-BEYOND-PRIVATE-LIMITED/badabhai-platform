@@ -1084,6 +1084,4 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'piping_support_work': _operations,
   'piping_team_confirm': _level,
   'piping_training_exposure': _training,
-  // shared
-  'iti_project_work': _operations,
 };
