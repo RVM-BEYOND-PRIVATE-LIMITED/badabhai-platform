@@ -8,7 +8,7 @@ import 'package:payer_app/core/config/app_config.dart';
 /// release it must be a well-formed https origin or the resolver fails LOUDLY at
 /// startup (a plaintext/malformed value would fail every request or put the
 /// bearer token on the wire in the clear).
-const String _kDefault = 'https://43-204-36-199.sslip.io';
+const String _kDefault = 'https://52-66-102-53.sslip.io';
 
 void main() {
   group('resolvePayerApiBaseUrl — default backend (no override)', () {

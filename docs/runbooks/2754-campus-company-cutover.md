@@ -72,7 +72,7 @@ Every line must be true. Write down who checked it.
 
 2. **The deployed API holds imported jobs back from workers.** `--worker-hold-live` is allowed only
    when the production build contains #2903. Read `build` from
-   `https://43-204-36-199.sslip.io/health`, then run:
+   `https://52-66-102-53.sslip.io/health`, then run:
 
    ```bash
    git fetch origin && git merge-base --is-ancestor fdabdc17b4167deaaf26f3c297fb1ffba797ec78 <build sha> && echo ok

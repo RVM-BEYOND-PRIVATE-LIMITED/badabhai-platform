@@ -739,7 +739,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
-    ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],
+    ["REFERRAL_SHORT_LINK_BASE", "https://payer.52-66-102-53.sslip.io"],
   ])(
     "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
     (name, fallback) => {

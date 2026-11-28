@@ -66,7 +66,7 @@ COMMIT;
 gh secret set MANAGED_HIRING_ROLLOUT --env production --body pilot
 ```
 
-Then redeploy (re-run the latest `main` deploy). The deploy preflight refuses any value other than `off`, `pilot`, `on` or empty. Confirm `https://43-204-36-199.sslip.io/health` reports the deploy's sha.
+Then redeploy (re-run the latest `main` deploy). The deploy preflight refuses any value other than `off`, `pilot`, `on` or empty. Confirm `https://52-66-102-53.sslip.io/health` reports the deploy's sha.
 
 ## Step 4 — the pilot walk
 

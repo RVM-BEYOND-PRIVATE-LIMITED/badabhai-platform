@@ -561,7 +561,7 @@ services:
       # a host with no `/i/` route. The interim sslip host moves with the Lightsail IP (#1319).
       # TOPOLOGY, NOT A CREDENTIAL, so it is NOT bridged from a GitHub secret (the BACKEND_API_URL
       # rule): a redirect destination changes in a reviewed diff to this file, never by a setting.
-      REFERRAL_SHORT_LINK_BASE: ${REFERRAL_SHORT_LINK_BASE:-https://payer.43-204-36-199.sslip.io}
+      REFERRAL_SHORT_LINK_BASE: ${REFERRAL_SHORT_LINK_BASE:-https://payer.52-66-102-53.sslip.io}
 
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #

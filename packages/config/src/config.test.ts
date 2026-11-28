@@ -1609,12 +1609,12 @@ describe("loadServerConfig", () => {
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
     // value only so a bare local boot validates; the refinement keeps a redirect off plain http.
-    const base = "https://payer.43-204-36-199.sslip.io";
+    const base = "https://payer.52-66-102-53.sslip.io";
     expect(loadServerConfig({ REFERRAL_SHORT_LINK_BASE: base }).REFERRAL_SHORT_LINK_BASE).toBe(
       base,
     );
     expect(() =>
-      loadServerConfig({ REFERRAL_SHORT_LINK_BASE: "http://payer.43-204-36-199.sslip.io" }),
+      loadServerConfig({ REFERRAL_SHORT_LINK_BASE: "http://payer.52-66-102-53.sslip.io" }),
     ).toThrow();
   });
 });

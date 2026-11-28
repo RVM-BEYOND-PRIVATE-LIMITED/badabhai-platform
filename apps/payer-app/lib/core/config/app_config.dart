@@ -46,7 +46,7 @@ const String _kApiBaseUrl = String.fromEnvironment('API_BASE_URL');
 /// OVERRIDE this with the real production host
 /// (`--dart-define=API_BASE_URL=https://<prod-host>`) so it does not point at the
 /// staging box.
-const String _kDefaultBaseUrl = 'https://43-204-36-199.sslip.io';
+const String _kDefaultBaseUrl = 'https://52-66-102-53.sslip.io';
 
 /// Resolves the payer API base URL.
 ///

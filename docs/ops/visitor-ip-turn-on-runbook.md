@@ -25,7 +25,7 @@ exports an empty string, compose's `${TRUST_PROXY_HOP_COUNT:-0}` resolves it to 
 preflight (`scripts/deploy/staging-deploy.sh`) refuses any value except empty / `0` / `1`
 before a container moves: 2 or more would trust an entry the client wrote.
 
-Hosts below: `API` = `43-204-36-199.sslip.io`, `PAYER` = `payer.43-204-36-199.sslip.io`.
+Hosts below: `API` = `52-66-102-53.sslip.io`, `PAYER` = `payer.52-66-102-53.sslip.io`.
 
 ## Pre-checks (all read-only)
 
@@ -47,7 +47,7 @@ Hosts below: `API` = `43-204-36-199.sslip.io`, `PAYER` = `payer.43-204-36-199.ss
 
    ```bash
    # a raw TCP connect, so non-HTTP ports (postgres) are tested too; prints only what is OPEN
-   for p in 3001 3333 3003 8000 8080 5432 5433; do timeout 5 bash -c "</dev/tcp/43.204.36.199/$p" 2>/dev/null && echo "OPEN $p"; done
+   for p in 3001 3333 3003 8000 8080 5432 5433; do timeout 5 bash -c "</dev/tcp/52.66.102.53/$p" 2>/dev/null && echo "OPEN $p"; done
    ```
 
 3. **nginx matches the recorded facts** (`docs/environment-variables.md`, Reverse proxy):
@@ -71,8 +71,8 @@ Hosts below: `API` = `43-204-36-199.sslip.io`, `PAYER` = `payer.43-204-36-199.ss
 5. **DNS goes straight to the box** (a CDN would be a second hop and make 1 wrong):
 
    ```bash
-   dig +short 43-204-36-199.sslip.io; dig +short payer.43-204-36-199.sslip.io   # both 43.204.36.199
-   curl -sI https://43-204-36-199.sslip.io/health | grep -iE '^(via|cf-ray|x-cache|x-amz-cf-id):'   # nothing
+   dig +short 52-66-102-53.sslip.io; dig +short payer.52-66-102-53.sslip.io   # both 52.66.102.53
+   curl -sI https://52-66-102-53.sslip.io/health | grep -iE '^(via|cf-ray|x-cache|x-amz-cf-id):'   # nothing
    ```
 
 6. **payer-web forwards the visitor.** The payer-web change from the #2542 work is on main and
@@ -125,8 +125,8 @@ Do not follow the `/r/` redirect (`curl` without `-L`).
 ```bash
 # on the box, before each network's probes:  snap invite_click > /tmp/before.txt
 # from A:
-for i in 1 2 3; do curl -s -o /dev/null -w '%{http_code}\n' https://43-204-36-199.sslip.io/r/000000000000; done   # 302
-for i in 1 2;   do curl -s -o /dev/null -w '%{http_code}\n' https://payer.43-204-36-199.sslip.io/i/000000000000; done
+for i in 1 2 3; do curl -s -o /dev/null -w '%{http_code}\n' https://52-66-102-53.sslip.io/r/000000000000; done   # 302
+for i in 1 2;   do curl -s -o /dev/null -w '%{http_code}\n' https://payer.52-66-102-53.sslip.io/i/000000000000; done
 # on the box, after:
 snap invite_click > /tmp/after.txt
 comm -13 /tmp/before.txt /tmp/after.txt | while read -r k; do echo "$(docker exec badabhai-redis redis-cli GET "$k") $k"; done
@@ -156,8 +156,8 @@ spoofed key cannot be mistaken for a real visitor's key that reads 1.
 
 ```bash
 # on the box: snap invite_click > /tmp/before.txt
-for i in 1 2 3 4;     do curl -s -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 198.51.100.7' https://43-204-36-199.sslip.io/r/000000000000; done
-for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 198.51.100.8' https://payer.43-204-36-199.sslip.io/i/000000000000; done
+for i in 1 2 3 4;     do curl -s -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 198.51.100.7' https://52-66-102-53.sslip.io/r/000000000000; done
+for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 198.51.100.8' https://payer.52-66-102-53.sslip.io/i/000000000000; done
 # on the box: snap invite_click > /tmp/after.txt, then the same comm/GET loop as above
 ```
 
