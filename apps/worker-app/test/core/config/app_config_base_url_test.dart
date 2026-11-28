@@ -11,7 +11,7 @@ import 'package:badabhai_worker_app/core/config/app_config.dart';
 ///
 /// `isRelease` is injected because a unit test always runs in debug and
 /// `API_BASE_URL` is fixed at compile time.
-const String _kDefault = 'https://43-204-36-199.sslip.io';
+const String _kDefault = 'https://52-66-102-53.sslip.io';
 
 void main() {
   group('default backend (no override)', () {

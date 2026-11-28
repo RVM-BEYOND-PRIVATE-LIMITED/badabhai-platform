@@ -588,7 +588,7 @@ export const serverEnvSchema = z.object({
   // The origin the `/r/<code>` resolver 302s to — `<base>/i/<code>` (and `/i/<code>/desktop`),
   // i.e. the origin that SERVES payer-web's `/i/` landing page. It must equal the worker app's
   // App Link host (`android:host` in AndroidManifest.xml, `kInviteLinkBase`) and payer-web's
-  // `shortLinkOrigin()`, which today are all the interim host `https://payer.43-204-36-199.sslip.io`
+  // `shortLinkOrigin()`, which today are all the interim host `https://payer.52-66-102-53.sslip.io`
   // (#1138/#1144; the Lightsail IP is in the name, so it WILL move — #1319).
   //
   // ⚠ THE DEFAULT IS STALE. `https://app.badabhai.in` is NOT the host the manifest claims (that

@@ -46,7 +46,7 @@ const bool kEnableTestDelete =
 /// Absolute base for referral invite links (A3). The `POST /invites` response
 /// carries a SERVER-RELATIVE `link` (`/i/<code>`); the share sheet prepends this
 /// so the shared text is a tappable URL. Overridable per build:
-///   flutter run --dart-define=INVITE_LINK_BASE=https://payer.43-204-36-199.sslip.io
+///   flutter run --dart-define=INVITE_LINK_BASE=https://payer.52-66-102-53.sslip.io
 /// Trailing slash is trimmed by the caller. PII-free — the code is opaque.
 ///
 /// #1144: points at the ruled INTERIM invite origin (#1138) — the host that
@@ -55,7 +55,7 @@ const bool kEnableTestDelete =
 /// inside the hostname, so this WILL move — keep it one easy-to-change constant.
 const String kInviteLinkBase = String.fromEnvironment(
   'INVITE_LINK_BASE',
-  defaultValue: 'https://payer.43-204-36-199.sslip.io',
+  defaultValue: 'https://payer.52-66-102-53.sslip.io',
 );
 
 /// The build-time API base URL OVERRIDE. Supply it to point a build at a
@@ -74,7 +74,7 @@ const String _kApiBaseUrl = String.fromEnvironment('API_BASE_URL');
 /// OVERRIDE this with the real production host
 /// (`--dart-define=API_BASE_URL=https://<prod-host>`) so the store app does not
 /// point at the staging box.
-const String _kDefaultBaseUrl = 'https://43-204-36-199.sslip.io';
+const String _kDefaultBaseUrl = 'https://52-66-102-53.sslip.io';
 
 /// Resolves the API base URL.
 ///

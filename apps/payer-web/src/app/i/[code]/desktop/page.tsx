@@ -4,7 +4,7 @@ import { inviteLandingUrl } from "../../../../lib/invite-landing";
 import { InviteQr } from "./invite-qr";
 
 /**
- * DESKTOP referral landing page — `https://payer.43-204-36-199.sslip.io/i/<code>/desktop` (B4).
+ * DESKTOP referral landing page — `https://payer.52-66-102-53.sslip.io/i/<code>/desktop` (B4).
  *
  * WHERE IT COMES FROM. A DESKTOP browser is sent here instead of to the mobile page, because
  * the mobile page's only real action is "install from the Play Store", which is useless on a
